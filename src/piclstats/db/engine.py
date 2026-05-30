@@ -10,7 +10,15 @@ from piclstats.config import settings
 
 @lru_cache(maxsize=1)
 def get_engine() -> Engine:
-    return create_engine(settings.database_url, echo=False)
+    # pool_pre_ping guards against stale connections after the app machine
+    # auto-stops (min_machines_running=0) and the Fly Postgres link over
+    # .flycast drops idle conns; pool_recycle caps connection age.
+    return create_engine(
+        settings.database_url,
+        echo=False,
+        pool_pre_ping=True,
+        pool_recycle=300,
+    )
 
 
 def get_session() -> Session:

@@ -26,8 +26,11 @@ events = Table(
     Column("season", SmallInteger, nullable=False),
     Column("event_name", Text, nullable=False),
     Column("event_order", SmallInteger),
+    # 'points' (counts toward standings) | 'rally' | 'exhibition' (do not)
+    Column("event_type", Text, nullable=False, server_default="points"),
     Column("scraped_at", DateTime(timezone=True), server_default=func.now()),
     Index("idx_events_season", "season"),
+    Index("idx_events_event_type", "event_type"),
 )
 
 riders = Table(

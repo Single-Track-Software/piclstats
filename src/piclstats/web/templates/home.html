@@ -107,7 +107,7 @@
                 <tr class="hover:bg-gray-50">
                     <td class="py-2 text-gray-400">{{ loop.index }}</td>
                     <td class="py-2">
-                        <a href="/team/{{ t.team }}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
+                        <a href="/team/{{ t.team | urlencode }}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
                     </td>
                     <td class="py-2 text-right text-gray-500">{{ t.riders }}</td>
                     <td class="py-2 text-right font-mono font-medium">{{ t.avg_points }}</td>

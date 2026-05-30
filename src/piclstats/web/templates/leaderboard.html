@@ -82,7 +82,7 @@
             <tr class="hover:bg-picl-50 transition-colors">
                 <td class="px-4 py-3 text-gray-400 font-mono">{{ loop.index }}</td>
                 <td class="px-4 py-3">
-                    <a href="/team/{{ t.team }}{% if season %}?season={{ season }}{% endif %}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
+                    <a href="/team/{{ t.team | urlencode }}{% if season %}?season={{ season }}{% endif %}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
                 </td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.riders }}</td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.races }}</td>
@@ -118,7 +118,7 @@
                     <a href="/rider/{{ r.rider_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
                 </td>
                 <td class="px-4 py-3 text-gray-600 text-xs">
-                    {% if r.team %}<a href="/team/{{ r.team }}" class="hover:underline">{{ r.team }}</a>{% endif %}
+                    {% for tm in (r.team or '').split(' / ') if tm %}<a href="/team/{{ tm | urlencode }}" class="hover:underline">{{ tm }}</a>{% if not loop.last %} / {% endif %}{% endfor %}
                 </td>
                 <td class="px-4 py-3 text-gray-500 text-xs">{{ r.division or '' }} {{ r.gender or '' }}</td>
                 <td class="px-4 py-3 text-right font-mono">{{ r.races }}</td>

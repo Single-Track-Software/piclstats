@@ -8,19 +8,19 @@
         <div>
             <h1 class="text-3xl font-bold text-gray-900">{{ team_name }}</h1>
             <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <a href="/team/{{ team_name }}" class="px-3 py-1 rounded-full text-xs font-medium
+                <a href="/team/{{ team_name | urlencode }}" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if not season else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                     All Seasons
                 </a>
                 {% for s in seasons_available %}
-                <a href="/team/{{ team_name }}?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium
+                <a href="/team/{{ team_name | urlencode }}?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                     {{ s }}
                 </a>
                 {% endfor %}
             </div>
         </div>
-        <a href="/teams?q={{ team_name }}" class="text-sm text-gray-400 hover:text-gray-600">&larr; Back</a>
+        <a href="/teams?q={{ team_name | urlencode }}" class="text-sm text-gray-400 hover:text-gray-600">&larr; Back</a>
     </div>
 </div>
 

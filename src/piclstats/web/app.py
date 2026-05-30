@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from urllib.parse import quote_plus
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse

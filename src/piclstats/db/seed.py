@@ -187,6 +187,26 @@ def seed_division_laps(session: Session, course_ids: dict[str, int]) -> int:
     return count
 
 
+def classify_event_types(session: Session) -> int:
+    """Classify events as 'rally'/'exhibition' (non-scoring) by name pattern.
+
+    Rallies and exhibition/short-track events do not count toward standings.
+    Idempotent: re-derives event_type for every event from its name, so newly
+    scraped events get classified on the next seed (like course mapping).
+    """
+    result = session.execute(text("""
+        UPDATE events SET event_type =
+            CASE
+                WHEN event_name ILIKE '%exhibition%'
+                  OR event_name ILIKE '%short track%' THEN 'exhibition'
+                WHEN event_name ILIKE '%rally%'        THEN 'rally'
+                ELSE 'points'
+            END
+    """))
+    logger.info("Classified event types for %d events", result.rowcount)
+    return result.rowcount
+
+
 def seed_conferences(session: Session) -> int:
     """Derive team→conference mapping from results data."""
     count = 0
@@ -227,6 +247,7 @@ def seed_all(session: Session) -> None:
     map_events_to_courses(session, course_ids)
     seed_course_loops(session, course_ids)
     seed_division_laps(session, course_ids)
+    classify_event_types(session)
     seed_conferences(session)
     session.commit()
     logger.info("Seed complete")

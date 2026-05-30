@@ -46,7 +46,7 @@
             {% for t in results %}
             <tr class="hover:bg-picl-50 transition-colors">
                 <td class="px-6 py-3">
-                    <a href="/team/{{ t.team }}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
+                    <a href="/team/{{ t.team | urlencode }}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
                 </td>
                 <td class="px-6 py-3 text-right font-mono">{{ t.rider_count }}</td>
                 <td class="px-6 py-3 text-right font-mono">{{ t.race_count }}</td>

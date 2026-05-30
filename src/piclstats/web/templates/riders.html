@@ -62,7 +62,7 @@
                 </td>
                 <td class="px-6 py-3 text-gray-600">
                     {% if r.team %}
-                    <a href="/team/{{ r.team }}" class="hover:underline">{{ r.team }}</a>
+                    {% for tm in r.team.split(' / ') if tm %}<a href="/team/{{ tm | urlencode }}" class="hover:underline">{{ tm }}</a>{% if not loop.last %} / {% endif %}{% endfor %}
                     {% else %}&mdash;{% endif %}
                 </td>
                 <td class="px-6 py-3 text-right font-mono">{{ r.race_count }}</td>

@@ -62,6 +62,12 @@ _LAPS_CONSISTENT = f"""
 _PACE_MIN = 3.5
 _PACE_MAX = 15.0
 
+# Only points events count toward standings. Rallies and exhibitions are
+# excluded from every points/place aggregate and ranking below; they still
+# appear in individual race history (badged non-scoring). Assumes the events
+# table is joined with alias `e`.
+_POINTS_ONLY = "e.event_type = 'points'"
+
 
 def overview_stats(session: Session) -> dict:
     row = session.execute(text(f"""
@@ -120,6 +126,7 @@ def search_riders(
         JOIN results r ON r.rider_id = c.rider_id
         JOIN events e ON r.event_id = e.id
         WHERE c.name ILIKE :q
+          AND {_POINTS_ONLY}
     """
     params: dict = {"q": f"%{q}%"}
     if team:
@@ -183,6 +190,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             e.season,
             e.event_name,
             e.event_order,
+            e.event_type,
             r.category,
             r.division,
             r.gender,
@@ -234,6 +242,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         FROM results r
         JOIN events e ON r.event_id = e.id
         WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL
+          AND e.event_type = 'points'
         GROUP BY e.season, r.division
         ORDER BY e.season
     """), {"ids": all_ids}).all()
@@ -286,6 +295,7 @@ def search_teams(session: Session, q: str, season: int | None = None) -> list[di
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
         WHERE ri.team ILIKE :q
+          AND e.event_type = 'points'
     """
     params: dict = {"q": f"%{q}%"}
     if season:
@@ -327,6 +337,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         JOIN events e ON r.event_id = e.id
         WHERE c.team = :team {season_filter}
           AND r.place IS NOT NULL
+          AND {_POINTS_ONLY}
         GROUP BY c.cid, c.name, r.division, r.gender
         ORDER BY r.division, avg_points DESC NULLS LAST
     """), params).all()
@@ -343,6 +354,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         JOIN events e ON r.event_id = e.id
         WHERE ri.team = :team {season_filter}
           AND r.place IS NOT NULL
+          AND {_POINTS_ONLY}
         GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
     """), params).all()
@@ -392,7 +404,7 @@ def leaderboard(
 ) -> list[dict]:
     """Top riders by chosen metric — merged riders unified."""
     params: dict = {}
-    filters: list[str] = ["r.place IS NOT NULL"]
+    filters: list[str] = ["r.place IS NOT NULL", _POINTS_ONLY]
     if season:
         filters.append("e.season = :season")
         params["season"] = season
@@ -464,6 +476,7 @@ def team_leaderboard(
         JOIN riders ri ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
         WHERE r.place IS NOT NULL AND ri.team IS NOT NULL
+          AND {_POINTS_ONLY}
           {season_filter}
         GROUP BY ri.team
         HAVING count(DISTINCT ri.id) >= 3
