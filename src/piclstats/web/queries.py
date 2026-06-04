@@ -93,8 +93,14 @@ def seasons_list(session: Session) -> list[int]:
 
 
 def divisions_list(session: Session) -> list[str]:
+    # Only divisions that appear in scoring events, so exhibition-only labels
+    # (e.g. 'Advanced' from a short-track exhibition) don't show as filter
+    # options that would return no results.
     rows = session.execute(text(
-        "SELECT DISTINCT division FROM results WHERE division IS NOT NULL ORDER BY division"
+        "SELECT DISTINCT r.division "
+        "FROM results r JOIN events e ON r.event_id = e.id "
+        "WHERE r.division IS NOT NULL AND e.event_type = 'points' "
+        "ORDER BY r.division"
     )).all()
     return [r[0] for r in rows]
 
