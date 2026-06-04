@@ -11,9 +11,11 @@ primary_region = 'ord'
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = 'stop'
+  # Keep one machine warm during the demo week to avoid cold-start latency.
+  # Revert to 'stop' / 0 after the demo to return to scale-to-zero.
+  auto_stop_machines = 'suspend'
   auto_start_machines = true
-  min_machines_running = 0
+  min_machines_running = 1
   processes = ['app']
 
 [[vm]]

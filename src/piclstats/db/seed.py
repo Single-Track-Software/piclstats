@@ -187,6 +187,30 @@ def seed_division_laps(session: Session, course_ids: dict[str, int]) -> int:
     return count
 
 
+# Division label aliases → canonical name. Same division recorded under
+# different strings across seasons; fold them so leaderboards/profiles don't
+# split one rider into two division rows.
+DIVISION_ALIASES = {
+    "Middle School Advanced": "MS Advanced",
+}
+
+
+def normalize_divisions(session: Session) -> int:
+    """Fold aliased division labels to their canonical name in results.
+
+    Idempotent. division_laps keeps rows for both labels, so pace joins still
+    resolve after the rename.
+    """
+    total = 0
+    for alias, canonical in DIVISION_ALIASES.items():
+        result = session.execute(text(
+            "UPDATE results SET division = :canon WHERE division = :alias"
+        ), {"canon": canonical, "alias": alias})
+        total += result.rowcount
+    logger.info("Normalized %d result rows to canonical division labels", total)
+    return total
+
+
 def classify_event_types(session: Session) -> int:
     """Classify events as 'rally'/'exhibition' (non-scoring) by name pattern.
 
@@ -247,6 +271,7 @@ def seed_all(session: Session) -> None:
     map_events_to_courses(session, course_ids)
     seed_course_loops(session, course_ids)
     seed_division_laps(session, course_ids)
+    normalize_divisions(session)
     classify_event_types(session)
     seed_conferences(session)
     session.commit()
