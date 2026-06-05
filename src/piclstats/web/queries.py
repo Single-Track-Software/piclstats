@@ -721,6 +721,92 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
     }
 
 
+def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> list[dict]:
+    """Per-event z-scores for a rider vs their age-group + gender field.
+
+    Age group = division_laps.loop_type (MS/HS). For each event the rider raced,
+    we compute the field's mean/stdev (over every rider in that event + age group
+    + gender) and the rider's z for both metrics: raw lap time (PICL-exact) and
+    course-normalized min/mile. Lower = faster, so a fast rider has a negative z.
+    Field must have >= min_field timed riders for a z to be trusted.
+    """
+    canonical_id = session.execute(text("""
+        SELECT COALESCE(
+            (SELECT canonical_id FROM rider_aliases WHERE rider_id = :id),
+            :id
+        )
+    """), {"id": rider_id}).scalar()
+
+    group_ids = session.execute(text("""
+        SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
+        UNION SELECT :cid
+    """), {"cid": canonical_id}).all()
+    all_ids = [r[0] for r in group_ids]
+
+    rows = session.execute(text(f"""
+        WITH base AS (
+            SELECT
+                e.id AS event_id, e.season, e.event_order, e.event_name,
+                dl.loop_type AS age_group, r.gender, r.division,
+                COALESCE(ra.canonical_id, ri.id) AS canonical_id,
+                CASE WHEN r.total_time IS NOT NULL
+                          AND r.total_time < interval '2 hours'
+                          AND {_LAPS_CONSISTENT}
+                     THEN EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
+                END AS lap_secs,
+                CASE WHEN r.total_time IS NOT NULL
+                          AND r.total_time < interval '2 hours'
+                          AND cl.distance_miles > 0
+                          AND {_LAPS_CONSISTENT}
+                     THEN (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                          / ({_ACTUAL_LAPS} * cl.distance_miles)
+                END AS min_per_mile
+            FROM results r
+            JOIN events e ON r.event_id = e.id AND e.event_type = 'points'
+            JOIN riders ri ON r.rider_id = ri.id
+            LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
+            JOIN division_laps dl ON dl.course_id = e.course_id
+                AND dl.division = r.division
+                AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
+                AND dl.season IS NULL AND dl.loop_type IS NOT NULL
+            LEFT JOIN course_loops cl ON cl.course_id = e.course_id
+                AND cl.loop_type = dl.loop_type
+            WHERE r.status = 'OK' AND r.place IS NOT NULL
+              AND e.id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
+        ),
+        clean AS (
+            -- Drop physiologically implausible pace (bad loop distance) so it
+            -- can't skew the field mean/stdev.
+            SELECT *,
+                CASE WHEN min_per_mile BETWEEN {_PACE_MIN} AND {_PACE_MAX}
+                     THEN min_per_mile END AS pace_ok
+            FROM base
+        ),
+        z AS (
+            SELECT *,
+                avg(lap_secs) OVER w AS lap_mean,
+                stddev_samp(lap_secs) OVER w AS lap_std,
+                count(lap_secs) OVER w AS lap_field,
+                avg(pace_ok) OVER w AS pace_mean,
+                stddev_samp(pace_ok) OVER w AS pace_std,
+                count(pace_ok) OVER w AS pace_field
+            FROM clean
+            WINDOW w AS (PARTITION BY event_id, age_group, gender)
+        )
+        SELECT event_name, season, event_order, age_group, gender, division,
+               lap_field, pace_field,
+               CASE WHEN lap_std > 0 AND lap_field >= :minf
+                    THEN round(((lap_secs - lap_mean) / lap_std)::numeric, 2) END AS z_lap,
+               CASE WHEN pace_std > 0 AND pace_field >= :minf
+                    THEN round(((pace_ok - pace_mean) / pace_std)::numeric, 2) END AS z_pace
+        FROM z
+        WHERE canonical_id = :cid
+        ORDER BY season, event_order
+    """), {"ids": all_ids, "cid": canonical_id, "minf": min_field}).all()
+
+    return [_serialize(r._mapping) for r in rows]
+
+
 def division_pace_distribution(
     session: Session, division: str, gender: str, season: int | None = None
 ) -> dict:

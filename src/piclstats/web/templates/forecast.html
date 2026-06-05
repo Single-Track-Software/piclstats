@@ -50,6 +50,35 @@
         </div>
         {% endif %}
 
+        <!-- Speed Rating (staging z-score) -->
+        {% if speed_rating and speed_rating.has_data %}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+            <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-1">Speed Rating</h2>
+            <p class="text-xs text-gray-400 mb-4">vs all {{ speed_rating.age_group_label }} {{ speed_rating.gender or '' }} riders · season to date</p>
+            <div class="text-center">
+                <div class="text-4xl font-bold
+                    {% if speed_rating.pace.avg_z is not none and speed_rating.pace.avg_z < 0 %}text-green-600
+                    {% elif speed_rating.pace.avg_z is not none and speed_rating.pace.avg_z > 0 %}text-red-500
+                    {% else %}text-gray-700{% endif %}">
+                    {% if speed_rating.pace.rating is not none %}{{ '%+.1f'|format(speed_rating.pace.rating) }}{% else %}—{% endif %}
+                </div>
+                <div class="text-sm text-gray-400 mt-1">SD vs field (higher = faster)</div>
+            </div>
+            <p class="text-xs text-center text-gray-600 mt-3">{{ speed_rating.pace.label }}</p>
+            <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+                <div class="text-center">
+                    <div class="text-gray-400 text-xs">Average z</div>
+                    <div class="font-mono font-medium">{{ speed_rating.pace.avg_z if speed_rating.pace.avg_z is not none else '—' }}</div>
+                </div>
+                <div class="text-center">
+                    <div class="text-gray-400 text-xs">Best z</div>
+                    <div class="font-mono font-medium">{{ speed_rating.pace.best_z if speed_rating.pace.best_z is not none else '—' }}</div>
+                </div>
+            </div>
+            <p class="text-[11px] text-gray-400 mt-3 text-center">Course-normalized pace across {{ speed_rating.pace.events_used }} event{{ 's' if speed_rating.pace.events_used != 1 }} · best z = staging ceiling</p>
+        </div>
+        {% endif %}
+
         <!-- Division selector -->
         <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
             <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4">Predict In Division</h2>
@@ -226,10 +255,90 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Per-event speed: age-group z-scores (the staging view) -->
+{% if speed_rating and speed_rating.has_data %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between">
+        <h2 class="text-lg font-semibold text-gray-900">Per-Event Speed <span class="text-sm font-normal text-gray-400">(age-group z-scores)</span></h2>
+        <span class="text-xs text-gray-400">Negative = faster than field · lower is better</span>
+    </div>
+    <div class="px-6 py-4">
+        <canvas id="zChart" height="90"></canvas>
+    </div>
+    <div class="overflow-x-auto border-t">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Season</th>
+                    <th class="px-4 py-3">Event</th>
+                    <th class="px-4 py-3">Division</th>
+                    <th class="px-4 py-3">Age Group</th>
+                    <th class="px-4 py-3 text-right" title="PICL-exact: raw average lap time vs the field">z — lap time</th>
+                    <th class="px-4 py-3 text-right" title="Course-normalized min/mile vs the field">z — pace</th>
+                    <th class="px-4 py-3 text-right">Field</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for ev in speed_rating.events %}
+                <tr class="hover:bg-picl-50">
+                    <td class="px-4 py-2 font-medium">{{ ev.season }}</td>
+                    <td class="px-4 py-2 max-w-xs truncate" title="{{ ev.event_name }}">{{ ev.event_name }}</td>
+                    <td class="px-4 py-2 text-gray-600">{{ ev.division or '—' }}</td>
+                    <td class="px-4 py-2 text-gray-500 text-xs">{{ ev.age_group or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if ev.z_lap is not none and ev.z_lap < 0 %}text-green-600{% elif ev.z_lap is not none and ev.z_lap > 0 %}text-red-500{% endif %}">
+                        {% if ev.z_lap is not none %}{{ '%+.2f'|format(ev.z_lap) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-right font-mono {% if ev.z_pace is not none and ev.z_pace < 0 %}text-green-600{% elif ev.z_pace is not none and ev.z_pace > 0 %}text-red-500{% endif %}">
+                        {% if ev.z_pace is not none %}{{ '%+.2f'|format(ev.z_pace) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-right text-gray-400 text-xs">{{ ev.pace_field or ev.lap_field }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-6 py-3 text-[11px] text-gray-400 border-t">
+        Two views of the same idea: <strong>z — lap time</strong> reproduces PICL's per-event spreadsheet (raw lap time vs the age-group field);
+        <strong>z — pace</strong> uses course-normalized min/mile so it stays comparable across venues and the full season.
+    </p>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
 <script>
+// Per-event z-score chart (staging view)
+{% if speed_rating and speed_rating.has_data %}
+(function() {
+    const labels = [{% for ev in speed_rating.events %}{{ (ev.season ~ ' #' ~ (ev.event_order or loop.index)) | tojson }},{% endfor %}];
+    const zPace  = [{% for ev in speed_rating.events %}{{ 'null' if ev.z_pace is none else ev.z_pace }},{% endfor %}];
+    const zLap   = [{% for ev in speed_rating.events %}{{ 'null' if ev.z_lap is none else ev.z_lap }},{% endfor %}];
+    new Chart(document.getElementById('zChart'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [
+                {label: 'z — pace (normalized)', data: zPace, borderColor: 'rgb(16,32,232)',
+                 backgroundColor: 'rgba(16,32,232,0.1)', tension: 0.3, spanGaps: true,
+                 pointRadius: 4, borderWidth: 2},
+                {label: 'z — lap time (PICL-exact)', data: zLap, borderColor: 'rgb(234,88,12)',
+                 borderDash: [5, 5], tension: 0.3, spanGaps: true, pointRadius: 3, borderWidth: 1.5},
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {legend: {position: 'bottom', labels: {font: {size: 11}}}},
+            scales: {
+                y: {reverse: true, title: {display: true, text: 'z-score (negative = faster)'},
+                    ticks: {font: {size: 10}}},
+                x: {ticks: {maxRotation: 45, font: {size: 10}}}
+            }
+        }
+    });
+})();
+{% endif %}
+
 // Pace sparkline
 {% set valid_races = rider.races | selectattr('min_per_mile') | list %}
 {% if valid_races %}

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -12,6 +13,8 @@ from piclstats.db.engine import get_session
 from piclstats.web import queries
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="PICL Stats Dashboard")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
@@ -147,11 +150,21 @@ def rider_forecast(
     season: int | None = Depends(optional_season),
 ):
     from piclstats.web.forecast import ForecastInput, RaceObservation, StatisticalForecastModel
+    from piclstats.web.staging import build_speed_rating
 
     with get_session() as session:
         rider_data = queries.rider_forecast_data(session, rider_id)
         if not rider_data:
             return HTMLResponse("Rider not found", status_code=404)
+
+        # Season-to-date speed rating (z-score vs age-group field) — shown
+        # alongside the division prediction regardless of selection. Never let
+        # this new analytic break the existing forecast page.
+        try:
+            speed_rating = build_speed_rating(queries.rider_speed_rating(session, rider_id))
+        except Exception:
+            logger.exception("speed rating failed for rider %s", rider_id)
+            speed_rating = None
 
         source_div = rider_data["primary_division"]
         gender = rider_data["gender"]
@@ -159,7 +172,8 @@ def rider_forecast(
         if not source_div or not gender:
             return templates.TemplateResponse("forecast.html", _ctx(
                 request, rider=rider_data, divisions=[], target_division="",
-                forecast=None, season=season, error="Not enough race data to forecast.",
+                forecast=None, season=season, speed_rating=speed_rating,
+                error="Not enough race data to forecast.",
             ))
 
         divisions = queries.available_target_divisions(session, source_div, gender)
@@ -225,5 +239,6 @@ def rider_forecast(
     return templates.TemplateResponse("forecast.html", _ctx(
         request, rider=rider_data, divisions=divisions,
         target_division=target_division, forecast=forecast_result,
-        season=season, error=error if not forecast_result else None,
+        season=season, speed_rating=speed_rating,
+        error=error if not forecast_result else None,
     ))
