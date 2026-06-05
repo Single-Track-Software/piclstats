@@ -821,6 +821,7 @@ def staging_rows(
                 COALESCE(ra.canonical_id, ri.id) AS canonical_id,
                 cri.name AS name, cri.team AS team,
                 r.division,
+                tc.conference, tc.conference_group,
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.total_time < interval '2 hours'
                           AND {_LAPS_CONSISTENT}
@@ -839,6 +840,7 @@ def staging_rows(
             JOIN riders ri ON r.rider_id = ri.id
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
             JOIN riders cri ON cri.id = COALESCE(ra.canonical_id, ri.id)
+            LEFT JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
             JOIN division_laps dl ON dl.course_id = e.course_id
                 AND dl.division = r.division
                 AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
@@ -864,7 +866,8 @@ def staging_rows(
             FROM clean
             WINDOW w AS (PARTITION BY event_id)
         )
-        SELECT canonical_id, name, team, division, event_id, event_name, event_order,
+        SELECT canonical_id, name, team, division, conference, conference_group,
+               event_id, event_name, event_order,
                CASE WHEN lap_std > 0 AND lap_field >= :minf
                     THEN round(((lap_secs - lap_mean) / lap_std)::numeric, 2) END AS z_lap,
                CASE WHEN pace_std > 0 AND pace_field >= :minf

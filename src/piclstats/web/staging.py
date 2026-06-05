@@ -146,14 +146,18 @@ def build_grid(
     metric: str = "pace",
     sort: str = "best",
     division: str | None = None,
+    conference: str | None = None,
     wave_size: int = 20,
 ) -> dict:
     """Build the staging grid from per-(rider, event) z-score rows.
 
     Pivots into one row per kid with a z column per race, plus Best-z and Avg-z.
-    Ranks the category (most negative = fastest first); when a division filter is
-    applied, the rank/wave is that division's race start order, split into waves
-    of `wave_size`. Riders with no usable z sort last with no wave.
+    Ranks the category (most negative = fastest first); a division and/or
+    conference filter narrows to a specific race's field, re-ranked and split
+    into waves of `wave_size`. A conference filter value matches either the
+    specific conference (e.g. 'Eastern Blue') or its group (e.g. 'Eastern' =
+    Blue + Gold), so you can model pack size both split and combined. Riders
+    with no usable z sort last with no wave.
     """
     zkey = "z_pace" if metric == "pace" else "z_lap"
     sort_key = "best_z" if sort == "best" else "avg_z"
@@ -168,7 +172,8 @@ def build_grid(
         cid = r["canonical_id"]
         rd = riders.setdefault(cid, {
             "canonical_id": cid, "name": r.get("name"), "team": r.get("team"),
-            "division": None, "_last": -1, "per_event": {}, "_zs": [],
+            "division": None, "conference": None, "conference_group": None,
+            "_last": -1, "per_event": {}, "_zs": [],
         })
         z = r.get(zkey)
         z = float(z) if z is not None else None
@@ -179,9 +184,21 @@ def build_grid(
         if order >= rd["_last"]:
             rd["_last"] = order
             rd["division"] = r.get("division")
+            rd["conference"] = r.get("conference")
+            rd["conference_group"] = r.get("conference_group")
 
     event_list = sorted(events.values(), key=lambda e: e["event_order"])
     divisions = sorted({r["division"] for r in riders.values() if r["division"]})
+
+    # Conference dropdown: every specific conference, plus any group that spans
+    # more than one conference (e.g. 'Eastern' over Blue + Gold) so the combined
+    # pack can be modeled too.
+    conferences = sorted({r["conference"] for r in riders.values() if r["conference"]})
+    group_confs: dict = {}
+    for r in riders.values():
+        if r["conference_group"] and r["conference"]:
+            group_confs.setdefault(r["conference_group"], set()).add(r["conference"])
+    conference_groups = sorted(g for g, cs in group_confs.items() if len(cs) > 1)
 
     grid = []
     for rd in riders.values():
@@ -194,6 +211,9 @@ def build_grid(
 
     if division:
         grid = [r for r in grid if r["division"] == division]
+    if conference:
+        grid = [r for r in grid
+                if conference in (r["conference"], r["conference_group"])]
 
     # Most negative (fastest) first; unrated riders last.
     grid.sort(key=lambda r: (r[sort_key] is None, r[sort_key] if r[sort_key] is not None else 0.0))
@@ -206,6 +226,8 @@ def build_grid(
         "events": event_list,
         "riders": grid,
         "divisions": divisions,
+        "conferences": conferences,
+        "conference_groups": conference_groups,
         "metric": metric,
         "sort": sort,
         "wave_size": wave_size,

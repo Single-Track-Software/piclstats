@@ -246,12 +246,12 @@ def rider_forecast(
     ))
 
 
-def _staging_grid(session, age_group, gender, season, metric, sort, division, wave):
+def _staging_grid(session, age_group, gender, season, metric, sort, division, conference, wave):
     from piclstats.web import staging as staging_mod
     rows = queries.staging_rows(session, age_group, gender, season)
     return staging_mod.build_grid(
         rows, metric=metric, sort=sort, division=division or None,
-        wave_size=max(1, wave),
+        conference=conference or None, wave_size=max(1, wave),
     )
 
 
@@ -264,6 +264,7 @@ def staging_page(
     metric: str = Query("pace"),
     sort: str = Query("best"),
     division: str = Query(""),
+    conference: str = Query(""),
     wave: int = Query(20),
 ):
     with get_session() as session:
@@ -273,11 +274,11 @@ def staging_page(
         grid = None
         if season is not None:
             grid = _staging_grid(session, age_group, gender, season,
-                                 metric, sort, division, wave)
+                                 metric, sort, division, conference, wave)
     return templates.TemplateResponse("staging.html", _ctx(
         request, grid=grid, seasons=seasons, season=season,
         age_group=age_group, gender=gender, metric=metric, sort=sort,
-        division=division, wave=wave,
+        division=division, conference=conference, wave=wave,
     ))
 
 
@@ -289,6 +290,7 @@ def staging_csv(
     metric: str = Query("pace"),
     sort: str = Query("best"),
     division: str = Query(""),
+    conference: str = Query(""),
     wave: int = Query(20),
 ):
     with get_session() as session:
@@ -298,12 +300,12 @@ def staging_csv(
         if season is None:
             return Response("No data", media_type="text/plain")
         grid = _staging_grid(session, age_group, gender, season,
-                             metric, sort, division, wave)
+                             metric, sort, division, conference, wave)
 
     buf = io.StringIO()
     w = csv.writer(buf)
     events = grid["events"]
-    w.writerow(["Rank", "Wave", "Name", "Team", "Division", "Best z", "Avg z", "Races"]
+    w.writerow(["Rank", "Wave", "Name", "Team", "Conference", "Division", "Best z", "Avg z", "Races"]
                + [e["event_name"] for e in events])
     for r in grid["riders"]:
         per = []
@@ -311,7 +313,8 @@ def staging_csv(
             v = r["per_event"].get(e["event_id"])
             per.append("" if v is None else v)
         w.writerow([
-            r["rank"], r["wave"] or "", r["name"], r["team"] or "", r["division"] or "",
+            r["rank"], r["wave"] or "", r["name"], r["team"] or "",
+            r["conference"] or "", r["division"] or "",
             "" if r["best_z"] is None else r["best_z"],
             "" if r["avg_z"] is None else r["avg_z"],
             r["n_events"],

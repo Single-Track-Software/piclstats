@@ -12,7 +12,7 @@
 
 <!-- Filters -->
 <form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-    <div class="grid md:grid-cols-7 gap-4">
+    <div class="grid md:grid-cols-8 gap-4">
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Age Group</label>
             <select name="age_group" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
@@ -33,6 +33,20 @@
                 {% for s in seasons %}
                 <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
                 {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Conference</label>
+            <select name="conference" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="">All conferences</option>
+                {% if grid %}
+                {% for g in grid.conference_groups %}
+                <option value="{{ g }}" {{ 'selected' if g == conference }}>{{ g }} (combined)</option>
+                {% endfor %}
+                {% for cf in grid.conferences %}
+                <option value="{{ cf }}" {{ 'selected' if cf == conference }}>{{ cf }}</option>
+                {% endfor %}
+                {% endif %}
             </select>
         </div>
         <div>
@@ -72,7 +86,7 @@
         {% if division %}in {{ division }}{% else %}in {{ age_group }} {{ 'Boys' if gender == 'Male' else 'Girls' }}{% endif %}
         · waves of {{ grid.wave_size }}
     </p>
-    <a href="/staging.csv?age_group={{ age_group }}&gender={{ gender }}&season={{ season }}&metric={{ metric }}&sort={{ sort }}&division={{ division | urlencode }}&wave={{ wave }}"
+    <a href="/staging.csv?age_group={{ age_group }}&gender={{ gender }}&season={{ season }}&metric={{ metric }}&sort={{ sort }}&division={{ division | urlencode }}&conference={{ conference | urlencode }}&wave={{ wave }}"
        class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">
         Download CSV
     </a>
@@ -86,6 +100,7 @@
                     <th class="px-3 py-3 w-10">#</th>
                     <th class="px-3 py-3">Rider</th>
                     <th class="px-3 py-3">Team</th>
+                    <th class="px-3 py-3">Conference</th>
                     <th class="px-3 py-3">Division</th>
                     {% for e in grid.events %}
                     <th class="px-2 py-3 text-right text-[10px]" title="{{ e.event_name }}">#{{ e.event_order }}</th>
@@ -101,7 +116,7 @@
                 {% if r.wave and r.wave != ns.wave %}
                 {% set ns.wave = r.wave %}
                 <tr class="bg-picl-100/60">
-                    <td colspan="{{ grid.events|length + 7 }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
+                    <td colspan="{{ grid.events|length + 8 }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
                         Wave {{ r.wave }}
                     </td>
                 </tr>
@@ -112,6 +127,7 @@
                         <a href="/rider/{{ r.canonical_id }}/forecast" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
                     </td>
                     <td class="px-3 py-2 text-gray-500 text-xs">{{ r.team or '' }}</td>
+                    <td class="px-3 py-2 text-gray-600 text-xs">{{ r.conference or '—' }}</td>
                     <td class="px-3 py-2 text-gray-600 text-xs">{{ r.division or '—' }}</td>
                     {% for e in grid.events %}
                     {% set z = r.per_event.get(e.event_id) %}

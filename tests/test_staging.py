@@ -7,10 +7,11 @@ import math
 from piclstats.web.staging import build_grid, build_speed_rating, percentile_faster
 
 
-def _grow(cid, name, division, per_event):
+def _grow(cid, name, division, per_event, conf=None, group=None):
     """One row per (rider, event); per_event maps event_id -> z."""
     return [
         {"canonical_id": cid, "name": name, "team": "T", "division": division,
+         "conference": conf, "conference_group": group,
          "event_id": eid, "event_name": f"Race {eid}", "event_order": eid,
          "z_pace": z, "z_lap": z}
         for eid, z in per_event.items()
@@ -129,3 +130,34 @@ def test_grid_avg_sort_differs_from_best():
     by_avg = build_grid(rows, sort="avg")
     assert by_best["riders"][0]["name"] == "Spiky"
     assert by_avg["riders"][0]["name"] == "Steady"
+
+
+def _conf_rows():
+    rows = []
+    rows += _grow(1, "Blue Fast", "7th Grade", {1: -2.0}, conf="Eastern Blue", group="Eastern")
+    rows += _grow(2, "Gold Fast", "7th Grade", {1: -1.5}, conf="Eastern Gold", group="Eastern")
+    rows += _grow(3, "Central Kid", "7th Grade", {1: -1.0}, conf="Central", group="Central")
+    return rows
+
+
+def test_grid_conference_dropdown_groups_only_when_multi():
+    grid = build_grid(_conf_rows())
+    assert grid["conferences"] == ["Central", "Eastern Blue", "Eastern Gold"]
+    assert "Eastern" in grid["conference_groups"]      # spans Blue + Gold
+    assert "Central" not in grid["conference_groups"]  # single conference
+
+
+def test_grid_conference_filter_specific_vs_combined():
+    # Specific conference → only that conference's kids.
+    blue = build_grid(_conf_rows(), conference="Eastern Blue")
+    assert [r["name"] for r in blue["riders"]] == ["Blue Fast"]
+    # Combined group → Blue + Gold staged together, re-ranked.
+    eastern = build_grid(_conf_rows(), conference="Eastern")
+    assert [r["name"] for r in eastern["riders"]] == ["Blue Fast", "Gold Fast"]
+    assert [r["rank"] for r in eastern["riders"]] == [1, 2]
+
+
+def test_grid_carries_conference_on_rider():
+    by_name = {r["name"]: r for r in build_grid(_conf_rows())["riders"]}
+    assert by_name["Blue Fast"]["conference"] == "Eastern Blue"
+    assert by_name["Blue Fast"]["conference_group"] == "Eastern"
