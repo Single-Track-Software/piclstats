@@ -128,12 +128,48 @@ prediction and adds the new data, per Chris's "same screen" call:
   showing both the PICL-exact (lap-time) and normalized (min/mile) columns side by side. This is the
   Ariana-spreadsheet view, automated.
 
-**(2) New Staging page** (`/staging`) — the directly-actionable deliverable for race organizers:
-- Pick **season + age group + gender** (later: a specific event).
-- Ranked grid of all riders by chosen aggregate (avg / best-of) and metric (lap-time / min-mile),
-  with z, percentile, #events, and current division.
-- **CSV export** for call-up sheets.
-- Toggle sort (avg ↔ best-of) and metric so they can compare against their spreadsheet live.
+**(2) New Staging page** (`/staging`) — a faithful, automated rebuild of Ariana's spreadsheet.
+Confirmed layout (from Ariana's sheet):
+- Pick **category** = age group + gender (MS Male, HS Male, MS Female, HS Female) + season.
+- **Wide grid**: one **row per kid** (name, grade, team, division) and **one z column per race**
+  in the season — a pivot of the per-event z's. Plus **two aggregate columns shown together:
+  Best-z and Average-z** (Chris: "add both"). Sortable by either; default sort ranks the whole
+  category so MS Advanced floats to the top.
+- **Sub-filter by grade**, then **split the sorted list into waves** (start groups of N) → the start
+  positions for each race. Wave size adjustable.
+- Metric toggle: PICL-exact (lap-time) vs course-normalized (min/mile) z.
+- **CSV export** for call-up sheets (the thing other NICA teams could run themselves).
+
+**Grade — mostly already solved via division.** In the MS categories (which is where Ariana's
+grade sub-filter matters), **division IS grade**: 5th/6th/7th/8th Grade are divisions, and MS Advanced
+is its own division. So sub-filtering an MS category by division gives exactly the grade breakdown
+(MS Advanced + each grade) with **zero new data**. The only true gaps: a specific MS Advanced kid's
+actual grade (cross-grade division), and HS — where divisions are skill tiers (JV1/2/3/Varsity), not
+grades. v1: **sub-filter by division** (= grade for MS, = skill tier for HS). Fast-follow if needed:
+import a PICL roster to attach real grade per rider, enabling true grade filtering for MS Advanced/HS.
+
+### A.5b Temporal basis — staging is predictive
+
+You stage a race *before* it runs, so the ranking must be built only from data available at that
+point. The staging grid therefore has a **basis window** separate from the target it stages:
+
+- **Season opener** → no current-season data, so rank from the **prior season's** z-aggregate
+  (best/avg carried forward). This is the default for staging a new season.
+- **Mid-season** → switch to **this-season-to-date** as real current-form accumulates.
+- (Optional later: a blend — prior season as a prior, current season overriding as races come in.)
+
+Because z is computed *per event relative to that event's field*, a rider's per-event z's are
+directly comparable across seasons — so carrying a prior-season aggregate forward is statistically
+clean. UI: a **"stage as of"** control (e.g. *Season N opener — basis: Season N-1* vs *Season N
+through race K — basis: this season*).
+
+**Backtest mode (high-value):** because all prior years exist, we can rank Season N off Season N-1
+and compare the predicted start order to actual finishes — a quantified accuracy story for PICL/NICA.
+
+**Cross-season caveat (aging up):** a kid who moves MS→HS between seasons changes *fields*, so their
+raw prior-season z (e.g. +2 SD in MS Male) does **not** transfer 1:1 to the new field — that's exactly
+the cross-division problem the **forecast engine already solves**. v1: stage within the same category
+using prior-season z; flag movers and route them through the existing forecast for an adjusted seed.
 
 ### A.6 Sign / display convention
 
@@ -220,9 +256,11 @@ canonicalization code already exists — just record edges), then scorecard, the
 
 ## Open decisions (need Chris / Ariana input)
 
-1. **Ariana's exact aggregate + sign convention** — best-of vs average as the *default* sort, and
-   does her staff read "faster = negative" or do they flip it? (Drives the default UI.)
-2. **A sample season spreadsheet** from Ariana to validate Phase 1 against, number for number.
-3. **Confirm age group = `loop_type (MS/HS) × gender`** is the population she standardizes against
-   (vs. e.g. splitting MS Advanced out, or grade bands).
-4. **Staging page scope for v1** — season+age-group rollup (matches her sheet) vs. per-specific-event.
+1. ~~Aggregate~~ — **RESOLVED:** show **both** Best-z and Average-z columns, sortable by either.
+2. **Sign convention** — does her staff read "faster = negative," or should the displayed number be
+   flipped? (Drives default UI; Phase 1 currently shows a flipped "+ = faster" rating.)
+3. **Grade source** (blocks the staging grade sub-filter) — derive-from-division only (MS), import a
+   PICL roster with grades, or admin-entered? See the grade data-dependency note above.
+4. **Wave size** — default riders-per-wave for the staging split (adjustable in UI regardless).
+5. **A sample season spreadsheet** from Ariana to validate `z — lap time` row-by-row (nice-to-have;
+   Chris may not be able to get it, but the eye-test on known riders already looks right).

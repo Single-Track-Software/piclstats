@@ -807,6 +807,76 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
     return [_serialize(r._mapping) for r in rows]
 
 
+def staging_rows(
+    session: Session, age_group: str, gender: str, season: int, min_field: int = 8
+) -> list[dict]:
+    """Per-(rider, event) z-scores for a whole category (age_group + gender) in
+    one season — the basis for the staging grid. Field = every rider in that
+    event + category; partition is per event since the category is fixed.
+    """
+    rows = session.execute(text(f"""
+        WITH base AS (
+            SELECT
+                e.id AS event_id, e.event_name, e.event_order,
+                COALESCE(ra.canonical_id, ri.id) AS canonical_id,
+                cri.name AS name, cri.team AS team,
+                r.division,
+                CASE WHEN r.total_time IS NOT NULL
+                          AND r.total_time < interval '2 hours'
+                          AND {_LAPS_CONSISTENT}
+                     THEN EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
+                END AS lap_secs,
+                CASE WHEN r.total_time IS NOT NULL
+                          AND r.total_time < interval '2 hours'
+                          AND cl.distance_miles > 0
+                          AND {_LAPS_CONSISTENT}
+                     THEN (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                          / ({_ACTUAL_LAPS} * cl.distance_miles)
+                END AS min_per_mile
+            FROM results r
+            JOIN events e ON r.event_id = e.id AND e.event_type = 'points'
+                AND e.season = :season
+            JOIN riders ri ON r.rider_id = ri.id
+            LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
+            JOIN riders cri ON cri.id = COALESCE(ra.canonical_id, ri.id)
+            JOIN division_laps dl ON dl.course_id = e.course_id
+                AND dl.division = r.division
+                AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
+                AND dl.season IS NULL AND dl.loop_type = :age_group
+            LEFT JOIN course_loops cl ON cl.course_id = e.course_id
+                AND cl.loop_type = dl.loop_type
+            WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.gender = :gender
+        ),
+        clean AS (
+            SELECT *,
+                CASE WHEN min_per_mile BETWEEN {_PACE_MIN} AND {_PACE_MAX}
+                     THEN min_per_mile END AS pace_ok
+            FROM base
+        ),
+        z AS (
+            SELECT *,
+                avg(lap_secs) OVER w AS lap_mean,
+                stddev_samp(lap_secs) OVER w AS lap_std,
+                count(lap_secs) OVER w AS lap_field,
+                avg(pace_ok) OVER w AS pace_mean,
+                stddev_samp(pace_ok) OVER w AS pace_std,
+                count(pace_ok) OVER w AS pace_field
+            FROM clean
+            WINDOW w AS (PARTITION BY event_id)
+        )
+        SELECT canonical_id, name, team, division, event_id, event_name, event_order,
+               CASE WHEN lap_std > 0 AND lap_field >= :minf
+                    THEN round(((lap_secs - lap_mean) / lap_std)::numeric, 2) END AS z_lap,
+               CASE WHEN pace_std > 0 AND pace_field >= :minf
+                    THEN round(((pace_ok - pace_mean) / pace_std)::numeric, 2) END AS z_pace
+        FROM z
+        ORDER BY event_order, name
+    """), {"season": season, "age_group": age_group, "gender": gender,
+           "minf": min_field}).all()
+
+    return [_serialize(r._mapping) for r in rows]
+
+
 def division_pace_distribution(
     session: Session, division: str, gender: str, season: int | None = None
 ) -> dict:

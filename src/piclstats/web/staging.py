@@ -137,3 +137,77 @@ def build_speed_rating(rows: list[dict]) -> dict:
         "gender": gender,
         "has_data": any(e.z_pace is not None or e.z_lap is not None for e in events),
     }
+
+
+# ── Staging grid (the /staging page) ────────────────────────────────────
+
+def build_grid(
+    rows: list[dict],
+    metric: str = "pace",
+    sort: str = "best",
+    division: str | None = None,
+    wave_size: int = 20,
+) -> dict:
+    """Build the staging grid from per-(rider, event) z-score rows.
+
+    Pivots into one row per kid with a z column per race, plus Best-z and Avg-z.
+    Ranks the category (most negative = fastest first); when a division filter is
+    applied, the rank/wave is that division's race start order, split into waves
+    of `wave_size`. Riders with no usable z sort last with no wave.
+    """
+    zkey = "z_pace" if metric == "pace" else "z_lap"
+    sort_key = "best_z" if sort == "best" else "avg_z"
+
+    events: dict = {}
+    riders: dict = {}
+    for r in rows:
+        eid = r["event_id"]
+        if eid not in events:
+            events[eid] = {"event_id": eid, "event_order": r.get("event_order") or 0,
+                           "event_name": r["event_name"]}
+        cid = r["canonical_id"]
+        rd = riders.setdefault(cid, {
+            "canonical_id": cid, "name": r.get("name"), "team": r.get("team"),
+            "division": None, "_last": -1, "per_event": {}, "_zs": [],
+        })
+        z = r.get(zkey)
+        z = float(z) if z is not None else None
+        rd["per_event"][eid] = z
+        if z is not None:
+            rd["_zs"].append(z)
+        order = r.get("event_order") or 0
+        if order >= rd["_last"]:
+            rd["_last"] = order
+            rd["division"] = r.get("division")
+
+    event_list = sorted(events.values(), key=lambda e: e["event_order"])
+    divisions = sorted({r["division"] for r in riders.values() if r["division"]})
+
+    grid = []
+    for rd in riders.values():
+        zs = rd.pop("_zs")
+        rd.pop("_last")
+        rd["best_z"] = round(min(zs), 2) if zs else None
+        rd["avg_z"] = round(sum(zs) / len(zs), 2) if zs else None
+        rd["n_events"] = len(zs)
+        grid.append(rd)
+
+    if division:
+        grid = [r for r in grid if r["division"] == division]
+
+    # Most negative (fastest) first; unrated riders last.
+    grid.sort(key=lambda r: (r[sort_key] is None, r[sort_key] if r[sort_key] is not None else 0.0))
+
+    for i, r in enumerate(grid):
+        r["rank"] = i + 1
+        r["wave"] = (i // wave_size) + 1 if r[sort_key] is not None else None
+
+    return {
+        "events": event_list,
+        "riders": grid,
+        "divisions": divisions,
+        "metric": metric,
+        "sort": sort,
+        "wave_size": wave_size,
+        "rated_count": sum(1 for r in grid if r[sort_key] is not None),
+    }

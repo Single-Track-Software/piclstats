@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}Staging — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Staging</h1>
+    <p class="mt-1 text-sm text-gray-500">
+        Rank a category by speed (z-score vs the field) to set start order — fastest at the front, split into waves.
+        Staging is predictive: to seed a season opener, rank from <strong>last</strong> season; mid-season, rank from this season to date.
+    </p>
+</div>
+
+<!-- Filters -->
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="grid md:grid-cols-7 gap-4">
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Age Group</label>
+            <select name="age_group" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="MS" {{ 'selected' if age_group == 'MS' }}>Middle School</option>
+                <option value="HS" {{ 'selected' if age_group == 'HS' }}>High School</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Gender</label>
+            <select name="gender" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="Male" {{ 'selected' if gender == 'Male' }}>Boys</option>
+                <option value="Female" {{ 'selected' if gender == 'Female' }}>Girls</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Rank From Season</label>
+            <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for s in seasons %}
+                <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Division</label>
+            <select name="division" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="">All (full category)</option>
+                {% if grid %}{% for d in grid.divisions %}
+                <option value="{{ d }}" {{ 'selected' if d == division }}>{{ d }}</option>
+                {% endfor %}{% endif %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Sort By</label>
+            <select name="sort" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="best" {{ 'selected' if sort == 'best' }}>Best z</option>
+                <option value="avg" {{ 'selected' if sort == 'avg' }}>Average z</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Metric</label>
+            <select name="metric" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="pace" {{ 'selected' if metric == 'pace' }}>Pace (normalized)</option>
+                <option value="lap" {{ 'selected' if metric == 'lap' }}>Lap time (PICL)</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Wave Size</label>
+            <input type="number" name="wave" value="{{ wave }}" min="1" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+        </div>
+    </div>
+</form>
+
+{% if grid and grid.riders %}
+<div class="flex items-center justify-between mb-3">
+    <p class="text-sm text-gray-500">
+        {{ grid.rated_count }} rated rider{{ 's' if grid.rated_count != 1 }}
+        {% if division %}in {{ division }}{% else %}in {{ age_group }} {{ 'Boys' if gender == 'Male' else 'Girls' }}{% endif %}
+        · waves of {{ grid.wave_size }}
+    </p>
+    <a href="/staging.csv?age_group={{ age_group }}&gender={{ gender }}&season={{ season }}&metric={{ metric }}&sort={{ sort }}&division={{ division | urlencode }}&wave={{ wave }}"
+       class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">
+        Download CSV
+    </a>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-3 py-3 w-10">#</th>
+                    <th class="px-3 py-3">Rider</th>
+                    <th class="px-3 py-3">Team</th>
+                    <th class="px-3 py-3">Division</th>
+                    {% for e in grid.events %}
+                    <th class="px-2 py-3 text-right text-[10px]" title="{{ e.event_name }}">#{{ e.event_order }}</th>
+                    {% endfor %}
+                    <th class="px-3 py-3 text-right bg-picl-50">Best z</th>
+                    <th class="px-3 py-3 text-right bg-picl-50">Avg z</th>
+                    <th class="px-3 py-3 text-right">Races</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% set ns = namespace(wave=0) %}
+                {% for r in grid.riders %}
+                {% if r.wave and r.wave != ns.wave %}
+                {% set ns.wave = r.wave %}
+                <tr class="bg-picl-100/60">
+                    <td colspan="{{ grid.events|length + 7 }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
+                        Wave {{ r.wave }}
+                    </td>
+                </tr>
+                {% endif %}
+                <tr class="hover:bg-picl-50 {% if r.best_z is none %}text-gray-400{% endif %}">
+                    <td class="px-3 py-2 font-mono text-gray-400">{{ r.rank }}</td>
+                    <td class="px-3 py-2">
+                        <a href="/rider/{{ r.canonical_id }}/forecast" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
+                    </td>
+                    <td class="px-3 py-2 text-gray-500 text-xs">{{ r.team or '' }}</td>
+                    <td class="px-3 py-2 text-gray-600 text-xs">{{ r.division or '—' }}</td>
+                    {% for e in grid.events %}
+                    {% set z = r.per_event.get(e.event_id) %}
+                    <td class="px-2 py-2 text-right font-mono text-xs {% if z is not none and z < 0 %}text-green-600{% elif z is not none and z > 0 %}text-red-500{% else %}text-gray-300{% endif %}">
+                        {% if z is not none %}{{ '%+.2f'|format(z) }}{% else %}·{% endif %}
+                    </td>
+                    {% endfor %}
+                    <td class="px-3 py-2 text-right font-mono font-semibold bg-picl-50/50
+                        {% if r.best_z is not none and r.best_z < 0 %}text-green-700{% endif %}">
+                        {% if r.best_z is not none %}{{ '%+.2f'|format(r.best_z) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right font-mono bg-picl-50/50
+                        {% if r.avg_z is not none and r.avg_z < 0 %}text-green-700{% endif %}">
+                        {% if r.avg_z is not none %}{{ '%+.2f'|format(r.avg_z) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-right text-gray-400 text-xs">{{ r.n_events }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
+        Negative z = faster than the field. A blank (·) means that race's field was too small for a reliable z.
+        Riders with no rating sort last. Click a name for their full speed-rating + division forecast.
+    </p>
+</div>
+{% elif grid %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No rated riders for {{ age_group }} {{ 'Boys' if gender == 'Male' else 'Girls' }} in {{ season }}.
+</div>
+{% else %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No season data available.
+</div>
+{% endif %}
+{% endblock %}

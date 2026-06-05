@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from piclstats.db.engine import get_session
@@ -242,3 +244,79 @@ def rider_forecast(
         season=season, speed_rating=speed_rating,
         error=error if not forecast_result else None,
     ))
+
+
+def _staging_grid(session, age_group, gender, season, metric, sort, division, wave):
+    from piclstats.web import staging as staging_mod
+    rows = queries.staging_rows(session, age_group, gender, season)
+    return staging_mod.build_grid(
+        rows, metric=metric, sort=sort, division=division or None,
+        wave_size=max(1, wave),
+    )
+
+
+@app.get("/staging", response_class=HTMLResponse)
+def staging_page(
+    request: Request,
+    age_group: str = Query("MS"),
+    gender: str = Query("Male"),
+    season: int | None = Depends(optional_season),
+    metric: str = Query("pace"),
+    sort: str = Query("best"),
+    division: str = Query(""),
+    wave: int = Query(20),
+):
+    with get_session() as session:
+        seasons = queries.seasons_list(session)
+        if season is None:
+            season = seasons[-1] if seasons else None
+        grid = None
+        if season is not None:
+            grid = _staging_grid(session, age_group, gender, season,
+                                 metric, sort, division, wave)
+    return templates.TemplateResponse("staging.html", _ctx(
+        request, grid=grid, seasons=seasons, season=season,
+        age_group=age_group, gender=gender, metric=metric, sort=sort,
+        division=division, wave=wave,
+    ))
+
+
+@app.get("/staging.csv")
+def staging_csv(
+    age_group: str = Query("MS"),
+    gender: str = Query("Male"),
+    season: int | None = Depends(optional_season),
+    metric: str = Query("pace"),
+    sort: str = Query("best"),
+    division: str = Query(""),
+    wave: int = Query(20),
+):
+    with get_session() as session:
+        seasons = queries.seasons_list(session)
+        if season is None:
+            season = seasons[-1] if seasons else None
+        if season is None:
+            return Response("No data", media_type="text/plain")
+        grid = _staging_grid(session, age_group, gender, season,
+                             metric, sort, division, wave)
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    events = grid["events"]
+    w.writerow(["Rank", "Wave", "Name", "Team", "Division", "Best z", "Avg z", "Races"]
+               + [e["event_name"] for e in events])
+    for r in grid["riders"]:
+        per = []
+        for e in events:
+            v = r["per_event"].get(e["event_id"])
+            per.append("" if v is None else v)
+        w.writerow([
+            r["rank"], r["wave"] or "", r["name"], r["team"] or "", r["division"] or "",
+            "" if r["best_z"] is None else r["best_z"],
+            "" if r["avg_z"] is None else r["avg_z"],
+            r["n_events"],
+        ] + per)
+
+    fname = f"staging_{season}_{age_group}_{gender}.csv"
+    return Response(buf.getvalue(), media_type="text/csv",
+                    headers={"Content-Disposition": f"attachment; filename={fname}"})
