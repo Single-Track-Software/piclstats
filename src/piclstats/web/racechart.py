@@ -44,20 +44,28 @@ class RiderTrack:
     complete: bool                # finished the full category distance
 
 
-def _cumulative_seconds(row: dict) -> list[float]:
-    """Elapsed time at the end of each completed lap.
+def _lap_durations(row: dict) -> list[float]:
+    """Per-lap times (seconds) for the rider's contiguous completed laps.
 
     Stops at the first missing split — a rider lapped out after lap 3 has no
     lap-4 time, and anything recorded beyond a gap can't be trusted as a
     contiguous race time.
     """
-    cum: list[float] = []
-    running = 0.0
+    durations: list[float] = []
     for key in _LAP_KEYS:
         secs = row.get(key)
         if secs is None:
             break
-        running += float(secs)
+        durations.append(float(secs))
+    return durations
+
+
+def _cumulative_seconds(row: dict) -> list[float]:
+    """Elapsed time at the end of each completed lap (running sum of splits)."""
+    cum: list[float] = []
+    running = 0.0
+    for secs in _lap_durations(row):
+        running += secs
         cum.append(running)
     return cum
 
@@ -118,6 +126,89 @@ def build_position_chart(rows: list[dict]) -> dict:
         "tracks": tracks,
         "n_laps": n_laps,
         "lap_labels": [f"Lap {i + 1}" for i in range(n_laps)],
+        "field": len(riders),
+        "finishers": sum(1 for t in tracks if t.complete),
+    }
+
+
+# ── Stacked lap-times chart (the CrossMgr "Race Chart" / Gantt) ──────────
+
+# One color per lap (not per rider): a rider's bar is segmented by lap so the
+# width of each block shows how long that lap took. Even blocks = metronomic
+# pacing; a widening block = fade.
+_LAP_COLORS = [
+    "#0c8599",  # lap 1 — teal
+    "#f08c00",  # lap 2 — amber
+    "#7048e8",  # lap 3 — violet
+    "#37b24d",  # lap 4 — green
+    "#e03131",  # lap 5 — red
+    "#1971c2",  # lap 6 — blue
+]
+
+
+@dataclass(frozen=True)
+class LapTrack:
+    """One rider's row on the stacked lap-times chart."""
+
+    bib: int
+    name: str
+    team: str | None
+    laps: list[float]             # per-lap durations in seconds (len == laps_done)
+    laps_done: int
+    total: float                  # total elapsed seconds across completed laps
+    finish_place: int | None
+    status: str
+    complete: bool
+
+
+def build_lap_chart(rows: list[dict]) -> dict:
+    """Build the stacked lap-times (Gantt) view model from per-rider lap rows.
+
+    Same rows as build_position_chart (laps in *seconds*). Each rider becomes a
+    horizontal bar segmented by lap; riders are ordered fastest-finish first so
+    the chart reads like a results sheet. Riders who completed fewer laps simply
+    have a shorter bar — the lapped/pulled cue.
+    """
+    riders = []
+    for r in rows:
+        laps = _lap_durations(r)
+        if not laps:
+            continue  # DNS / no timing
+        riders.append({"row": r, "laps": laps})
+
+    if not riders:
+        return {"tracks": [], "n_laps": 0, "lap_colors": [], "field": 0, "finishers": 0}
+
+    n_laps = max(len(r["laps"]) for r in riders)
+
+    tracks: list[LapTrack] = []
+    for r in riders:
+        row = r["row"]
+        laps = r["laps"]
+        complete = len(laps) == n_laps and (row.get("status") or "OK") == "OK"
+        tracks.append(LapTrack(
+            bib=row["bib"],
+            name=row.get("name") or f"#{row['bib']}",
+            team=row.get("team"),
+            laps=laps,
+            laps_done=len(laps),
+            total=sum(laps),
+            finish_place=row.get("place"),
+            status=row.get("status") or "OK",
+            complete=complete,
+        ))
+
+    # Fastest finisher first; riders who didn't go the full distance sort last
+    # (by laps completed, then time), matching the bump chart's ordering.
+    tracks.sort(key=lambda t: (
+        not t.complete, -t.laps_done if not t.complete else 0,
+        t.finish_place if t.finish_place is not None else 10_000, t.total,
+    ))
+
+    return {
+        "tracks": tracks,
+        "n_laps": n_laps,
+        "lap_colors": _LAP_COLORS[:n_laps],
         "field": len(riders),
         "finishers": sum(1 for t in tracks if t.complete),
     }
