@@ -12,8 +12,8 @@
 
 <!-- Filters -->
 <form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-    <div class="grid md:grid-cols-2 gap-4">
-        <div>
+    <div class="grid md:grid-cols-6 gap-4">
+        <div class="md:col-span-3">
             <label class="block text-xs font-medium text-gray-500 mb-1">Event</label>
             <select name="event_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
                 {% for e in events %}
@@ -21,11 +21,20 @@
                 {% endfor %}
             </select>
         </div>
-        <div>
+        <div class="md:col-span-2">
             <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
             <select name="category" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
                 {% for c in categories %}
                 <option value="{{ c.category }}" {{ 'selected' if c.category == category }}>{{ c.category }} ({{ c.field }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Show</label>
+            <select name="top" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="0" {{ 'selected' if not top }}>All</option>
+                {% for n in [10, 20, 30] %}
+                <option value="{{ n }}" {{ 'selected' if top == n }}>Top {{ n }}</option>
                 {% endfor %}
             </select>
         </div>
@@ -37,11 +46,11 @@
     <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
         <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
         <span class="text-xs text-gray-400">
-            {{ chart.field }} riders timed · {{ chart.finishers }} completed all {{ chart.n_laps }} laps
+            {% if chart.shown < chart.field %}showing top {{ chart.shown }} of {% endif %}{{ chart.field }} riders timed · {{ chart.finishers }} completed all {{ chart.n_laps }} laps
         </span>
     </div>
     <div class="px-4 py-4">
-        <canvas id="positionChart" height="{{ [chart.field * 14, 320] | max }}"></canvas>
+        <canvas id="positionChart" height="{{ [chart.shown * 14, 320] | max }}"></canvas>
     </div>
     <p class="px-6 pb-2 text-[11px] text-gray-400">
         Hover a line to identify the rider. Dashed lines were pulled/lapped before the finish.
@@ -86,7 +95,7 @@
         <span class="text-xs text-gray-400">Each bar is a rider; each block is a lap — wider = slower. A short bar means pulled/lapped.</span>
     </div>
     <div class="px-4 py-4">
-        <canvas id="lapChart" height="{{ [lap_chart.field * 16, 320] | max }}"></canvas>
+        <canvas id="lapChart" height="{{ [lap_chart.shown * 16, 320] | max }}"></canvas>
     </div>
     <p class="px-6 pb-3 text-[11px] text-gray-400">
         Even blocks = metronomic pacing; a widening block = fade. Hover a block for the exact lap split.
@@ -136,7 +145,7 @@
         };
     });
 
-    const field = {{ chart.field }};
+    const maxPosition = {{ chart.max_position }};
     new Chart(document.getElementById('positionChart'), {
         type: 'line',
         data: {labels: labels, datasets: datasets},
@@ -154,7 +163,7 @@
             },
             scales: {
                 y: {
-                    reverse: true, min: 1, max: field,
+                    reverse: true, min: 1, max: maxPosition,
                     title: {display: true, text: 'Position'},
                     ticks: {stepSize: 1, precision: 0, font: {size: 10}},
                 },

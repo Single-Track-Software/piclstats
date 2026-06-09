@@ -287,6 +287,7 @@ def racechart_page(
     request: Request,
     event_id: int | None = Query(None),
     category: str = Query(""),
+    top: int = Query(0, description="Show only the top N finishers; 0 = all"),
 ):
     from piclstats.web import racechart as racechart_mod
 
@@ -295,7 +296,7 @@ def racechart_page(
         if not events:
             return templates.TemplateResponse("racechart.html", _ctx(
                 request, events=[], event=None, categories=[],
-                category="", chart=None, lap_chart=None,
+                category="", chart=None, lap_chart=None, top=top,
             ))
 
         # Default to the most recent event with timing.
@@ -309,16 +310,17 @@ def racechart_page(
         if category not in cat_names:
             category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
 
+        top_n = top if top > 0 else None
         chart = None
         lap_chart = None
         if category:
             rows = queries.event_lap_rows(session, event_id, category)
-            chart = racechart_mod.build_position_chart(rows)
-            lap_chart = racechart_mod.build_lap_chart(rows)
+            chart = racechart_mod.build_position_chart(rows, top=top_n)
+            lap_chart = racechart_mod.build_lap_chart(rows, top=top_n)
 
     return templates.TemplateResponse("racechart.html", _ctx(
         request, events=events, event=event, categories=categories,
-        category=category, chart=chart, lap_chart=lap_chart,
+        category=category, chart=chart, lap_chart=lap_chart, top=top,
     ))
 
 

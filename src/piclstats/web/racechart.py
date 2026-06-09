@@ -70,12 +70,18 @@ def _cumulative_seconds(row: dict) -> list[float]:
     return cum
 
 
-def build_position_chart(rows: list[dict]) -> dict:
+def build_position_chart(rows: list[dict], top: int | None = None) -> dict:
     """Build the bump-chart view model from per-rider lap rows.
 
     Each row needs: bib, name, team, status, place, and lap1..lap6 in *seconds*
     (None where the rider has no split for that lap). Returns a dict with the
     rider tracks, lap labels, and field/finisher counts for the template.
+
+    `top` limits the chart to the N best finishers (to declutter a big field).
+    Positions are still ranked against the *whole* field — a shown rider keeps
+    their true position even if they ran much of the race outside the top N —
+    and `max_position` reports the deepest position still on screen so the
+    template can scale the Y axis to the shown riders rather than the full pack.
     """
     riders = []
     for r in rows:
@@ -85,7 +91,8 @@ def build_position_chart(rows: list[dict]) -> dict:
         riders.append({"row": r, "cum": cum, "laps_done": len(cum)})
 
     if not riders:
-        return {"tracks": [], "n_laps": 0, "lap_labels": [], "field": 0, "finishers": 0}
+        return {"tracks": [], "n_laps": 0, "lap_labels": [], "field": 0,
+                "finishers": 0, "shown": 0, "max_position": 0}
 
     n_laps = max(r["laps_done"] for r in riders)
 
@@ -122,12 +129,23 @@ def build_position_chart(rows: list[dict]) -> dict:
 
     tracks.sort(key=_final_rank)
 
+    full_field = len(riders)
+    finishers = sum(1 for t in tracks if t.complete)
+    if top is not None and top > 0:
+        tracks = tracks[:top]
+    max_position = max(
+        (p for t in tracks for p in t.positions if p is not None),
+        default=full_field,
+    )
+
     return {
         "tracks": tracks,
         "n_laps": n_laps,
         "lap_labels": [f"Lap {i + 1}" for i in range(n_laps)],
-        "field": len(riders),
-        "finishers": sum(1 for t in tracks if t.complete),
+        "field": full_field,
+        "finishers": finishers,
+        "shown": len(tracks),
+        "max_position": max_position,
     }
 
 
@@ -161,13 +179,16 @@ class LapTrack:
     complete: bool
 
 
-def build_lap_chart(rows: list[dict]) -> dict:
+def build_lap_chart(rows: list[dict], top: int | None = None) -> dict:
     """Build the stacked lap-times (Gantt) view model from per-rider lap rows.
 
     Same rows as build_position_chart (laps in *seconds*). Each rider becomes a
     horizontal bar segmented by lap; riders are ordered fastest-finish first so
     the chart reads like a results sheet. Riders who completed fewer laps simply
     have a shorter bar — the lapped/pulled cue.
+
+    `top` limits the chart to the N best finishers; the stacked `series` is then
+    built from just those riders.
     """
     riders = []
     for r in rows:
@@ -178,7 +199,7 @@ def build_lap_chart(rows: list[dict]) -> dict:
 
     if not riders:
         return {"tracks": [], "series": [], "n_laps": 0, "lap_colors": [],
-                "field": 0, "finishers": 0}
+                "field": 0, "finishers": 0, "shown": 0}
 
     n_laps = max(len(r["laps"]) for r in riders)
 
@@ -206,6 +227,11 @@ def build_lap_chart(rows: list[dict]) -> dict:
         t.finish_place if t.finish_place is not None else 10_000, t.total,
     ))
 
+    full_field = len(riders)
+    finishers = sum(1 for t in tracks if t.complete)
+    if top is not None and top > 0:
+        tracks = tracks[:top]
+
     # One stacked series per lap, aligned to `tracks`: series[lap][rider] is that
     # rider's split for the lap, or None if they didn't complete it. Built here
     # (not in the template) so the per-lap/per-rider alignment is unit-tested.
@@ -219,6 +245,7 @@ def build_lap_chart(rows: list[dict]) -> dict:
         "series": series,
         "n_laps": n_laps,
         "lap_colors": _LAP_COLORS[:n_laps],
-        "field": len(riders),
-        "finishers": sum(1 for t in tracks if t.complete),
+        "field": full_field,
+        "finishers": finishers,
+        "shown": len(tracks),
     }
