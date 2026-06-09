@@ -1,0 +1,153 @@
+{% extends "base.html" %}
+{% block title %}Race Position — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Race Position</h1>
+    <p class="mt-1 text-sm text-gray-500">
+        How positions changed lap by lap. Each line is a rider; lower is better (1 = leading).
+        A line that ends early means the rider was pulled or lapped before the finish.
+    </p>
+</div>
+
+<!-- Filters -->
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="grid md:grid-cols-2 gap-4">
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Event</label>
+            <select name="event_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for e in events %}
+                <option value="{{ e.id }}" {{ 'selected' if event and e.id == event.id }}>{{ e.season }} #{{ e.event_order }} — {{ e.event_name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
+            <select name="category" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for c in categories %}
+                <option value="{{ c.category }}" {{ 'selected' if c.category == category }}>{{ c.category }} ({{ c.field }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+</form>
+
+{% if chart and chart.tracks %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
+        <span class="text-xs text-gray-400">
+            {{ chart.field }} riders timed · {{ chart.finishers }} completed all {{ chart.n_laps }} laps
+        </span>
+    </div>
+    <div class="px-4 py-4">
+        <canvas id="positionChart" height="{{ [chart.field * 14, 320] | max }}"></canvas>
+    </div>
+    <p class="px-6 pb-2 text-[11px] text-gray-400">
+        Hover a line to identify the rider. Dashed lines were pulled/lapped before the finish.
+        The table below is the authoritative key.
+    </p>
+
+    <!-- Results table doubles as the color key -->
+    <div class="overflow-x-auto border-t">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Finish</th>
+                    <th class="px-4 py-3">Rider</th>
+                    <th class="px-4 py-3">Team</th>
+                    {% for lbl in chart.lap_labels %}<th class="px-3 py-3 text-right">{{ lbl }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for t in chart.tracks %}
+                <tr class="hover:bg-picl-50" data-track="{{ loop.index0 }}">
+                    <td class="px-4 py-2 font-semibold text-gray-700">
+                        {% if t.complete %}{{ t.finish_place or loop.index }}{% else %}<span class="text-gray-400" title="{{ t.status }} — did not finish full distance">DNF</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-2">
+                        <span class="inline-block w-3 h-3 rounded-sm mr-2 align-middle" style="background: {{ t.color }}"></span>
+                        <span class="align-middle">{{ t.name }}</span>
+                    </td>
+                    <td class="px-4 py-2 text-gray-500 text-xs max-w-xs truncate" title="{{ t.team or '' }}">{{ t.team or '—' }}</td>
+                    {% for p in t.positions %}
+                    <td class="px-3 py-2 text-right font-mono text-gray-600">{{ p if p is not none else '—' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% elif chart %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
+    No lap timing for this category.
+</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
+    No events with lap timing yet.
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if chart and chart.tracks %}
+<script>
+(function() {
+    const labels = {{ chart.lap_labels | tojson }};
+    const tracks = [
+        {% for t in chart.tracks %}
+        {name: {{ t.name | tojson }}, color: {{ t.color | tojson }},
+         data: [{% for p in t.positions %}{{ 'null' if p is none else p }},{% endfor %}],
+         complete: {{ 'true' if t.complete else 'false' }}},
+        {% endfor %}
+    ];
+
+    // Draw the pack first and the top finishers last so leaders sit on top.
+    const order = tracks.map((_, i) => i).reverse();
+    const datasets = order.map(i => {
+        const t = tracks[i];
+        return {
+            label: t.name,
+            data: t.data,
+            borderColor: t.color,
+            backgroundColor: t.color,
+            borderWidth: t.complete ? 2 : 1,
+            borderDash: t.complete ? [] : [4, 4],
+            tension: 0.25,
+            spanGaps: false,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+        };
+    });
+
+    const field = {{ chart.field }};
+    new Chart(document.getElementById('positionChart'), {
+        type: 'line',
+        data: {labels: labels, datasets: datasets},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'nearest', intersect: false},
+            plugins: {
+                legend: {display: false},
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ctx.dataset.label + ' — P' + ctx.parsed.y,
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    reverse: true, min: 1, max: field,
+                    title: {display: true, text: 'Position'},
+                    ticks: {stepSize: 1, precision: 0, font: {size: 10}},
+                },
+                x: {ticks: {font: {size: 11}}},
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+{% endblock %}

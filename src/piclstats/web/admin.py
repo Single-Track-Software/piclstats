@@ -12,7 +12,6 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from fastapi.templating import Jinja2Templates
 from sqlalchemy import select, update
 
 from piclstats.config import settings as app_settings
@@ -20,6 +19,7 @@ from piclstats.db.engine import get_session
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import course_loops, courses
 from piclstats.web.forecast import DEFAULT_CONFIG
+from piclstats.web.templating import Jinja2Templates
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
