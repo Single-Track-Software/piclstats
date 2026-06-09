@@ -125,5 +125,24 @@ def test_lap_chart_colors_match_lap_count():
 
 def test_lap_chart_empty():
     assert build_lap_chart([]) == {
-        "tracks": [], "n_laps": 0, "lap_colors": [], "field": 0, "finishers": 0,
+        "tracks": [], "series": [], "n_laps": 0, "lap_colors": [],
+        "field": 0, "finishers": 0,
     }
+
+
+def test_lap_chart_series_aligns_lap_to_rider():
+    # Regression: each lap's series must be that lap's split for every rider,
+    # not the rider-indexed diagonal that earlier broke the stacked bars.
+    rows = [
+        _row(1, "Fast", "OK", 1, 300, 310, 320),
+        _row(2, "Mid", "OK", 2, 305, 315, 325),
+        _row(3, "Pulled", "OK", 3, 290, 400),  # 2 laps only
+    ]
+    out = build_lap_chart(rows)
+    names = [t.name for t in out["tracks"]]
+    assert names == ["Fast", "Mid", "Pulled"]
+    assert out["series"][0] == [300, 305, 290]      # lap 1 for all three
+    assert out["series"][1] == [310, 315, 400]      # lap 2 for all three
+    assert out["series"][2] == [320, 325, None]     # lap 3 — Pulled has none
+    # Every lap series spans the full field.
+    assert all(len(s) == out["field"] for s in out["series"])
