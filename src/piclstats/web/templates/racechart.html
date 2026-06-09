@@ -79,6 +79,21 @@
         </table>
     </div>
 </div>
+{% if lap_chart and lap_chart.tracks %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Stacked Lap Times</h2>
+        <span class="text-xs text-gray-400">Each bar is a rider; each block is a lap — wider = slower. A short bar means pulled/lapped.</span>
+    </div>
+    <div class="px-4 py-4">
+        <canvas id="lapChart" height="{{ [lap_chart.field * 16, 320] | max }}"></canvas>
+    </div>
+    <p class="px-6 pb-3 text-[11px] text-gray-400">
+        Even blocks = metronomic pacing; a widening block = fade. Hover a block for the exact lap split.
+    </p>
+</div>
+{% endif %}
+
 {% elif chart %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
     No lap timing for this category.
@@ -144,6 +159,63 @@
                     ticks: {stepSize: 1, precision: 0, font: {size: 10}},
                 },
                 x: {ticks: {font: {size: 11}}},
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% if lap_chart and lap_chart.tracks %}
+<script>
+(function() {
+    // mm:ss, or h:mm:ss past an hour — for axis ticks and tooltips.
+    function fmt(secs) {
+        secs = Math.round(secs);
+        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+        const mm = (h && m < 10) ? '0' + m : m;
+        return (h ? h + ':' + mm : m) + ':' + (s < 10 ? '0' + s : s);
+    }
+
+    const riders = {{ lap_chart.tracks | map(attribute='name') | list | tojson }};
+    const colors = {{ lap_chart.lap_colors | tojson }};
+    // One stacked dataset per lap: data[r] = that rider's split for this lap.
+    const laps = [
+        {% for c in lap_chart.lap_colors %}
+        [{% for t in lap_chart.tracks %}{{ t.laps[loop.index0] if t.laps|length > loop.index0 else 'null' }},{% endfor %}],
+        {% endfor %}
+    ];
+    const datasets = colors.map((color, j) => ({
+        label: 'Lap ' + (j + 1),
+        data: laps[j],
+        backgroundColor: color,
+        borderColor: 'rgba(255,255,255,0.6)',
+        borderWidth: 0.5,
+    }));
+
+    new Chart(document.getElementById('lapChart'), {
+        type: 'bar',
+        data: {labels: riders, datasets: datasets},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            interaction: {mode: 'nearest', intersect: true},
+            plugins: {
+                legend: {position: 'top', labels: {font: {size: 11}, boxWidth: 12}},
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ctx.dataset.label + ': ' + fmt(ctx.parsed.x),
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    title: {display: true, text: 'Elapsed time'},
+                    ticks: {callback: (v) => fmt(v), font: {size: 10}},
+                },
+                y: {stacked: true, ticks: {font: {size: 9}, autoSkip: false}},
             }
         }
     });

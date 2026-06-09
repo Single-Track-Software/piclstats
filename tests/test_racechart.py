@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from piclstats.web.racechart import build_position_chart
+from piclstats.web.racechart import build_lap_chart, build_position_chart
 
 
 def _row(bib, name, status, place, *laps):
@@ -78,3 +78,52 @@ def test_tracks_ordered_by_finish():
 def test_empty_input():
     out = build_position_chart([])
     assert out == {"tracks": [], "n_laps": 0, "lap_labels": [], "field": 0, "finishers": 0}
+
+
+# ── Stacked lap-times (Gantt) ───────────────────────────────────────────
+
+def test_lap_chart_durations_and_total():
+    rows = [
+        _row(1, "A", "OK", 1, 300, 310, 320, 330),
+        _row(2, "B", "OK", 2, 305, 315, 325, 335),
+    ]
+    out = build_lap_chart(rows)
+    assert out["n_laps"] == 4
+    a = next(t for t in out["tracks"] if t.name == "A")
+    assert a.laps == [300, 310, 320, 330]
+    assert a.total == 1260
+    assert a.complete is True
+
+
+def test_lap_chart_short_bar_for_lapped_rider():
+    rows = [
+        _row(1, "A", "OK", 1, 300, 300, 300, 300),
+        _row(2, "C", "OK", 3, 285, 315, 360),  # only 3 laps
+    ]
+    out = build_lap_chart(rows)
+    c = next(t for t in out["tracks"] if t.name == "C")
+    assert c.laps_done == 3
+    assert c.complete is False
+    assert len(c.laps) == 3  # no 4th segment — bar ends short
+
+
+def test_lap_chart_ordered_fastest_first():
+    rows = [
+        _row(1, "Slow", "OK", 2, 400, 400),
+        _row(2, "Fast", "OK", 1, 300, 300),
+        _row(3, "Pulled", "OK", 3, 290),  # 1 lap — sorts last
+    ]
+    out = build_lap_chart(rows)
+    assert [t.name for t in out["tracks"]] == ["Fast", "Slow", "Pulled"]
+
+
+def test_lap_chart_colors_match_lap_count():
+    rows = [_row(1, "A", "OK", 1, 300, 300, 300)]
+    out = build_lap_chart(rows)
+    assert len(out["lap_colors"]) == 3
+
+
+def test_lap_chart_empty():
+    assert build_lap_chart([]) == {
+        "tracks": [], "n_laps": 0, "lap_colors": [], "field": 0, "finishers": 0,
+    }

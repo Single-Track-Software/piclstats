@@ -295,7 +295,7 @@ def racechart_page(
         if not events:
             return templates.TemplateResponse("racechart.html", _ctx(
                 request, events=[], event=None, categories=[],
-                category="", chart=None,
+                category="", chart=None, lap_chart=None,
             ))
 
         # Default to the most recent event with timing.
@@ -310,13 +310,15 @@ def racechart_page(
             category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
 
         chart = None
+        lap_chart = None
         if category:
             rows = queries.event_lap_rows(session, event_id, category)
             chart = racechart_mod.build_position_chart(rows)
+            lap_chart = racechart_mod.build_lap_chart(rows)
 
     return templates.TemplateResponse("racechart.html", _ctx(
         request, events=events, event=event, categories=categories,
-        category=category, chart=chart,
+        category=category, chart=chart, lap_chart=lap_chart,
     ))
 
 
