@@ -177,7 +177,8 @@ def build_lap_chart(rows: list[dict]) -> dict:
         riders.append({"row": r, "laps": laps})
 
     if not riders:
-        return {"tracks": [], "n_laps": 0, "lap_colors": [], "field": 0, "finishers": 0}
+        return {"tracks": [], "series": [], "n_laps": 0, "lap_colors": [],
+                "field": 0, "finishers": 0}
 
     n_laps = max(len(r["laps"]) for r in riders)
 
@@ -205,8 +206,17 @@ def build_lap_chart(rows: list[dict]) -> dict:
         t.finish_place if t.finish_place is not None else 10_000, t.total,
     ))
 
+    # One stacked series per lap, aligned to `tracks`: series[lap][rider] is that
+    # rider's split for the lap, or None if they didn't complete it. Built here
+    # (not in the template) so the per-lap/per-rider alignment is unit-tested.
+    series = [
+        [t.laps[lap] if t.laps_done > lap else None for t in tracks]
+        for lap in range(n_laps)
+    ]
+
     return {
         "tracks": tracks,
+        "series": series,
         "n_laps": n_laps,
         "lap_colors": _LAP_COLORS[:n_laps],
         "field": len(riders),

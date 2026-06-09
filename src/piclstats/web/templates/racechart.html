@@ -179,15 +179,11 @@
 
     const riders = {{ lap_chart.tracks | map(attribute='name') | list | tojson }};
     const colors = {{ lap_chart.lap_colors | tojson }};
-    // One stacked dataset per lap: data[r] = that rider's split for this lap.
-    const laps = [
-        {% for c in lap_chart.lap_colors %}
-        [{% for t in lap_chart.tracks %}{{ t.laps[loop.index0] if t.laps|length > loop.index0 else 'null' }},{% endfor %}],
-        {% endfor %}
-    ];
+    // series[lap][rider] = that rider's split for the lap (null if not completed).
+    const series = {{ lap_chart.series | tojson }};
     const datasets = colors.map((color, j) => ({
         label: 'Lap ' + (j + 1),
-        data: laps[j],
+        data: series[j],
         backgroundColor: color,
         borderColor: 'rgba(255,255,255,0.6)',
         borderWidth: 0.5,
