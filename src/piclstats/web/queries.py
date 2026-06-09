@@ -971,3 +971,54 @@ def available_target_divisions(
         ORDER BY r.division
     """), {"gender": gender, "source": source_division}).all()
     return [r[0] for r in rows]
+
+
+# ── Race-position bump chart (the /racechart page) ──────────────────────
+
+def events_list(session: Session) -> list[dict]:
+    """Events that have any lap timing, newest first — the chart's event picker."""
+    rows = session.execute(text("""
+        SELECT e.id, e.season, e.event_name, e.event_order
+        FROM events e
+        WHERE EXISTS (
+            SELECT 1 FROM results r
+            WHERE r.event_id = e.id AND r.lap1 IS NOT NULL
+        )
+        ORDER BY e.season DESC, e.event_order DESC
+    """)).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def event_categories(session: Session, event_id: int) -> list[dict]:
+    """Categories in one event that have lap timing, in race order."""
+    rows = session.execute(text("""
+        SELECT category, max(category_order) AS category_order, count(*) AS field
+        FROM results
+        WHERE event_id = :eid AND lap1 IS NOT NULL
+        GROUP BY category
+        ORDER BY category_order
+    """), {"eid": event_id}).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def event_lap_rows(session: Session, event_id: int, category: str) -> list[dict]:
+    """Per-rider lap splits (in seconds) for one event + category.
+
+    Laps are returned as float seconds rather than the Interval default so the
+    pure racechart module can sum them without timedelta handling. Ordered by
+    official place so unranked riders (DNF/DSQ) sort last.
+    """
+    rows = session.execute(text("""
+        SELECT r.bib, ri.name AS name, ri.team AS team, r.status, r.place,
+               EXTRACT(EPOCH FROM r.lap1) AS lap1,
+               EXTRACT(EPOCH FROM r.lap2) AS lap2,
+               EXTRACT(EPOCH FROM r.lap3) AS lap3,
+               EXTRACT(EPOCH FROM r.lap4) AS lap4,
+               EXTRACT(EPOCH FROM r.lap5) AS lap5,
+               EXTRACT(EPOCH FROM r.lap6) AS lap6
+        FROM results r
+        JOIN riders ri ON ri.id = r.rider_id
+        WHERE r.event_id = :eid AND r.category = :cat
+        ORDER BY r.place NULLS LAST, r.bib
+    """), {"eid": event_id, "cat": category}).all()
+    return [dict(r._mapping) for r in rows]

@@ -9,9 +9,9 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, Response
-from fastapi.templating import Jinja2Templates
 
 from piclstats.db.engine import get_session
+from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -279,6 +279,44 @@ def staging_page(
         request, grid=grid, seasons=seasons, season=season,
         age_group=age_group, gender=gender, metric=metric, sort=sort,
         division=division, conference=conference, wave=wave,
+    ))
+
+
+@app.get("/racechart", response_class=HTMLResponse)
+def racechart_page(
+    request: Request,
+    event_id: int | None = Query(None),
+    category: str = Query(""),
+):
+    from piclstats.web import racechart as racechart_mod
+
+    with get_session() as session:
+        events = queries.events_list(session)
+        if not events:
+            return templates.TemplateResponse("racechart.html", _ctx(
+                request, events=[], event=None, categories=[],
+                category="", chart=None,
+            ))
+
+        # Default to the most recent event with timing.
+        if event_id is None or not any(e["id"] == event_id for e in events):
+            event_id = events[0]["id"]
+        event = next(e for e in events if e["id"] == event_id)
+
+        categories = queries.event_categories(session, event_id)
+        cat_names = [c["category"] for c in categories]
+        # Default to the largest field in the event (the marquee race).
+        if category not in cat_names:
+            category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
+
+        chart = None
+        if category:
+            rows = queries.event_lap_rows(session, event_id, category)
+            chart = racechart_mod.build_position_chart(rows)
+
+    return templates.TemplateResponse("racechart.html", _ctx(
+        request, events=events, event=event, categories=categories,
+        category=category, chart=chart,
     ))
 
 
