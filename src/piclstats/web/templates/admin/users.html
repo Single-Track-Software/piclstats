@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+{% block title %}Users — Admin{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+    <div class="mb-4"><a href="/admin" class="text-sm text-picl-700 hover:underline">&larr; Admin</a></div>
+    <h1 class="text-2xl font-bold text-gray-900 mb-6">Users</h1>
+
+    {% if saved %}
+    <div class="mb-4 px-4 py-2 rounded bg-green-50 text-green-800 text-sm border border-green-200">{{ saved }}</div>
+    {% endif %}
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    <!-- Add user -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-8">
+        <h2 class="font-semibold text-picl-800 mb-3">Add user</h2>
+        <form method="post" action="/admin/users" class="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+            <div class="sm:col-span-2">
+                <label class="block text-xs text-gray-600 mb-1">Email</label>
+                <input name="email" type="email" required class="w-full border rounded px-2 py-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Name</label>
+                <input name="name" type="text" class="w-full border rounded px-2 py-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Role</label>
+                <select name="role" class="w-full border rounded px-2 py-1 text-sm">
+                    {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Temp password</label>
+                <input name="password" type="text" required class="w-full border rounded px-2 py-1 text-sm">
+            </div>
+            <div class="sm:col-span-5">
+                <button type="submit" class="bg-picl-700 text-white px-4 py-1.5 rounded text-sm hover:bg-picl-800">Create user</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Existing users -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr>
+                    <th class="text-left px-4 py-2">Email</th>
+                    <th class="text-left px-4 py-2">Name</th>
+                    <th class="text-left px-4 py-2">Role</th>
+                    <th class="text-left px-4 py-2">Status</th>
+                    <th class="text-left px-4 py-2">Last login</th>
+                    <th class="text-left px-4 py-2">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for u in users %}
+                <tr class="hover:bg-gray-50 align-top">
+                    <td class="px-4 py-2 font-medium text-gray-800">{{ u.email }}</td>
+                    <td class="px-4 py-2 text-gray-600">{{ u.name or '—' }}</td>
+                    <td class="px-4 py-2">
+                        <form method="post" action="/admin/users/{{ u.id }}" class="flex items-center gap-1">
+                            <input type="hidden" name="action" value="set_role">
+                            <select name="role" class="border rounded px-1 py-0.5 text-xs">
+                                {% for r in roles %}<option value="{{ r }}" {% if u.role == r %}selected{% endif %}>{{ r }}</option>{% endfor %}
+                            </select>
+                            <button class="text-xs text-picl-700 hover:underline">save</button>
+                        </form>
+                    </td>
+                    <td class="px-4 py-2">
+                        {% if u.is_active %}
+                        <span class="text-green-700">active</span>
+                        {% else %}
+                        <span class="text-gray-400">inactive</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-gray-500">{{ u.last_login_at.strftime('%Y-%m-%d') if u.last_login_at else '—' }}</td>
+                    <td class="px-4 py-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            {% if u.is_active %}
+                            <form method="post" action="/admin/users/{{ u.id }}">
+                                <input type="hidden" name="action" value="deactivate">
+                                <button class="text-xs text-red-600 hover:underline">deactivate</button>
+                            </form>
+                            {% else %}
+                            <form method="post" action="/admin/users/{{ u.id }}">
+                                <input type="hidden" name="action" value="activate">
+                                <button class="text-xs text-green-700 hover:underline">activate</button>
+                            </form>
+                            {% endif %}
+                            <form method="post" action="/admin/users/{{ u.id }}" class="flex items-center gap-1">
+                                <input type="hidden" name="action" value="reset_password">
+                                <input name="password" type="text" placeholder="new password" class="border rounded px-1 py-0.5 text-xs w-28">
+                                <button class="text-xs text-picl-700 hover:underline">reset</button>
+                            </form>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

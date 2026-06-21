@@ -33,17 +33,32 @@
                     <a href="/" class="text-white font-bold text-xl tracking-tight">
                         PICL Stats
                     </a>
+                    {% set user = request.state.user if request and request.state else None %}
                     <div class="hidden md:flex space-x-4">
                         <a href="/" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Dashboard</a>
                         <a href="/riders" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Riders</a>
                         <a href="/teams" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Teams</a>
                         <a href="/leaderboard" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Leaderboard</a>
+                        <a href="/courses" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Courses</a>
+                        {% if user %}
                         <a href="/staging" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Staging</a>
                         <a href="/racechart" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Race Position</a>
-                        <a href="/courses" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Courses</a>
+                        {% endif %}
+                        {% if user and user.role == 'admin' %}
+                        <a href="/admin" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Admin</a>
+                        {% endif %}
                     </div>
                 </div>
-                <div class="text-picl-200 text-xs">PA Interscholastic Cycling League</div>
+                <div class="flex items-center space-x-3 text-xs">
+                    {% if user %}
+                    <span class="text-picl-200">{{ user.email }}</span>
+                    <form method="post" action="/logout" class="inline">
+                        <button type="submit" class="text-picl-200 hover:text-white">Sign out</button>
+                    </form>
+                    {% else %}
+                    <a href="/login" class="text-picl-200 hover:text-white">Sign in</a>
+                    {% endif %}
+                </div>
             </div>
         </div>
     </nav>

@@ -8,6 +8,12 @@ primary_region = 'ord'
 
 [build]
 
+[deploy]
+  # Runs in a temporary machine after build, before the new version serves
+  # traffic. Reads the DB URL via config.py's DATABASE_URL fallback (start.sh
+  # does not run here).
+  release_command = 'alembic upgrade head'
+
 [http_service]
   internal_port = 8080
   force_https = true

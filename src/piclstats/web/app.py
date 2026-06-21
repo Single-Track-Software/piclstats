@@ -8,11 +8,19 @@ import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from starlette.middleware.sessions import SessionMiddleware
 
+from piclstats.config import settings
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
+from piclstats.web.auth import (
+    LoginRequired,
+    load_user,
+    require_member,
+    require_member_api,
+)
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 
@@ -21,7 +29,63 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="PICL Stats Dashboard")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
+# Middleware runs outermost-last, so add the user-context middleware first and
+# SessionMiddleware second — SessionMiddleware then wraps it and request.session
+# is populated before _load_user_state runs.
+@app.middleware("http")
+async def _load_user_state(request: Request, call_next):
+    # Expose the current user to every template (nav login state) via request.state.
+    request.state.user = load_user(request)
+    return await call_next(request)
+
+
+if not settings.session_secret:
+    logger.warning(
+        "PICLSTATS_SESSION_SECRET is empty; session cookies are not secure. "
+        "Set it before serving real traffic."
+    )
+
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.session_secret or "insecure-dev-only-secret",
+    https_only=settings.session_https_only,
+    same_site="lax",
+)
+
+
+@app.exception_handler(LoginRequired)
+async def _login_required_handler(request: Request, exc: LoginRequired):
+    from urllib.parse import quote
+
+    return RedirectResponse(f"/login?next={quote(exc.next_path)}", status_code=303)
+
+
+@app.on_event("startup")
+def _bootstrap_admin() -> None:
+    # Seed the first admin from env so a fresh deploy has a way in. No-op once
+    # that account exists, so it's safe to leave the env vars set.
+    if not (settings.admin_email and settings.admin_password):
+        return
+    from piclstats.db import users_store
+    from piclstats.web.auth import hash_password
+
+    try:
+        if users_store.get_user_by_email(settings.admin_email):
+            return
+        users_store.create_user(
+            email=settings.admin_email,
+            name="Admin",
+            password_hash=hash_password(settings.admin_password),
+            role="admin",
+        )
+        logger.info("Bootstrapped admin account %s", settings.admin_email)
+    except Exception:
+        logger.exception("Failed to bootstrap admin account")
+
+
 from piclstats.web.admin import router as admin_router  # noqa: E402
+from piclstats.web.auth import router as auth_router  # noqa: E402
+app.include_router(auth_router)
 app.include_router(admin_router)
 
 
@@ -150,6 +214,7 @@ def rider_forecast(
     rider_id: int,
     target_division: str = Query(""),
     season: int | None = Depends(optional_season),
+    _user: dict = Depends(require_member),
 ):
     from piclstats.web.forecast import ForecastInput, RaceObservation, StatisticalForecastModel
     from piclstats.web.staging import build_speed_rating
@@ -266,6 +331,7 @@ def staging_page(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
+    _user: dict = Depends(require_member),
 ):
     with get_session() as session:
         seasons = queries.seasons_list(session)
@@ -288,6 +354,7 @@ def racechart_page(
     event_id: int | None = Query(None),
     category: str = Query(""),
     top: int = Query(0, description="Show only the top N finishers; 0 = all"),
+    _user: dict = Depends(require_member),
 ):
     from piclstats.web import racechart as racechart_mod
 
@@ -334,6 +401,7 @@ def staging_csv(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
+    _user: dict = Depends(require_member_api),
 ):
     with get_session() as session:
         seasons = queries.seasons_list(session)

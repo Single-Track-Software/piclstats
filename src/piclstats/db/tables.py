@@ -1,6 +1,7 @@
 """SQLAlchemy Core table definitions."""
 
 from sqlalchemy import (
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -136,6 +137,24 @@ settings = Table(
     Column("key", Text, primary_key=True),
     Column("value", JSONB, nullable=False),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+# Login accounts for the gated features (staging / race position / prediction).
+# 'member' unlocks those features; 'admin' also reaches the /admin config pages.
+# email is stored lower-cased (normalized in code) so the unique constraint is
+# effectively case-insensitive without needing the citext extension.
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("email", Text, nullable=False, unique=True),
+    Column("name", Text),
+    Column("password_hash", Text, nullable=False),
+    Column("role", Text, nullable=False, server_default="member"),
+    Column("is_active", Boolean, nullable=False, server_default="true"),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("last_login_at", DateTime(timezone=True)),
+    Index("idx_users_email", "email"),
 )
 
 rider_aliases = Table(
