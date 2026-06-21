@@ -1,23 +1,23 @@
-"""Admin router — unlinked /admin pages behind HTTP Basic auth.
+"""Admin router — unlinked /admin pages behind the admin role.
 
-Lets the operator tune forecast config and edit course stats (distance,
-elevation, MS/HS loop data). Password comes from PICLSTATS_ADMIN_PASSWORD.
+Lets the operator tune forecast config, edit course stats (distance, elevation,
+MS/HS loop data), and manage login accounts. Auth is the shared session login
+(see web/auth.py); these pages require role 'admin'.
 """
 
 from __future__ import annotations
 
-import secrets
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy import select, update
 
-from piclstats.config import settings as app_settings
+from piclstats.db import users_store
 from piclstats.db.engine import get_session
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import course_loops, courses
+from piclstats.web.auth import hash_password, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
 from piclstats.web.templating import Jinja2Templates
 
@@ -25,46 +25,6 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 router = APIRouter(prefix="/admin", tags=["admin"])
-_basic = HTTPBasic()
-
-
-def _require_auth(credentials: HTTPBasicCredentials = Depends(_basic)) -> str:
-    expected = app_settings.admin_password
-    if not expected:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin password not configured",
-        )
-    ok_user = secrets.compare_digest(credentials.username, "admin")
-    ok_pass = secrets.compare_digest(credentials.password, expected)
-    if not (ok_user and ok_pass):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
-
-
-def _require_same_origin(request: Request) -> None:
-    # CSRF mitigation: reject cross-origin POSTs. Checks Origin first, falls
-    # back to Referer. Host must match one of the headers so a malicious page
-    # with cached Basic creds cannot write.
-    host = request.headers.get("host", "")
-    origin = request.headers.get("origin")
-    referer = request.headers.get("referer")
-    source = origin or referer
-    if not source:
-        raise HTTPException(status_code=403, detail="Missing Origin/Referer")
-    # Extract host:port from the source URL
-    try:
-        from urllib.parse import urlparse
-        parsed = urlparse(source)
-        source_host = parsed.netloc
-    except Exception:
-        raise HTTPException(status_code=403, detail="Invalid Origin/Referer")
-    if source_host != host:
-        raise HTTPException(status_code=403, detail="Cross-origin request blocked")
 
 
 # Config keys we expose in the forecast form, with type + label + help text.
@@ -81,12 +41,12 @@ FORECAST_FIELDS = [
 
 
 @router.get("", response_class=HTMLResponse)
-def admin_index(request: Request, _: str = Depends(_require_auth)):
+def admin_index(request: Request, _: str = Depends(require_admin)):
     return templates.TemplateResponse("admin/index.html", {"request": request})
 
 
 @router.get("/forecast", response_class=HTMLResponse)
-def forecast_form(request: Request, saved: int = 0, _: str = Depends(_require_auth)):
+def forecast_form(request: Request, saved: int = 0, _: str = Depends(require_admin)):
     config = get_forecast_config()
     thresholds = config.get("readiness_thresholds", DEFAULT_CONFIG["readiness_thresholds"])
     return templates.TemplateResponse(
@@ -104,8 +64,8 @@ def forecast_form(request: Request, saved: int = 0, _: str = Depends(_require_au
 @router.post("/forecast")
 async def forecast_save(
     request: Request,
-    _: str = Depends(_require_auth),
-    __: None = Depends(_require_same_origin),
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
 ):
     form = await request.form()
     override: dict = {}
@@ -133,7 +93,7 @@ async def forecast_save(
 
 
 @router.get("/courses", response_class=HTMLResponse)
-def courses_list(request: Request, _: str = Depends(_require_auth)):
+def courses_list(request: Request, _: str = Depends(require_admin)):
     with get_session() as s:
         rows = s.execute(
             select(courses.c.id, courses.c.name, courses.c.location, courses.c.distance_miles,
@@ -160,7 +120,7 @@ def _load_course(course_id: int):
 
 @router.get("/courses/{course_id}", response_class=HTMLResponse)
 def course_edit(
-    request: Request, course_id: int, saved: int = 0, _: str = Depends(_require_auth)
+    request: Request, course_id: int, saved: int = 0, _: str = Depends(require_admin)
 ):
     course, loops = _load_course(course_id)
     if not course:
@@ -186,8 +146,8 @@ def _opt_float(raw):
 async def course_save(
     request: Request,
     course_id: int,
-    _: str = Depends(_require_auth),
-    __: None = Depends(_require_same_origin),
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
 ):
     form = await request.form()
     try:
@@ -241,3 +201,87 @@ async def course_save(
         s.commit()
 
     return RedirectResponse(f"/admin/courses/{course_id}?saved=1", status_code=303)
+
+
+# --- user management --------------------------------------------------------
+
+VALID_ROLES = ("member", "admin")
+
+
+@router.get("/users", response_class=HTMLResponse)
+def users_list(request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)):
+    return templates.TemplateResponse(
+        "admin/users.html",
+        {
+            "request": request,
+            "users": users_store.list_users(),
+            "saved": saved,
+            "error": error,
+            "roles": VALID_ROLES,
+        },
+    )
+
+
+@router.post("/users")
+async def users_create(
+    request: Request,
+    admin: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    email = (form.get("email") or "").strip()
+    name = (form.get("name") or "").strip() or None
+    role = form.get("role") or "member"
+    password = form.get("password") or ""
+
+    if not email or not password:
+        return RedirectResponse("/admin/users?error=Email+and+password+required", status_code=303)
+    if role not in VALID_ROLES:
+        return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
+    if users_store.get_user_by_email(email):
+        return RedirectResponse("/admin/users?error=Email+already+exists", status_code=303)
+
+    users_store.create_user(email, name, hash_password(password), role)
+    return RedirectResponse("/admin/users?saved=User+created", status_code=303)
+
+
+@router.post("/users/{user_id}")
+async def users_update(
+    request: Request,
+    user_id: int,
+    admin: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    action = form.get("action")
+
+    target = users_store.get_user_by_id(user_id)
+    if not target:
+        raise HTTPException(404, "User not found")
+
+    # Don't let an admin lock themselves out of the last admin path.
+    if action in ("deactivate", "demote") and target["id"] == admin["id"]:
+        return RedirectResponse(
+            "/admin/users?error=You+cannot+change+your+own+access", status_code=303
+        )
+
+    if action == "set_role":
+        role = form.get("role") or "member"
+        if role not in VALID_ROLES:
+            return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
+        users_store.set_role(user_id, role)
+        return RedirectResponse("/admin/users?saved=Role+updated", status_code=303)
+    if action == "activate":
+        users_store.set_active(user_id, True)
+        return RedirectResponse("/admin/users?saved=User+activated", status_code=303)
+    if action == "deactivate":
+        users_store.set_active(user_id, False)
+        return RedirectResponse("/admin/users?saved=User+deactivated", status_code=303)
+    if action == "reset_password":
+        password = form.get("password") or ""
+        if not password:
+            return RedirectResponse("/admin/users?error=Password+required", status_code=303)
+        users_store.set_password(user_id, hash_password(password))
+        return RedirectResponse("/admin/users?saved=Password+reset", status_code=303)
+
+    return RedirectResponse("/admin/users?error=Unknown+action", status_code=303)

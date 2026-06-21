@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Sign in — PICL Stats{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-8">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Sign in</h1>
+    <p class="text-sm text-gray-600 mb-6">
+        Staging, race position, and prediction are limited to PICL staff. Public rider,
+        team, and course data needs no login.
+    </p>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/login" class="bg-white rounded-lg shadow border border-gray-200 p-5 space-y-4">
+        <input type="hidden" name="next" value="{{ next }}">
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Email</label>
+            <input name="email" type="email" required autofocus class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Password</label>
+            <input name="password" type="password" required class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="w-full bg-picl-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-800">
+            Sign in
+        </button>
+    </form>
+</div>
+{% endblock %}
