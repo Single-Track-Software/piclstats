@@ -10,10 +10,19 @@ from piclstats.web.staging import build_grid, build_speed_rating, percentile_fas
 def _grow(cid, name, division, per_event, conf=None, group=None):
     """One row per (rider, event); per_event maps event_id -> z."""
     return [
-        {"canonical_id": cid, "name": name, "team": "T", "division": division,
-         "conference": conf, "conference_group": group,
-         "event_id": eid, "event_name": f"Race {eid}", "event_order": eid,
-         "z_pace": z, "z_lap": z}
+        {
+            "canonical_id": cid,
+            "name": name,
+            "team": "T",
+            "division": division,
+            "conference": conf,
+            "conference_group": group,
+            "event_id": eid,
+            "event_name": f"Race {eid}",
+            "event_order": eid,
+            "z_pace": z,
+            "z_lap": z,
+        }
         for eid, z in per_event.items()
     ]
 
@@ -49,11 +58,11 @@ def test_average_and_best_of_rollup():
     sr = build_speed_rating(rows)
     pace = sr["pace"]
     assert pace.events_used == 3
-    assert math.isclose(pace.avg_z, -1.0, abs_tol=1e-9)   # mean of -.5,-1.5,-1
-    assert pace.best_z == -1.5                            # most negative = fastest
-    assert pace.latest_z == -1.0                          # last event
-    assert pace.rating == 1.0                             # -avg_z, higher = faster
-    assert pace.percentile > 50                           # faster than average
+    assert math.isclose(pace.avg_z, -1.0, abs_tol=1e-9)  # mean of -.5,-1.5,-1
+    assert pace.best_z == -1.5  # most negative = fastest
+    assert pace.latest_z == -1.0  # last event
+    assert pace.rating == 1.0  # -avg_z, higher = faster
+    assert pace.percentile > 50  # faster than average
 
 
 def test_both_metrics_summarized_independently():
@@ -63,7 +72,7 @@ def test_both_metrics_summarized_independently():
     ]
     sr = build_speed_rating(rows)
     assert sr["pace"].events_used == 2
-    assert sr["lap"].events_used == 1               # only one event had a lap z
+    assert sr["lap"].events_used == 1  # only one event had a lap z
     assert sr["lap"].best_z == -0.8
     assert sr["age_group"] == "HS"
     assert sr["age_group_label"] == "High School"
@@ -86,6 +95,7 @@ def test_low_confidence_flagged_under_three_events():
 
 # ── staging grid ────────────────────────────────────────────────────────
 
+
 def _category_rows():
     rows = []
     rows += _grow(1, "Fast Kid", "MS Advanced", {1: -1.8, 2: -2.0})
@@ -100,7 +110,7 @@ def test_grid_ranks_fastest_first_and_pivots_events():
     assert [r["rank"] for r in grid["riders"]] == [1, 2, 3]
     assert len(grid["events"]) == 2
     fast = grid["riders"][0]
-    assert fast["best_z"] == -2.0           # most negative across events
+    assert fast["best_z"] == -2.0  # most negative across events
     assert fast["per_event"][1] == -1.8 and fast["per_event"][2] == -2.0
     assert grid["divisions"] == ["6th Grade", "7th Grade", "MS Advanced"]
 
@@ -124,7 +134,7 @@ def test_grid_division_filter_reranks_within_division():
 
 def test_grid_avg_sort_differs_from_best():
     # A kid with one great race but poor average vs a steady kid.
-    rows = _grow(1, "Spiky", "7th Grade", {1: -3.0, 2: 1.0})   # best -3.0, avg -1.0
+    rows = _grow(1, "Spiky", "7th Grade", {1: -3.0, 2: 1.0})  # best -3.0, avg -1.0
     rows += _grow(2, "Steady", "7th Grade", {1: -1.4, 2: -1.4})  # best -1.4, avg -1.4
     by_best = build_grid(rows, sort="best")
     by_avg = build_grid(rows, sort="avg")
@@ -143,7 +153,7 @@ def _conf_rows():
 def test_grid_conference_dropdown_groups_only_when_multi():
     grid = build_grid(_conf_rows())
     assert grid["conferences"] == ["Central", "Eastern Blue", "Eastern Gold"]
-    assert "Eastern" in grid["conference_groups"]      # spans Blue + Gold
+    assert "Eastern" in grid["conference_groups"]  # spans Blue + Gold
     assert "Central" not in grid["conference_groups"]  # single conference
 
 

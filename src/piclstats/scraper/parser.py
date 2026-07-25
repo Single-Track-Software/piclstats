@@ -164,7 +164,12 @@ def _detect_field_layout(data_fields: list[str], sample_row: list[str]) -> dict[
     if time_idx < 0:
         for i in range(n - 1, 3, -1):
             df = data_fields[i]
-            if "TIME" in df.upper() and "LAP" not in df.upper() and "DISPLAY" not in df.upper() and "T20" not in df.upper():
+            if (
+                "TIME" in df.upper()
+                and "LAP" not in df.upper()
+                and "DISPLAY" not in df.upper()
+                and "T20" not in df.upper()
+            ):
                 time_idx = i
                 break
     layout["time"] = time_idx
@@ -190,9 +195,7 @@ def _detect_field_layout(data_fields: list[str], sample_row: list[str]) -> dict[
     return layout
 
 
-def parse_event(
-    event_id: int, season: int, event_order: int
-) -> EventResults:
+def parse_event(event_id: int, season: int, event_order: int) -> EventResults:
     """Fetch and parse a single event's results."""
     config_data = fetch_config(event_id)
 
@@ -238,9 +241,7 @@ def parse_event(
         # Detect layout from first row if not yet done
         if layout is None and rows:
             layout = _detect_field_layout(data_fields, rows[0])
-            logger.debug(
-                "Event %d field layout (n=%d): %s", event_id, len(data_fields), layout
-            )
+            logger.debug("Event %d field layout (n=%d): %s", event_id, len(data_fields), layout)
 
         for row in rows:
             try:
@@ -249,12 +250,18 @@ def parse_event(
             except Exception:
                 logger.warning(
                     "Failed to parse row in event %d, category %s: %s",
-                    event_id, category, row, exc_info=True,
+                    event_id,
+                    category,
+                    row,
+                    exc_info=True,
                 )
 
     logger.info(
         "Parsed event %d (%s): %d results across %d categories",
-        event_id, event_name, len(all_results), len(groups),
+        event_id,
+        event_name,
+        len(all_results),
+        len(groups),
     )
 
     return EventResults(

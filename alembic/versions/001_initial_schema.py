@@ -4,6 +4,7 @@ Revision ID: 001
 Revises:
 Create Date: 2026-03-31
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -68,7 +69,9 @@ def upgrade() -> None:
     op.create_index("idx_results_category", "results", ["category"])
     op.create_index("idx_results_event_category", "results", ["event_id", "category"])
     op.create_index(
-        "idx_results_conference", "results", ["conference"],
+        "idx_results_conference",
+        "results",
+        ["conference"],
         postgresql_where=sa.text("conference IS NOT NULL"),
     )
 

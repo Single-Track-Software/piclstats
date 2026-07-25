@@ -4,6 +4,7 @@ Revision ID: 003
 Revises: 002
 Create Date: 2026-04-01
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -36,9 +37,9 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer, primary_key=True, autoincrement=True),
         sa.Column("name", sa.Text, nullable=False, unique=True),
         sa.Column("location", sa.Text),
-        sa.Column("distance_miles", sa.Float),   # per-lap distance
-        sa.Column("elevation_ft", sa.Float),      # per-lap elevation gain
-        sa.Column("difficulty_score", sa.Float),   # computed: f(distance, elevation)
+        sa.Column("distance_miles", sa.Float),  # per-lap distance
+        sa.Column("elevation_ft", sa.Float),  # per-lap elevation gain
+        sa.Column("difficulty_score", sa.Float),  # computed: f(distance, elevation)
         sa.Column("notes", sa.Text),
     )
 
@@ -56,8 +57,9 @@ def upgrade() -> None:
         sa.Column("max_duration_mins", sa.SmallInteger),
         sa.Column("cutoff_mins", sa.SmallInteger),
         sa.Column("season", sa.SmallInteger),  # NULL = default, set for overrides
-        sa.UniqueConstraint("course_id", "division", "gender", "season",
-                            name="uq_div_laps_course_div"),
+        sa.UniqueConstraint(
+            "course_id", "division", "gender", "season", name="uq_div_laps_course_div"
+        ),
     )
     op.create_index("idx_div_laps_course", "division_laps", ["course_id"])
 

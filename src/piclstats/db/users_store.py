@@ -30,35 +30,33 @@ def _norm(email: str) -> str:
 
 def get_user_by_email(email: str) -> dict | None:
     with get_session() as s:
-        row = s.execute(
-            select(*_COLS).where(users.c.email == _norm(email))
-        ).mappings().first()
+        row = s.execute(select(*_COLS).where(users.c.email == _norm(email))).mappings().first()
     return dict(row) if row else None
 
 
 def get_user_by_id(user_id: int) -> dict | None:
     with get_session() as s:
-        row = s.execute(
-            select(*_COLS).where(users.c.id == user_id)
-        ).mappings().first()
+        row = s.execute(select(*_COLS).where(users.c.id == user_id)).mappings().first()
     return dict(row) if row else None
 
 
 def list_users() -> list[dict]:
     with get_session() as s:
-        rows = s.execute(
-            select(*_COLS).order_by(users.c.email)
-        ).mappings().all()
+        rows = s.execute(select(*_COLS).order_by(users.c.email)).mappings().all()
     return [dict(r) for r in rows]
 
 
 def create_user(email: str, name: str | None, password_hash: str, role: str) -> int:
     with get_session() as s:
         result = s.execute(
-            users.insert().values(
-                email=_norm(email), name=name or None,
-                password_hash=password_hash, role=role,
-            ).returning(users.c.id)
+            users.insert()
+            .values(
+                email=_norm(email),
+                name=name or None,
+                password_hash=password_hash,
+                role=role,
+            )
+            .returning(users.c.id)
         )
         user_id = result.scalar_one()
         s.commit()
@@ -67,9 +65,7 @@ def create_user(email: str, name: str | None, password_hash: str, role: str) -> 
 
 def set_password(user_id: int, password_hash: str) -> None:
     with get_session() as s:
-        s.execute(
-            update(users).where(users.c.id == user_id).values(password_hash=password_hash)
-        )
+        s.execute(update(users).where(users.c.id == user_id).values(password_hash=password_hash))
         s.commit()
 
 
@@ -89,7 +85,5 @@ def touch_last_login(user_id: int) -> None:
     from sqlalchemy import func
 
     with get_session() as s:
-        s.execute(
-            update(users).where(users.c.id == user_id).values(last_login_at=func.now())
-        )
+        s.execute(update(users).where(users.c.id == user_id).values(last_login_at=func.now()))
         s.commit()

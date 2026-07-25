@@ -32,27 +32,27 @@ class EventZScore:
     event_name: str
     season: int
     event_order: int
-    age_group: str | None      # 'MS' | 'HS'
+    age_group: str | None  # 'MS' | 'HS'
     division: str | None
     gender: str | None
-    z_lap: float | None        # PICL-exact (raw lap time)
-    z_pace: float | None       # course-normalized (min/mile)
-    lap_field: int             # field size used for z_lap
-    pace_field: int            # field size used for z_pace
+    z_lap: float | None  # PICL-exact (raw lap time)
+    z_pace: float | None  # course-normalized (min/mile)
+    lap_field: int  # field size used for z_lap
+    pace_field: int  # field size used for z_pace
 
 
 @dataclass(frozen=True)
 class MetricSummary:
     """Season-to-date roll-up of one metric's per-event z-scores."""
 
-    metric: str                # 'pace' | 'lap'
-    avg_z: float | None        # mean per-event z (negative = fast)
-    best_z: float | None       # most-negative per-event z (the rider's ceiling)
-    latest_z: float | None     # most recent event's z (current form)
+    metric: str  # 'pace' | 'lap'
+    avg_z: float | None  # mean per-event z (negative = fast)
+    best_z: float | None  # most-negative per-event z (the rider's ceiling)
+    latest_z: float | None  # most recent event's z (current form)
     events_used: int
-    percentile: float | None   # field percentile from avg_z (higher = faster)
-    rating: float | None       # -avg_z, so higher = faster (display-friendly)
-    label: str                 # plain-English summary
+    percentile: float | None  # field percentile from avg_z (higher = faster)
+    rating: float | None  # -avg_z, so higher = faster (display-friendly)
+    label: str  # plain-English summary
 
 
 def percentile_faster(z: float) -> float:
@@ -141,6 +141,7 @@ def build_speed_rating(rows: list[dict]) -> dict:
 
 # ── Staging grid (the /staging page) ────────────────────────────────────
 
+
 def build_grid(
     rows: list[dict],
     metric: str = "pace",
@@ -167,14 +168,26 @@ def build_grid(
     for r in rows:
         eid = r["event_id"]
         if eid not in events:
-            events[eid] = {"event_id": eid, "event_order": r.get("event_order") or 0,
-                           "event_name": r["event_name"]}
+            events[eid] = {
+                "event_id": eid,
+                "event_order": r.get("event_order") or 0,
+                "event_name": r["event_name"],
+            }
         cid = r["canonical_id"]
-        rd = riders.setdefault(cid, {
-            "canonical_id": cid, "name": r.get("name"), "team": r.get("team"),
-            "division": None, "conference": None, "conference_group": None,
-            "_last": -1, "per_event": {}, "_zs": [],
-        })
+        rd = riders.setdefault(
+            cid,
+            {
+                "canonical_id": cid,
+                "name": r.get("name"),
+                "team": r.get("team"),
+                "division": None,
+                "conference": None,
+                "conference_group": None,
+                "_last": -1,
+                "per_event": {},
+                "_zs": [],
+            },
+        )
         z = r.get(zkey)
         z = float(z) if z is not None else None
         rd["per_event"][eid] = z
@@ -212,8 +225,7 @@ def build_grid(
     if division:
         grid = [r for r in grid if r["division"] == division]
     if conference:
-        grid = [r for r in grid
-                if conference in (r["conference"], r["conference_group"])]
+        grid = [r for r in grid if conference in (r["conference"], r["conference_group"])]
 
     # Most negative (fastest) first; unrated riders last.
     grid.sort(key=lambda r: (r[sort_key] is None, r[sort_key] if r[sort_key] is not None else 0.0))

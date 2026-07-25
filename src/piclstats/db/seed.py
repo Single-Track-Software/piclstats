@@ -97,8 +97,8 @@ DIVISION_PROFILES = [
 
 # Default loop distances (can be overridden per course later)
 DEFAULT_LOOP_DISTANCES = {
-    "MS": 2.0,   # ~2 miles (based on Granite, Hershey, Penn College actuals)
-    "HS": 3.5,   # ~3.5 miles (based on Penn College, Hershey actuals)
+    "MS": 2.0,  # ~2 miles (based on Granite, Hershey, Penn College actuals)
+    "HS": 3.5,  # ~3.5 miles (based on Penn College, Hershey actuals)
 }
 
 # ── Conference lineage ──────────────────────────────────────────────
@@ -117,10 +117,13 @@ def seed_courses(session: Session) -> dict[str, int]:
     """Insert courses and return name→id mapping."""
     course_ids: dict[str, int] = {}
     for name, info in COURSES.items():
-        session.execute(text(
-            "INSERT INTO courses (name, location) VALUES (:name, :loc) "
-            "ON CONFLICT (name) DO NOTHING"
-        ), {"name": name, "loc": info.get("location")})
+        session.execute(
+            text(
+                "INSERT INTO courses (name, location) VALUES (:name, :loc) "
+                "ON CONFLICT (name) DO NOTHING"
+            ),
+            {"name": name, "loc": info.get("location")},
+        )
 
     # Fetch IDs
     rows = session.execute(text("SELECT id, name FROM courses")).all()
@@ -132,16 +135,17 @@ def seed_courses(session: Session) -> dict[str, int]:
 def map_events_to_courses(session: Session, course_ids: dict[str, int]) -> int:
     """Map events to courses based on event name patterns."""
     count = 0
-    events = session.execute(text(
-        "SELECT id, event_name FROM events WHERE course_id IS NULL"
-    )).all()
+    events = session.execute(
+        text("SELECT id, event_name FROM events WHERE course_id IS NULL")
+    ).all()
 
     for event_id, event_name in events:
         for course_name, info in COURSES.items():
             if any(p.lower() in event_name.lower() for p in info["patterns"]):
-                session.execute(text(
-                    "UPDATE events SET course_id = :cid WHERE id = :eid"
-                ), {"cid": course_ids[course_name], "eid": event_id})
+                session.execute(
+                    text("UPDATE events SET course_id = :cid WHERE id = :eid"),
+                    {"cid": course_ids[course_name], "eid": event_id},
+                )
                 count += 1
                 break
 
@@ -154,11 +158,14 @@ def seed_course_loops(session: Session, course_ids: dict[str, int]) -> int:
     count = 0
     for course_name, course_id in course_ids.items():
         for loop_type, distance in DEFAULT_LOOP_DISTANCES.items():
-            session.execute(text("""
+            session.execute(
+                text("""
                 INSERT INTO course_loops (course_id, loop_type, distance_miles)
                 VALUES (:cid, :lt, :dist)
                 ON CONFLICT (course_id, loop_type) DO UPDATE SET distance_miles = :dist
-            """), {"cid": course_id, "lt": loop_type, "dist": distance})
+            """),
+                {"cid": course_id, "lt": loop_type, "dist": distance},
+            )
             count += 1
     logger.info("Seeded %d course loops", count)
     return count
@@ -169,18 +176,25 @@ def seed_division_laps(session: Session, course_ids: dict[str, int]) -> int:
     count = 0
     for course_name, course_id in course_ids.items():
         for div, gender, laps, max_dur, cutoff, loop_type in DIVISION_PROFILES:
-            session.execute(text("""
+            session.execute(
+                text("""
                 INSERT INTO division_laps (course_id, division, gender, lap_count,
                     max_duration_mins, cutoff_mins, loop_type)
                 VALUES (:cid, :div, :gender, :laps, :max_dur, :cutoff, :lt)
                 ON CONFLICT (course_id, division, gender, season)
                 DO UPDATE SET lap_count = :laps, max_duration_mins = :max_dur,
                     cutoff_mins = :cutoff, loop_type = :lt
-            """), {
-                "cid": course_id, "div": div, "gender": gender,
-                "laps": laps, "max_dur": max_dur, "cutoff": cutoff,
-                "lt": loop_type,
-            })
+            """),
+                {
+                    "cid": course_id,
+                    "div": div,
+                    "gender": gender,
+                    "laps": laps,
+                    "max_dur": max_dur,
+                    "cutoff": cutoff,
+                    "lt": loop_type,
+                },
+            )
             count += 1
 
     logger.info("Seeded %d division-lap profiles", count)
@@ -203,9 +217,10 @@ def normalize_divisions(session: Session) -> int:
     """
     total = 0
     for alias, canonical in DIVISION_ALIASES.items():
-        result = session.execute(text(
-            "UPDATE results SET division = :canon WHERE division = :alias"
-        ), {"canon": canonical, "alias": alias})
+        result = session.execute(
+            text("UPDATE results SET division = :canon WHERE division = :alias"),
+            {"canon": canonical, "alias": alias},
+        )
         total += result.rowcount
     logger.info("Normalized %d result rows to canonical division labels", total)
     return total
@@ -218,7 +233,8 @@ def classify_event_types(session: Session) -> int:
     Idempotent: re-derives event_type for every event from its name, so newly
     scraped events get classified on the next seed (like course mapping).
     """
-    result = session.execute(text("""
+    result = session.execute(
+        text("""
         UPDATE events SET event_type =
             CASE
                 WHEN event_name ILIKE '%exhibition%'
@@ -226,7 +242,8 @@ def classify_event_types(session: Session) -> int:
                 WHEN event_name ILIKE '%rally%'        THEN 'rally'
                 ELSE 'points'
             END
-    """))
+    """)
+    )
     logger.info("Classified event types for %d events", result.rowcount)
     return result.rowcount
 
@@ -236,7 +253,8 @@ def seed_conferences(session: Session) -> int:
     count = 0
 
     # Extract from results where conference field is populated
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT DISTINCT ri.team, e.season, r.conference
         FROM results r
         JOIN riders ri ON r.rider_id = ri.id
@@ -246,19 +264,23 @@ def seed_conferences(session: Session) -> int:
           AND r.conference != 'Conference'
           AND ri.team IS NOT NULL
         ORDER BY e.season, r.conference, ri.team
-    """)).all()
+    """)
+    ).all()
 
     for team, season, conference in rows:
         # Normalize conference name (fix double spaces)
         conf = conference.strip()
         conf_group = CONFERENCE_LINEAGE.get(conf, conf)
 
-        session.execute(text("""
+        session.execute(
+            text("""
             INSERT INTO team_conferences (team, season, conference, conference_group, source)
             VALUES (:team, :season, :conf, :group, 'derived')
             ON CONFLICT (team, season) DO UPDATE
             SET conference = :conf, conference_group = :group
-        """), {"team": team, "season": season, "conf": conf, "group": conf_group})
+        """),
+            {"team": team, "season": season, "conf": conf, "group": conf_group},
+        )
         count += 1
 
     logger.info("Seeded %d team-conference mappings", count)

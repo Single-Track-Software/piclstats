@@ -11,9 +11,7 @@ from piclstats.db.tables import settings as settings_table
 
 def get_value(key: str, default=None):
     with get_session() as s:
-        row = s.execute(
-            select(settings_table.c.value).where(settings_table.c.key == key)
-        ).first()
+        row = s.execute(select(settings_table.c.value).where(settings_table.c.key == key)).first()
         return row[0] if row else default
 
 

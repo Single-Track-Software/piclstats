@@ -70,7 +70,8 @@ _POINTS_ONLY = "e.event_type = 'points'"
 
 
 def overview_stats(session: Session) -> dict:
-    row = session.execute(text(f"""
+    row = session.execute(
+        text(f"""
         WITH {_CANONICAL_CTE}
         SELECT
             count(DISTINCT e.id) AS events,
@@ -81,14 +82,13 @@ def overview_stats(session: Session) -> dict:
         FROM results r
         JOIN events e ON r.event_id = e.id
         JOIN canonical c ON c.rider_id = r.rider_id
-    """)).one()
+    """)
+    ).one()
     return _serialize(row._mapping)
 
 
 def seasons_list(session: Session) -> list[int]:
-    rows = session.execute(text(
-        "SELECT DISTINCT season FROM events ORDER BY season"
-    )).all()
+    rows = session.execute(text("SELECT DISTINCT season FROM events ORDER BY season")).all()
     return [r[0] for r in rows]
 
 
@@ -96,19 +96,21 @@ def divisions_list(session: Session) -> list[str]:
     # Only divisions that appear in scoring events, so exhibition-only labels
     # (e.g. 'Advanced' from a short-track exhibition) don't show as filter
     # options that would return no results.
-    rows = session.execute(text(
-        "SELECT DISTINCT r.division "
-        "FROM results r JOIN events e ON r.event_id = e.id "
-        "WHERE r.division IS NOT NULL AND e.event_type = 'points' "
-        "ORDER BY r.division"
-    )).all()
+    rows = session.execute(
+        text(
+            "SELECT DISTINCT r.division "
+            "FROM results r JOIN events e ON r.event_id = e.id "
+            "WHERE r.division IS NOT NULL AND e.event_type = 'points' "
+            "ORDER BY r.division"
+        )
+    ).all()
     return [r[0] for r in rows]
 
 
 def teams_list(session: Session) -> list[str]:
-    rows = session.execute(text(
-        "SELECT DISTINCT team FROM riders WHERE team IS NOT NULL ORDER BY team"
-    )).all()
+    rows = session.execute(
+        text("SELECT DISTINCT team FROM riders WHERE team IS NOT NULL ORDER BY team")
+    ).all()
     return [r[0] for r in rows]
 
 
@@ -153,34 +155,44 @@ def search_riders(
 def rider_detail(session: Session, rider_id: int) -> dict | None:
     """Full rider profile — unified across all aliases."""
     # Resolve to canonical
-    canonical_id = session.execute(text("""
+    canonical_id = session.execute(
+        text("""
         SELECT COALESCE(
             (SELECT canonical_id FROM rider_aliases WHERE rider_id = :id),
             :id
         )
-    """), {"id": rider_id}).scalar()
+    """),
+        {"id": rider_id},
+    ).scalar()
 
     # Get all rider_ids in this canonical group
-    group_ids = session.execute(text("""
+    group_ids = session.execute(
+        text("""
         SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
         UNION
         SELECT :cid
-    """), {"cid": canonical_id}).all()
+    """),
+        {"cid": canonical_id},
+    ).all()
     all_ids = [r[0] for r in group_ids]
 
-    info = session.execute(text("""
+    info = session.execute(
+        text("""
         SELECT ri.id, ri.name, ri.school,
                string_agg(DISTINCT ri2.team, ' / ' ORDER BY ri2.team) AS team
         FROM riders ri
         CROSS JOIN riders ri2
         WHERE ri.id = :cid AND ri2.id = ANY(:ids)
         GROUP BY ri.id, ri.name, ri.school
-    """), {"cid": canonical_id, "ids": all_ids}).one_or_none()
+    """),
+        {"cid": canonical_id, "ids": all_ids},
+    ).one_or_none()
     if not info:
         return None
 
     # Team history
-    team_history = session.execute(text("""
+    team_history = session.execute(
+        text("""
         SELECT DISTINCT ri.team, min(e.season) AS from_season, max(e.season) AS to_season,
                count(r.id) AS races
         FROM riders ri
@@ -189,9 +201,12 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         WHERE ri.id = ANY(:ids)
         GROUP BY ri.team
         ORDER BY from_season
-    """), {"ids": all_ids}).all()
+    """),
+        {"ids": all_ids},
+    ).all()
 
-    races = session.execute(text(f"""
+    races = session.execute(
+        text(f"""
         SELECT
             e.season,
             e.event_name,
@@ -233,9 +248,12 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             AND cl.loop_type = dl.loop_type
         WHERE r.rider_id = ANY(:ids)
         ORDER BY e.season, e.event_order
-    """), {"ids": all_ids}).all()
+    """),
+        {"ids": all_ids},
+    ).all()
 
-    season_stats = session.execute(text("""
+    season_stats = session.execute(
+        text("""
         SELECT
             e.season,
             count(*) AS races,
@@ -251,9 +269,12 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
           AND e.event_type = 'points'
         GROUP BY e.season, r.division
         ORDER BY e.season
-    """), {"ids": all_ids}).all()
+    """),
+        {"ids": all_ids},
+    ).all()
 
-    percentiles = session.execute(text("""
+    percentiles = session.execute(
+        text("""
         WITH ranked AS (
             SELECT
                 r.event_id,
@@ -277,7 +298,9 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         JOIN events e ON ranked.event_id = e.id
         WHERE ranked.rider_id = ANY(:ids)
         ORDER BY e.season, e.event_order
-    """), {"ids": all_ids}).all()
+    """),
+        {"ids": all_ids},
+    ).all()
 
     return {
         "info": _serialize(info._mapping),
@@ -325,7 +348,8 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
 
     # Use canonical IDs so riders who changed teams still show their full stats
     # when viewing from any of their teams
-    roster = session.execute(text(f"""
+    roster = session.execute(
+        text(f"""
         WITH {_CANONICAL_CTE}
         SELECT
             c.cid AS id,
@@ -346,9 +370,12 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
           AND {_POINTS_ONLY}
         GROUP BY c.cid, c.name, r.division, r.gender
         ORDER BY r.division, avg_points DESC NULLS LAST
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    division_summary = session.execute(text(f"""
+    division_summary = session.execute(
+        text(f"""
         SELECT
             r.division,
             r.gender,
@@ -363,9 +390,12 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
           AND {_POINTS_ONLY}
         GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    event_performance = session.execute(text(f"""
+    event_performance = session.execute(
+        text(f"""
         SELECT
             e.season,
             e.event_name,
@@ -380,16 +410,21 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         WHERE ri.team = :team {season_filter}
         GROUP BY e.season, e.event_name, e.event_order, e.id
         ORDER BY e.season, e.event_order
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    seasons_available = session.execute(text("""
+    seasons_available = session.execute(
+        text("""
         SELECT DISTINCT e.season
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
         WHERE ri.team = :team
         ORDER BY e.season
-    """), {"team": team_name}).all()
+    """),
+        {"team": team_name},
+    ).all()
 
     return {
         "team_name": team_name,
@@ -497,7 +532,8 @@ def team_leaderboard(
 
 
 def courses_list(session: Session) -> list[dict]:
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT c.id, c.name, c.location, c.distance_miles, c.elevation_ft,
                c.difficulty_score, count(DISTINCT e.id) AS event_count,
                count(r.id) AS result_count
@@ -506,23 +542,30 @@ def courses_list(session: Session) -> list[dict]:
         LEFT JOIN results r ON r.event_id = e.id
         GROUP BY c.id
         ORDER BY c.name
-    """)).all()
+    """)
+    ).all()
     return [_serialize(r._mapping) for r in rows]
 
 
 def course_detail(session: Session, course_id: int, season: int | None = None) -> dict | None:
-    info = session.execute(text("""
+    info = session.execute(
+        text("""
         SELECT id, name, location, difficulty_score, notes
         FROM courses WHERE id = :id
-    """), {"id": course_id}).one_or_none()
+    """),
+        {"id": course_id},
+    ).one_or_none()
     if not info:
         return None
 
-    loops = session.execute(text("""
+    loops = session.execute(
+        text("""
         SELECT loop_type, distance_miles, elevation_ft
         FROM course_loops WHERE course_id = :id
         ORDER BY loop_type
-    """), {"id": course_id}).all()
+    """),
+        {"id": course_id},
+    ).all()
 
     params: dict = {"cid": course_id}
     season_filter = ""
@@ -530,7 +573,8 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         season_filter = "AND e.season = :season"
         params["season"] = season
 
-    events_at = session.execute(text(f"""
+    events_at = session.execute(
+        text(f"""
         SELECT e.id, e.season, e.event_order, e.event_name,
                count(r.id) AS results
         FROM events e
@@ -538,16 +582,22 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         WHERE e.course_id = :cid {season_filter}
         GROUP BY e.id
         ORDER BY e.season, e.event_order
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    laps = session.execute(text("""
+    laps = session.execute(
+        text("""
         SELECT division, gender, lap_count, max_duration_mins, cutoff_mins
         FROM division_laps
         WHERE course_id = :cid AND season IS NULL
         ORDER BY lap_count DESC, division, gender
-    """), {"cid": course_id}).all()
+    """),
+        {"cid": course_id},
+    ).all()
 
-    division_stats = session.execute(text(f"""
+    division_stats = session.execute(
+        text(f"""
         SELECT r.division, r.gender,
                dl.loop_type,
                dl.lap_count,
@@ -581,9 +631,12 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
           {season_filter}
         GROUP BY r.division, r.gender, dl.loop_type, dl.lap_count, cl.distance_miles
         ORDER BY r.division, r.gender
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    top_riders = session.execute(text(f"""
+    top_riders = session.execute(
+        text(f"""
         WITH {_CANONICAL_CTE}
         SELECT
             c.cid AS rider_id,
@@ -603,13 +656,18 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         HAVING count(DISTINCT e.id) >= 2
         ORDER BY avg_points DESC NULLS LAST
         LIMIT 20
-    """), params).all()
+    """),
+        params,
+    ).all()
 
-    seasons_available = session.execute(text("""
+    seasons_available = session.execute(
+        text("""
         SELECT DISTINCT e.season
         FROM events e WHERE e.course_id = :cid
         ORDER BY e.season
-    """), {"cid": course_id}).all()
+    """),
+        {"cid": course_id},
+    ).all()
 
     loops_dict = {r[0]: {"distance_miles": r[1], "elevation_ft": r[2]} for r in loops}
 
@@ -630,31 +688,41 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
 def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
     """Get rider info + min/mile per race for forecasting."""
     # Resolve canonical
-    canonical_id = session.execute(text("""
+    canonical_id = session.execute(
+        text("""
         SELECT COALESCE(
             (SELECT canonical_id FROM rider_aliases WHERE rider_id = :id),
             :id
         )
-    """), {"id": rider_id}).scalar()
+    """),
+        {"id": rider_id},
+    ).scalar()
 
-    group_ids = session.execute(text("""
+    group_ids = session.execute(
+        text("""
         SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
         UNION SELECT :cid
-    """), {"cid": canonical_id}).all()
+    """),
+        {"cid": canonical_id},
+    ).all()
     all_ids = [r[0] for r in group_ids]
 
-    info = session.execute(text("""
+    info = session.execute(
+        text("""
         SELECT ri.id, ri.name,
                string_agg(DISTINCT ri2.team, ' / ' ORDER BY ri2.team) AS team
         FROM riders ri
         CROSS JOIN riders ri2
         WHERE ri.id = :cid AND ri2.id = ANY(:ids)
         GROUP BY ri.id, ri.name
-    """), {"cid": canonical_id, "ids": all_ids}).one_or_none()
+    """),
+        {"cid": canonical_id, "ids": all_ids},
+    ).one_or_none()
     if not info:
         return None
 
-    races = session.execute(text(f"""
+    races = session.execute(
+        text(f"""
         SELECT
             e.event_name,
             e.course_id,
@@ -689,15 +757,17 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
           AND r.place IS NOT NULL
           AND r.status = 'OK'
         ORDER BY e.season, e.event_order
-    """), {"ids": all_ids}).all()
+    """),
+        {"ids": all_ids},
+    ).all()
 
     # Determine primary division and gender (most recent). Apply the pace
     # sanity range so rally/short-track events with bad loop distances don't
     # contaminate the rider's baseline.
     valid_races = [
-        r for r in races
-        if r.min_per_mile is not None
-        and _PACE_MIN <= float(r.min_per_mile) <= _PACE_MAX
+        r
+        for r in races
+        if r.min_per_mile is not None and _PACE_MIN <= float(r.min_per_mile) <= _PACE_MAX
     ]
     primary_division = valid_races[-1].division if valid_races else None
     gender = valid_races[-1].gender if valid_races else None
@@ -730,20 +800,27 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
     course-normalized min/mile. Lower = faster, so a fast rider has a negative z.
     Field must have >= min_field timed riders for a z to be trusted.
     """
-    canonical_id = session.execute(text("""
+    canonical_id = session.execute(
+        text("""
         SELECT COALESCE(
             (SELECT canonical_id FROM rider_aliases WHERE rider_id = :id),
             :id
         )
-    """), {"id": rider_id}).scalar()
+    """),
+        {"id": rider_id},
+    ).scalar()
 
-    group_ids = session.execute(text("""
+    group_ids = session.execute(
+        text("""
         SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
         UNION SELECT :cid
-    """), {"cid": canonical_id}).all()
+    """),
+        {"cid": canonical_id},
+    ).all()
     all_ids = [r[0] for r in group_ids]
 
-    rows = session.execute(text(f"""
+    rows = session.execute(
+        text(f"""
         WITH base AS (
             SELECT
                 e.id AS event_id, e.season, e.event_order, e.event_name,
@@ -802,7 +879,9 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
         FROM z
         WHERE canonical_id = :cid
         ORDER BY season, event_order
-    """), {"ids": all_ids, "cid": canonical_id, "minf": min_field}).all()
+    """),
+        {"ids": all_ids, "cid": canonical_id, "minf": min_field},
+    ).all()
 
     return [_serialize(r._mapping) for r in rows]
 
@@ -814,7 +893,8 @@ def staging_rows(
     one season — the basis for the staging grid. Field = every rider in that
     event + category; partition is per event since the category is fixed.
     """
-    rows = session.execute(text(f"""
+    rows = session.execute(
+        text(f"""
         WITH base AS (
             SELECT
                 e.id AS event_id, e.event_name, e.event_order,
@@ -874,8 +954,9 @@ def staging_rows(
                     THEN round(((pace_ok - pace_mean) / pace_std)::numeric, 2) END AS z_pace
         FROM z
         ORDER BY event_order, name
-    """), {"season": season, "age_group": age_group, "gender": gender,
-           "minf": min_field}).all()
+    """),
+        {"season": season, "age_group": age_group, "gender": gender, "minf": min_field},
+    ).all()
 
     return [_serialize(r._mapping) for r in rows]
 
@@ -895,7 +976,8 @@ def division_pace_distribution(
     if division in ("MS Advanced", "Middle School Advanced"):
         div_filter = "r.division IN ('MS Advanced', 'Middle School Advanced')"
 
-    rows = session.execute(text(f"""
+    rows = session.execute(
+        text(f"""
         SELECT
             r.place,
             count(*) OVER (PARTITION BY r.event_id) AS field_size,
@@ -921,27 +1003,27 @@ def division_pace_distribution(
           AND {_LAPS_CONSISTENT}
           {season_filter}
         ORDER BY min_per_mile
-    """), params).all()
+    """),
+        params,
+    ).all()
 
     paces = [
-        float(r[2]) for r in rows
-        if r[2] is not None and _PACE_MIN <= float(r[2]) <= _PACE_MAX
+        float(r[2]) for r in rows if r[2] is not None and _PACE_MIN <= float(r[2]) <= _PACE_MAX
     ]
     field_sizes = list({r[1] for r in rows if r[1]})
 
     return {"paces": paces, "field_sizes": field_sizes}
 
 
-def division_profile_lookup(
-    session: Session, division: str, gender: str
-) -> dict | None:
+def division_profile_lookup(session: Session, division: str, gender: str) -> dict | None:
     """Get lap count, loop type, and distance for a division."""
     div_filter = "dl.division = :division"
     params: dict = {"division": division, "gender": gender}
     if division in ("MS Advanced", "Middle School Advanced"):
         div_filter = "dl.division IN ('MS Advanced', 'Middle School Advanced')"
 
-    row = session.execute(text(f"""
+    row = session.execute(
+        text(f"""
         SELECT DISTINCT dl.lap_count, dl.loop_type, cl.distance_miles
         FROM division_laps dl
         JOIN course_loops cl ON cl.course_id = dl.course_id AND cl.loop_type = dl.loop_type
@@ -949,18 +1031,19 @@ def division_profile_lookup(
           AND (dl.gender = :gender OR (dl.gender IS NULL AND :gender IS NULL))
           AND dl.season IS NULL
         LIMIT 1
-    """), params).one_or_none()
+    """),
+        params,
+    ).one_or_none()
 
     if not row:
         return None
     return {"lap_count": row[0], "loop_type": row[1], "loop_miles": float(row[2])}
 
 
-def available_target_divisions(
-    session: Session, source_division: str, gender: str
-) -> list[str]:
+def available_target_divisions(session: Session, source_division: str, gender: str) -> list[str]:
     """Get divisions a rider could be forecast into (same gender, exclude source and single-lap)."""
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT DISTINCT r.division
         FROM results r
         WHERE r.gender = :gender
@@ -969,15 +1052,19 @@ def available_target_divisions(
           AND r.division != '9th Grade'
           AND r.place IS NOT NULL
         ORDER BY r.division
-    """), {"gender": gender, "source": source_division}).all()
+    """),
+        {"gender": gender, "source": source_division},
+    ).all()
     return [r[0] for r in rows]
 
 
 # ── Race-position bump chart (the /racechart page) ──────────────────────
 
+
 def events_list(session: Session) -> list[dict]:
     """Events that have any lap timing, newest first — the chart's event picker."""
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT e.id, e.season, e.event_name, e.event_order
         FROM events e
         WHERE EXISTS (
@@ -985,19 +1072,23 @@ def events_list(session: Session) -> list[dict]:
             WHERE r.event_id = e.id AND r.lap1 IS NOT NULL
         )
         ORDER BY e.season DESC, e.event_order DESC
-    """)).all()
+    """)
+    ).all()
     return [dict(r._mapping) for r in rows]
 
 
 def event_categories(session: Session, event_id: int) -> list[dict]:
     """Categories in one event that have lap timing, in race order."""
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT category, max(category_order) AS category_order, count(*) AS field
         FROM results
         WHERE event_id = :eid AND lap1 IS NOT NULL
         GROUP BY category
         ORDER BY category_order
-    """), {"eid": event_id}).all()
+    """),
+        {"eid": event_id},
+    ).all()
     return [dict(r._mapping) for r in rows]
 
 
@@ -1008,7 +1099,8 @@ def event_lap_rows(session: Session, event_id: int, category: str) -> list[dict]
     pure racechart module can sum them without timedelta handling. Ordered by
     official place so unranked riders (DNF/DSQ) sort last.
     """
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT r.bib, ri.name AS name, ri.team AS team, r.status, r.place,
                EXTRACT(EPOCH FROM r.lap1) AS lap1,
                EXTRACT(EPOCH FROM r.lap2) AS lap2,
@@ -1020,5 +1112,7 @@ def event_lap_rows(session: Session, event_id: int, category: str) -> list[dict]
         JOIN riders ri ON ri.id = r.rider_id
         WHERE r.event_id = :eid AND r.category = :cat
         ORDER BY r.place NULLS LAST, r.bib
-    """), {"eid": event_id, "cat": category}).all()
+    """),
+        {"eid": event_id, "cat": category},
+    ).all()
     return [dict(r._mapping) for r in rows]

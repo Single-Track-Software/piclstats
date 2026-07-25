@@ -11,8 +11,7 @@ are drawn from this dict rather than hardcoded in the algorithm.
 from __future__ import annotations
 
 import bisect
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from statistics import mean, median, stdev
 
 
@@ -99,6 +98,7 @@ DEFAULT_CONFIG: dict = {
 
 # ── Model Implementation ────────────────────────────────────────────
 
+
 class StatisticalForecastModel:
     """V1 forecast model using statistical pace comparison."""
 
@@ -122,7 +122,7 @@ class StatisticalForecastModel:
         ref_climb = cfg["reference_climbing_ft_per_mile"]
         climb_impact = cfg["climbing_impact_per_100ft_mile"]
 
-        recent = inp.observations[-cfg["recent_race_count"]:]
+        recent = inp.observations[-cfg["recent_race_count"] :]
         decay = cfg["recency_decay"]
         weights = [decay ** (len(recent) - 1 - i) for i in range(len(recent))]
         total_w = sum(weights)
@@ -183,7 +183,9 @@ class StatisticalForecastModel:
         # being clamped to "last of 40" just because the pool is large.
         sorted_paces = sorted(inp.target_paces)
         field_size = len(sorted_paces)
-        typical_field = round(mean(inp.target_field_sizes)) if inp.target_field_sizes else field_size
+        typical_field = (
+            round(mean(inp.target_field_sizes)) if inp.target_field_sizes else field_size
+        )
 
         def _place_from_pace(p: float) -> int:
             pos = bisect.bisect_left(sorted_paces, p)
@@ -250,7 +252,9 @@ class StatisticalForecastModel:
             "fatigue_multiplier": round(fatigue_multiplier, 3),
             "loop_transition": "MS → HS" if loop_transition > 1 else "Same loop",
             "loop_transition_factor": round(loop_transition, 3),
-            "improvement_trend": round(-improvement_credit / cfg["improvement_weight"], 2) if improvement_credit else 0,
+            "improvement_trend": round(-improvement_credit / cfg["improvement_weight"], 2)
+            if improvement_credit
+            else 0,
             "improvement_credit": round(improvement_credit, 2),
             "adjusted_pace": round(adjusted_pace, 1),
             "rider_consistency_stdev": round(rider_std, 2),

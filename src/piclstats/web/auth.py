@@ -26,6 +26,7 @@ router = APIRouter(tags=["auth"])
 
 # --- password hashing -------------------------------------------------------
 
+
 def hash_password(password: str) -> str:
     # bcrypt caps input at 72 bytes; encode then truncate to stay within it.
     digest = bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt())
@@ -40,6 +41,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 
 # --- user loading + gates ---------------------------------------------------
+
 
 class LoginRequired(Exception):
     """Raised by page gates; the app turns it into a redirect to /login."""
@@ -88,9 +90,7 @@ def require_member_api(request: Request) -> dict:
     """API gate (e.g. CSV export): 401 instead of an HTML redirect."""
     user = load_user(request)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Login required"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Login required")
     return user
 
 
@@ -111,6 +111,7 @@ def require_same_origin(request: Request) -> None:
 
 
 # --- routes -----------------------------------------------------------------
+
 
 def _safe_next(next_path: str) -> str:
     # Only allow same-site relative redirects (must start with a single '/').

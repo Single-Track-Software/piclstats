@@ -6,7 +6,6 @@ import json
 import logging
 from datetime import timedelta
 
-from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -28,19 +27,24 @@ def load_event(session: Session, event_results: EventResults) -> int:
     config = event_results.config
 
     # 1. Upsert event
-    evt_stmt = insert(events).values(
-        raceresult_id=config.raceresult_id,
-        season=event_results.season,
-        event_name=config.event_name,
-        event_order=event_results.event_order,
-    ).on_conflict_do_update(
-        index_elements=["raceresult_id"],
-        set_={
-            "season": event_results.season,
-            "event_name": config.event_name,
-            "event_order": event_results.event_order,
-        },
-    ).returning(events.c.id)
+    evt_stmt = (
+        insert(events)
+        .values(
+            raceresult_id=config.raceresult_id,
+            season=event_results.season,
+            event_name=config.event_name,
+            event_order=event_results.event_order,
+        )
+        .on_conflict_do_update(
+            index_elements=["raceresult_id"],
+            set_={
+                "season": event_results.season,
+                "event_name": config.event_name,
+                "event_order": event_results.event_order,
+            },
+        )
+        .returning(events.c.id)
+    )
 
     event_id = session.execute(evt_stmt).scalar_one()
 
@@ -55,10 +59,15 @@ def load_event(session: Session, event_results: EventResults) -> int:
 
     rider_lookup: dict[tuple[str, str | None], int] = {}
     for rider_key, vals in unique_riders.items():
-        rider_stmt = insert(riders).values(**vals).on_conflict_do_update(
-            constraint="uq_riders_name_team",
-            set_={"school": vals["school"]} if vals["school"] else {"name": vals["name"]},
-        ).returning(riders.c.id)
+        rider_stmt = (
+            insert(riders)
+            .values(**vals)
+            .on_conflict_do_update(
+                constraint="uq_riders_name_team",
+                set_={"school": vals["school"]} if vals["school"] else {"name": vals["name"]},
+            )
+            .returning(riders.c.id)
+        )
         rider_id = session.execute(rider_stmt).scalar_one()
         rider_lookup[rider_key] = rider_id
 
@@ -91,9 +100,13 @@ def load_event(session: Session, event_results: EventResults) -> int:
         }
         update_vals = {k: v for k, v in result_vals.items() if k not in ("event_id", "bib")}
 
-        res_stmt = insert(results).values(**result_vals).on_conflict_do_update(
-            constraint="uq_results_event_bib",
-            set_=update_vals,
+        res_stmt = (
+            insert(results)
+            .values(**result_vals)
+            .on_conflict_do_update(
+                constraint="uq_results_event_bib",
+                set_=update_vals,
+            )
         )
         session.execute(res_stmt)
         count += 1
@@ -101,6 +114,9 @@ def load_event(session: Session, event_results: EventResults) -> int:
     session.commit()
     logger.info(
         "Loaded event %d (%s): %d results, %d unique riders",
-        config.raceresult_id, config.event_name, count, len(rider_lookup),
+        config.raceresult_id,
+        config.event_name,
+        count,
+        len(rider_lookup),
     )
     return count

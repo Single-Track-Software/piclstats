@@ -42,6 +42,7 @@ def seed() -> None:
     from piclstats.db.seed import seed_all
 
     import logging
+
     logging.basicConfig(level="INFO")
 
     session = get_session()
@@ -54,7 +55,9 @@ def seed() -> None:
 
 @main.command()
 @click.option("--season", type=int, multiple=True, help="Season(s) to scrape (default: all).")
-@click.option("--event-id", type=int, multiple=True, help="Specific event ID(s). Overrides --season.")
+@click.option(
+    "--event-id", type=int, multiple=True, help="Specific event ID(s). Overrides --season."
+)
 @click.option("--dry-run", is_flag=True, help="Scrape and parse only — do not write to DB.")
 def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) -> None:
     """Scrape race results from raceresult.com and load into PostgreSQL."""
@@ -76,6 +79,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     if not dry_run:
         from piclstats.db.engine import get_session
         from piclstats.db.loader import load_event
+
         session = get_session()
 
     try:
@@ -93,8 +97,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
                 else:
                     load_event(session, event_results)
                     click.echo(
-                        f"  Loaded event {eid} ({event_results.config.event_name}): "
-                        f"{n} results"
+                        f"  Loaded event {eid} ({event_results.config.event_name}): {n} results"
                     )
             except Exception as exc:
                 errors += 1
@@ -115,7 +118,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
 @click.option("--season", type=int, help="Filter by season.")
 def query(kind: str, name: str | None, season: int | None) -> None:
     """Run quick queries against the database."""
-    from sqlalchemy import func, select, text
+    from sqlalchemy import func, select
 
     from piclstats.db.engine import get_session
     from piclstats.db.tables import events, results, riders
@@ -130,8 +133,9 @@ def query(kind: str, name: str | None, season: int | None) -> None:
                     func.count(func.distinct(riders.c.id)).label("unique_riders"),
                     func.count(func.distinct(events.c.id)).label("events"),
                 ).select_from(
-                    results.join(riders, results.c.rider_id == riders.c.id)
-                    .join(events, results.c.event_id == events.c.id)
+                    results.join(riders, results.c.rider_id == riders.c.id).join(
+                        events, results.c.event_id == events.c.id
+                    )
                 )
             ).one()
             click.echo(
@@ -156,8 +160,9 @@ def query(kind: str, name: str | None, season: int | None) -> None:
                     results.c.total_time_raw,
                 )
                 .select_from(
-                    results.join(riders, results.c.rider_id == riders.c.id)
-                    .join(events, results.c.event_id == events.c.id)
+                    results.join(riders, results.c.rider_id == riders.c.id).join(
+                        events, results.c.event_id == events.c.id
+                    )
                 )
                 .where(riders.c.name.ilike(f"%{name}%"))
                 .order_by(events.c.season, events.c.event_order)
@@ -169,7 +174,9 @@ def query(kind: str, name: str | None, season: int | None) -> None:
             if not rows:
                 click.echo("No results found.")
                 return
-            click.echo(f"{'Name':<25} {'Team':<25} {'Season':<7} {'Event':<30} {'Cat':<25} {'PLC':<5} {'PTS':<5} {'Time'}")
+            click.echo(
+                f"{'Name':<25} {'Team':<25} {'Season':<7} {'Event':<30} {'Cat':<25} {'PLC':<5} {'PTS':<5} {'Time'}"
+            )
             click.echo("-" * 150)
             for r in rows:
                 click.echo(
@@ -189,8 +196,9 @@ def query(kind: str, name: str | None, season: int | None) -> None:
                     func.avg(results.c.points).label("avg_points"),
                 )
                 .select_from(
-                    results.join(riders, results.c.rider_id == riders.c.id)
-                    .join(events, results.c.event_id == events.c.id)
+                    results.join(riders, results.c.rider_id == riders.c.id).join(
+                        events, results.c.event_id == events.c.id
+                    )
                 )
                 .where(riders.c.team.ilike(f"%{name}%"))
                 .group_by(riders.c.team, events.c.season)
@@ -274,6 +282,7 @@ def merge_auto(dry_run: bool) -> None:
     try:
         if dry_run:
             import logging
+
             logging.basicConfig(level="INFO")
         count = auto_merge(session, dry_run=dry_run)
         if dry_run:

@@ -19,7 +19,8 @@ def find_auto_merge_candidates(session: Session) -> list[dict]:
     These are safe to auto-merge (same person, different teams across seasons).
     Returns list of {name, rider_ids, teams, race_counts}.
     """
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         WITH dupe_names AS (
             SELECT name FROM riders GROUP BY name HAVING count(*) > 1
         ),
@@ -41,7 +42,8 @@ def find_auto_merge_candidates(session: Session) -> list[dict]:
         SELECT name, id, team, races
         FROM rider_counts
         ORDER BY name, races DESC, id
-    """)).all()
+    """)
+    ).all()
 
     grouped: dict[str, dict] = {}
     for name, rid, team, races in rows:
@@ -59,7 +61,8 @@ def find_conflicts(session: Session) -> list[dict]:
 
     These need manual review — likely different people with the same name.
     """
-    rows = session.execute(text("""
+    rows = session.execute(
+        text("""
         SELECT
             ri.name,
             ri.id,
@@ -79,20 +82,23 @@ def find_conflicts(session: Session) -> list[dict]:
         )
         GROUP BY ri.name, ri.id, ri.team
         ORDER BY ri.name, races DESC
-    """)).all()
+    """)
+    ).all()
 
     grouped: dict[str, dict] = {}
     for row in rows:
         name = row[0]
         if name not in grouped:
             grouped[name] = {"name": name, "entries": []}
-        grouped[name]["entries"].append({
-            "rider_id": row[1],
-            "team": row[2],
-            "races": row[3],
-            "categories": row[4],
-            "seasons": row[5],
-        })
+        grouped[name]["entries"].append(
+            {
+                "rider_id": row[1],
+                "team": row[2],
+                "races": row[3],
+                "categories": row[4],
+                "seasons": row[5],
+            }
+        )
 
     return list(grouped.values())
 
@@ -113,19 +119,25 @@ def auto_merge(session: Session, dry_run: bool = False) -> int:
         if dry_run:
             logger.info(
                 "Would merge %s: canonical=%d (%s, %d races), aliases=%s",
-                group["name"], canonical_id, group["teams"][0],
+                group["name"],
+                canonical_id,
+                group["teams"][0],
                 group["race_counts"][0],
                 list(zip(alias_ids, group["teams"][1:], group["race_counts"][1:])),
             )
         else:
             for alias_id in alias_ids:
-                stmt = insert(rider_aliases).values(
-                    rider_id=alias_id,
-                    canonical_id=canonical_id,
-                    match_method="auto_name",
-                ).on_conflict_do_update(
-                    index_elements=["rider_id"],
-                    set_={"canonical_id": canonical_id, "match_method": "auto_name"},
+                stmt = (
+                    insert(rider_aliases)
+                    .values(
+                        rider_id=alias_id,
+                        canonical_id=canonical_id,
+                        match_method="auto_name",
+                    )
+                    .on_conflict_do_update(
+                        index_elements=["rider_id"],
+                        set_={"canonical_id": canonical_id, "match_method": "auto_name"},
+                    )
                 )
                 session.execute(stmt)
                 alias_count += 1
@@ -143,13 +155,17 @@ def manual_merge(session: Session, canonical_id: int, alias_ids: list[int]) -> i
     for alias_id in alias_ids:
         if alias_id == canonical_id:
             continue
-        stmt = insert(rider_aliases).values(
-            rider_id=alias_id,
-            canonical_id=canonical_id,
-            match_method="manual",
-        ).on_conflict_do_update(
-            index_elements=["rider_id"],
-            set_={"canonical_id": canonical_id, "match_method": "manual"},
+        stmt = (
+            insert(rider_aliases)
+            .values(
+                rider_id=alias_id,
+                canonical_id=canonical_id,
+                match_method="manual",
+            )
+            .on_conflict_do_update(
+                index_elements=["rider_id"],
+                set_={"canonical_id": canonical_id, "match_method": "manual"},
+            )
         )
         session.execute(stmt)
         count += 1
@@ -159,24 +175,25 @@ def manual_merge(session: Session, canonical_id: int, alias_ids: list[int]) -> i
 
 def unmerge(session: Session, rider_id: int) -> bool:
     """Remove a rider from its canonical group."""
-    result = session.execute(text(
-        "DELETE FROM rider_aliases WHERE rider_id = :id"
-    ), {"id": rider_id})
+    result = session.execute(
+        text("DELETE FROM rider_aliases WHERE rider_id = :id"), {"id": rider_id}
+    )
     session.commit()
     return result.rowcount > 0
 
 
 def get_canonical_id(session: Session, rider_id: int) -> int:
     """Resolve a rider_id to its canonical ID (returns self if not aliased)."""
-    row = session.execute(text(
-        "SELECT canonical_id FROM rider_aliases WHERE rider_id = :id"
-    ), {"id": rider_id}).one_or_none()
+    row = session.execute(
+        text("SELECT canonical_id FROM rider_aliases WHERE rider_id = :id"), {"id": rider_id}
+    ).one_or_none()
     return row[0] if row else rider_id
 
 
 def merge_stats(session: Session) -> dict:
     """Get current merge statistics."""
-    row = session.execute(text("""
+    row = session.execute(
+        text("""
         SELECT
             (SELECT count(*) FROM rider_aliases) AS aliases,
             (SELECT count(DISTINCT canonical_id) FROM rider_aliases) AS canonical_groups,
@@ -184,7 +201,8 @@ def merge_stats(session: Session) -> dict:
                 SELECT name FROM riders GROUP BY name HAVING count(*) > 1
             ) x) AS remaining_dupes,
             (SELECT count(*) FROM riders) AS total_riders
-    """)).one()
+    """)
+    ).one()
     return {
         "aliases": row[0],
         "canonical_groups": row[1],

@@ -74,7 +74,9 @@ results = Table(
     Index("idx_results_rider", "rider_id"),
     Index("idx_results_category", "category"),
     Index("idx_results_event_category", "event_id", "category"),
-    Index("idx_results_conference", "conference", postgresql_where=Column("conference").isnot(None)),
+    Index(
+        "idx_results_conference", "conference", postgresql_where=Column("conference").isnot(None)
+    ),
 )
 
 team_conferences = Table(
@@ -126,8 +128,7 @@ division_laps = Table(
     Column("max_duration_mins", SmallInteger),
     Column("cutoff_mins", SmallInteger),
     Column("season", SmallInteger),
-    UniqueConstraint("course_id", "division", "gender", "season",
-                     name="uq_div_laps_course_div"),
+    UniqueConstraint("course_id", "division", "gender", "season", name="uq_div_laps_course_div"),
     Index("idx_div_laps_course", "course_id"),
 )
 

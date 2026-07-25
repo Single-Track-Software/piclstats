@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, update
 
@@ -80,9 +80,13 @@ async def forecast_save(
     # Readiness thresholds (nested)
     try:
         override["readiness_thresholds"] = {
-            "ready": int(form.get("threshold_ready", DEFAULT_CONFIG["readiness_thresholds"]["ready"])),
+            "ready": int(
+                form.get("threshold_ready", DEFAULT_CONFIG["readiness_thresholds"]["ready"])
+            ),
             "competitive": int(
-                form.get("threshold_competitive", DEFAULT_CONFIG["readiness_thresholds"]["competitive"])
+                form.get(
+                    "threshold_competitive", DEFAULT_CONFIG["readiness_thresholds"]["competitive"]
+                )
             ),
         }
     except ValueError:
@@ -96,39 +100,45 @@ async def forecast_save(
 def courses_list(request: Request, _: str = Depends(require_admin)):
     with get_session() as s:
         rows = s.execute(
-            select(courses.c.id, courses.c.name, courses.c.location, courses.c.distance_miles,
-                   courses.c.elevation_ft).order_by(courses.c.name)
+            select(
+                courses.c.id,
+                courses.c.name,
+                courses.c.location,
+                courses.c.distance_miles,
+                courses.c.elevation_ft,
+            ).order_by(courses.c.name)
         ).all()
-    return templates.TemplateResponse(
-        "admin/courses.html", {"request": request, "courses": rows}
-    )
+    return templates.TemplateResponse("admin/courses.html", {"request": request, "courses": rows})
 
 
 def _load_course(course_id: int):
     with get_session() as s:
-        course = s.execute(
-            select(courses).where(courses.c.id == course_id)
-        ).mappings().first()
+        course = s.execute(select(courses).where(courses.c.id == course_id)).mappings().first()
         if not course:
             return None, []
-        loops = s.execute(
-            select(course_loops).where(course_loops.c.course_id == course_id)
-            .order_by(course_loops.c.loop_type)
-        ).mappings().all()
-    return dict(course), [dict(l) for l in loops]
+        loops = (
+            s.execute(
+                select(course_loops)
+                .where(course_loops.c.course_id == course_id)
+                .order_by(course_loops.c.loop_type)
+            )
+            .mappings()
+            .all()
+        )
+    return dict(course), [dict(loop) for loop in loops]
 
 
 @router.get("/courses/{course_id}", response_class=HTMLResponse)
-def course_edit(
-    request: Request, course_id: int, saved: int = 0, _: str = Depends(require_admin)
-):
+def course_edit(request: Request, course_id: int, saved: int = 0, _: str = Depends(require_admin)):
     course, loops = _load_course(course_id)
     if not course:
         raise HTTPException(404, "Course not found")
     # Ensure both MS and HS rows exist in the form, even if DB has none
-    by_type = {l["loop_type"]: l for l in loops}
+    by_type = {loop["loop_type"]: loop for loop in loops}
     for loop_type in ("MS", "HS"):
-        by_type.setdefault(loop_type, {"loop_type": loop_type, "distance_miles": None, "elevation_ft": None})
+        by_type.setdefault(
+            loop_type, {"loop_type": loop_type, "distance_miles": None, "elevation_ft": None}
+        )
     loops_display = [by_type["MS"], by_type["HS"]]
     return templates.TemplateResponse(
         "admin/course_edit.html",
@@ -165,7 +175,9 @@ async def course_save(
 
     with get_session() as s:
         s.execute(
-            update(courses).where(courses.c.id == course_id).values(
+            update(courses)
+            .where(courses.c.id == course_id)
+            .values(
                 location=location,
                 distance_miles=distance,
                 elevation_ft=elevation,
@@ -185,9 +197,9 @@ async def course_save(
             ).first()
             if existing:
                 s.execute(
-                    update(course_loops).where(course_loops.c.id == existing[0]).values(
-                        distance_miles=dist, elevation_ft=elev
-                    )
+                    update(course_loops)
+                    .where(course_loops.c.id == existing[0])
+                    .values(distance_miles=dist, elevation_ft=elev)
                 )
             elif dist is not None or elev is not None:
                 s.execute(
@@ -209,7 +221,9 @@ VALID_ROLES = ("member", "admin")
 
 
 @router.get("/users", response_class=HTMLResponse)
-def users_list(request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)):
+def users_list(
+    request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)
+):
     return templates.TemplateResponse(
         "admin/users.html",
         {
