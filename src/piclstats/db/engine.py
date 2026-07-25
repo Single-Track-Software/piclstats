@@ -1,8 +1,10 @@
 """SQLAlchemy engine and session factory."""
 
 from functools import lru_cache
+from typing import Any, cast
 
-from sqlalchemy import create_engine, Engine
+from sqlalchemy import create_engine, CursorResult, Engine
+from sqlalchemy.engine import Result
 from sqlalchemy.orm import Session, sessionmaker
 
 from piclstats.config import settings
@@ -23,3 +25,12 @@ def get_engine() -> Engine:
 
 def get_session() -> Session:
     return sessionmaker(bind=get_engine())()
+
+
+def rowcount(result: Result[Any]) -> int:
+    """Rows affected by a DML statement.
+
+    Session.execute() is typed as returning Result, but every INSERT/UPDATE/
+    DELETE actually returns a CursorResult, which is where rowcount lives.
+    """
+    return cast("CursorResult[Any]", result).rowcount

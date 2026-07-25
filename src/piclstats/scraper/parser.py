@@ -243,6 +243,9 @@ def parse_event(event_id: int, season: int, event_order: int) -> EventResults:
             layout = _detect_field_layout(data_fields, rows[0])
             logger.debug("Event %d field layout (n=%d): %s", event_id, len(data_fields), layout)
 
+        if layout is None:
+            continue  # no rows seen yet, so nothing to parse for this category
+
         for row in rows:
             try:
                 result = _parse_row(row, layout, category, order, gender, division)

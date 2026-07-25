@@ -44,6 +44,15 @@ _PALETTE = [
 ]
 
 
+@dataclass
+class _PosEntry:
+    """Working record while building the bump chart (one plottable rider)."""
+
+    row: dict
+    cum: list[float]  # elapsed seconds at the end of each completed lap
+    laps_done: int
+
+
 @dataclass(frozen=True)
 class RiderTrack:
     """One rider's line on the bump chart."""
@@ -98,12 +107,12 @@ def build_position_chart(rows: list[dict], top: int | None = None) -> dict:
     and `max_position` reports the deepest position still on screen so the
     template can scale the Y axis to the shown riders rather than the full pack.
     """
-    riders = []
+    riders: list[_PosEntry] = []
     for r in rows:
         cum = _cumulative_seconds(r)
         if not cum:
             continue  # DNS / no timing — nothing to plot
-        riders.append({"row": r, "cum": cum, "laps_done": len(cum)})
+        riders.append(_PosEntry(row=r, cum=cum, laps_done=len(cum)))
 
     if not riders:
         return {
@@ -116,23 +125,23 @@ def build_position_chart(rows: list[dict], top: int | None = None) -> dict:
             "max_position": 0,
         }
 
-    n_laps = max(r["laps_done"] for r in riders)
+    n_laps = max(r.laps_done for r in riders)
 
     # Position at each lap = rank by elapsed time among riders who completed it.
     # ranks[lap_index][bib] = position
     ranks: list[dict[int, int]] = []
     for lap in range(n_laps):
-        contenders = [r for r in riders if r["laps_done"] > lap]
-        contenders.sort(key=lambda r: r["cum"][lap])
+        contenders = [r for r in riders if r.laps_done > lap]
+        contenders.sort(key=lambda r: r.cum[lap])
         ranks.append({id(r): pos for pos, r in enumerate(contenders, start=1)})
 
     tracks: list[RiderTrack] = []
-    for i, r in enumerate(
-        sorted(riders, key=lambda r: (r["laps_done"], -r["cum"][-1]), reverse=True)
+    for i, entry in enumerate(
+        sorted(riders, key=lambda r: (r.laps_done, -r.cum[-1]), reverse=True)
     ):
-        row = r["row"]
-        positions = [ranks[lap].get(id(r)) for lap in range(n_laps)]
-        complete = r["laps_done"] == n_laps and (row.get("status") or "OK") == "OK"
+        row = entry.row
+        positions = [ranks[lap].get(id(entry)) for lap in range(n_laps)]
+        complete = entry.laps_done == n_laps and (row.get("status") or "OK") == "OK"
         tracks.append(
             RiderTrack(
                 bib=row["bib"],
@@ -140,7 +149,7 @@ def build_position_chart(rows: list[dict], top: int | None = None) -> dict:
                 team=row.get("team"),
                 color=_PALETTE[i % len(_PALETTE)],
                 positions=positions,
-                laps_done=r["laps_done"],
+                laps_done=entry.laps_done,
                 finish_place=row.get("place"),
                 status=row.get("status") or "OK",
                 complete=complete,
@@ -190,6 +199,14 @@ _LAP_COLORS = [
 ]
 
 
+@dataclass
+class _LapEntry:
+    """Working record while building the lap-times chart (one plottable rider)."""
+
+    row: dict
+    laps: list[float]  # per-lap durations in seconds
+
+
 @dataclass(frozen=True)
 class LapTrack:
     """One rider's row on the stacked lap-times chart."""
@@ -216,12 +233,12 @@ def build_lap_chart(rows: list[dict], top: int | None = None) -> dict:
     `top` limits the chart to the N best finishers; the stacked `series` is then
     built from just those riders.
     """
-    riders = []
+    riders: list[_LapEntry] = []
     for r in rows:
         laps = _lap_durations(r)
         if not laps:
             continue  # DNS / no timing
-        riders.append({"row": r, "laps": laps})
+        riders.append(_LapEntry(row=r, laps=laps))
 
     if not riders:
         return {
@@ -234,12 +251,12 @@ def build_lap_chart(rows: list[dict], top: int | None = None) -> dict:
             "shown": 0,
         }
 
-    n_laps = max(len(r["laps"]) for r in riders)
+    n_laps = max(len(r.laps) for r in riders)
 
     tracks: list[LapTrack] = []
-    for r in riders:
-        row = r["row"]
-        laps = r["laps"]
+    for entry in riders:
+        row = entry.row
+        laps = entry.laps
         complete = len(laps) == n_laps and (row.get("status") or "OK") == "OK"
         tracks.append(
             LapTrack(

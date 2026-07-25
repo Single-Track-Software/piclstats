@@ -133,7 +133,7 @@ def build_speed_rating(rows: list[dict]) -> dict:
         "lap": _summary([e.z_lap for e in events], latest_lap, "lap"),
         "events": events,
         "age_group": age_group,
-        "age_group_label": _AGE_GROUP_LABELS.get(age_group, age_group or ""),
+        "age_group_label": _AGE_GROUP_LABELS.get(age_group or "", age_group or ""),
         "gender": gender,
         "has_data": any(e.z_pace is not None or e.z_lap is not None for e in events),
     }

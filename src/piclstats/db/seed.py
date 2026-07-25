@@ -7,6 +7,8 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from piclstats.db.engine import rowcount
+
 logger = logging.getLogger(__name__)
 
 # ── Courses ──────────────────────────────────────────────────────────
@@ -221,7 +223,7 @@ def normalize_divisions(session: Session) -> int:
             text("UPDATE results SET division = :canon WHERE division = :alias"),
             {"canon": canonical, "alias": alias},
         )
-        total += result.rowcount
+        total += rowcount(result)
     logger.info("Normalized %d result rows to canonical division labels", total)
     return total
 
@@ -244,8 +246,9 @@ def classify_event_types(session: Session) -> int:
             END
     """)
     )
-    logger.info("Classified event types for %d events", result.rowcount)
-    return result.rowcount
+    n = rowcount(result)
+    logger.info("Classified event types for %d events", n)
+    return n
 
 
 def seed_conferences(session: Session) -> int:

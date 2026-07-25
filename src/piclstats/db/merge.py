@@ -8,6 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from piclstats.db.engine import rowcount
 from piclstats.db.tables import rider_aliases
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,7 @@ def unmerge(session: Session, rider_id: int) -> bool:
         text("DELETE FROM rider_aliases WHERE rider_id = :id"), {"id": rider_id}
     )
     session.commit()
-    return result.rowcount > 0
+    return rowcount(result) > 0
 
 
 def get_canonical_id(session: Session, rider_id: int) -> int:

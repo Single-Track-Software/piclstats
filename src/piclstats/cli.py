@@ -74,8 +74,8 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     total_results = 0
     errors = 0
 
+    # Imported lazily so --dry-run works without a reachable database.
     session = None
-    load_event = None
     if not dry_run:
         from piclstats.db.engine import get_session
         from piclstats.db.loader import load_event
@@ -95,6 +95,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
                         f"{n} results parsed"
                     )
                 else:
+                    assert session is not None  # opened above whenever dry_run is False
                     load_event(session, event_results)
                     click.echo(
                         f"  Loaded event {eid} ({event_results.config.event_name}): {n} results"

@@ -443,10 +443,12 @@ def racechart_page(
 
         # Default to the most recent event with timing.
         if event_id is None or not any(e["id"] == event_id for e in events):
-            event_id = events[0]["id"]
-        event = next(e for e in events if e["id"] == event_id)
+            selected_id: int = events[0]["id"]
+        else:
+            selected_id = event_id
+        event = next(e for e in events if e["id"] == selected_id)
 
-        categories = queries.event_categories(session, event_id)
+        categories = queries.event_categories(session, selected_id)
         cat_names = [c["category"] for c in categories]
         # Default to the largest field in the event (the marquee race).
         if category not in cat_names:
@@ -456,7 +458,7 @@ def racechart_page(
         chart = None
         lap_chart = None
         if category:
-            rows = queries.event_lap_rows(session, event_id, category)
+            rows = queries.event_lap_rows(session, selected_id, category)
             chart = racechart_mod.build_position_chart(rows, top=top_n)
             lap_chart = racechart_mod.build_lap_chart(rows, top=top_n)
 

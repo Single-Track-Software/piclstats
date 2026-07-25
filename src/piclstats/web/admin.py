@@ -12,6 +12,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, update
+from starlette.datastructures import FormData
 
 from piclstats.db import users_store
 from piclstats.db.engine import get_session
@@ -38,6 +39,20 @@ FORECAST_FIELDS = [
     ("climbing_impact_per_100ft_mile", float, "Pace impact per 100 ft/mi of climbing"),
     ("reference_climbing_ft_per_mile", float, "Reference climbing rate (ft/mile)"),
 ]
+
+
+def _form_str(form: FormData, key: str, default: str = "") -> str:
+    """Read a form field as text.
+
+    Starlette's FormData yields ``UploadFile`` for file parts, so a crafted
+    multipart POST could otherwise slip a file object into int()/strip()/
+    hash_password() and 500 the admin pages. Anything that isn't a plain string
+    is treated as absent.
+    """
+    raw = form.get(key)
+    if not isinstance(raw, str):
+        return default
+    return raw
 
 
 @router.get("", response_class=HTMLResponse)
@@ -70,23 +85,20 @@ async def forecast_save(
     form = await request.form()
     override: dict = {}
     for key, typ, _label in FORECAST_FIELDS:
-        raw = form.get(key)
-        if raw is None or raw == "":
+        raw = _form_str(form, key)
+        if raw == "":
             continue
         try:
             override[key] = typ(raw)
         except ValueError:
             raise HTTPException(400, f"Invalid value for {key}: {raw}")
     # Readiness thresholds (nested)
+    defaults = DEFAULT_CONFIG["readiness_thresholds"]
     try:
         override["readiness_thresholds"] = {
-            "ready": int(
-                form.get("threshold_ready", DEFAULT_CONFIG["readiness_thresholds"]["ready"])
-            ),
+            "ready": int(_form_str(form, "threshold_ready", str(defaults["ready"]))),
             "competitive": int(
-                form.get(
-                    "threshold_competitive", DEFAULT_CONFIG["readiness_thresholds"]["competitive"]
-                )
+                _form_str(form, "threshold_competitive", str(defaults["competitive"]))
             ),
         }
     except ValueError:
@@ -146,8 +158,9 @@ def course_edit(request: Request, course_id: int, saved: int = 0, _: str = Depen
     )
 
 
-def _opt_float(raw):
-    if raw is None or raw == "":
+def _opt_float(form: FormData, key: str) -> float | None:
+    raw = _form_str(form, key)
+    if raw == "":
         return None
     return float(raw)
 
@@ -161,17 +174,17 @@ async def course_save(
 ):
     form = await request.form()
     try:
-        distance = _opt_float(form.get("distance_miles"))
-        elevation = _opt_float(form.get("elevation_ft"))
-        difficulty = _opt_float(form.get("difficulty_score"))
-        ms_distance = _opt_float(form.get("ms_distance_miles"))
-        ms_elevation = _opt_float(form.get("ms_elevation_ft"))
-        hs_distance = _opt_float(form.get("hs_distance_miles"))
-        hs_elevation = _opt_float(form.get("hs_elevation_ft"))
+        distance = _opt_float(form, "distance_miles")
+        elevation = _opt_float(form, "elevation_ft")
+        difficulty = _opt_float(form, "difficulty_score")
+        ms_distance = _opt_float(form, "ms_distance_miles")
+        ms_elevation = _opt_float(form, "ms_elevation_ft")
+        hs_distance = _opt_float(form, "hs_distance_miles")
+        hs_elevation = _opt_float(form, "hs_elevation_ft")
     except ValueError:
         raise HTTPException(400, "Invalid number in form")
-    location = form.get("location") or None
-    notes = form.get("notes") or None
+    location = _form_str(form, "location") or None
+    notes = _form_str(form, "notes") or None
 
     with get_session() as s:
         s.execute(
@@ -243,10 +256,10 @@ async def users_create(
     __: None = Depends(require_same_origin),
 ):
     form = await request.form()
-    email = (form.get("email") or "").strip()
-    name = (form.get("name") or "").strip() or None
-    role = form.get("role") or "member"
-    password = form.get("password") or ""
+    email = _form_str(form, "email").strip()
+    name = _form_str(form, "name").strip() or None
+    role = _form_str(form, "role") or "member"
+    password = _form_str(form, "password")
 
     if not email or not password:
         return RedirectResponse("/admin/users?error=Email+and+password+required", status_code=303)
@@ -267,7 +280,7 @@ async def users_update(
     __: None = Depends(require_same_origin),
 ):
     form = await request.form()
-    action = form.get("action")
+    action = _form_str(form, "action")
 
     target = users_store.get_user_by_id(user_id)
     if not target:
@@ -280,7 +293,7 @@ async def users_update(
         )
 
     if action == "set_role":
-        role = form.get("role") or "member"
+        role = _form_str(form, "role") or "member"
         if role not in VALID_ROLES:
             return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
         users_store.set_role(user_id, role)
@@ -292,7 +305,7 @@ async def users_update(
         users_store.set_active(user_id, False)
         return RedirectResponse("/admin/users?saved=User+deactivated", status_code=303)
     if action == "reset_password":
-        password = form.get("password") or ""
+        password = _form_str(form, "password")
         if not password:
             return RedirectResponse("/admin/users?error=Password+required", status_code=303)
         users_store.set_password(user_id, hash_password(password))

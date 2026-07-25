@@ -17,12 +17,16 @@ from fastapi.templating import Jinja2Templates as _Jinja2Templates
 
 
 class Jinja2Templates(_Jinja2Templates):
-    def TemplateResponse(self, *args: Any, **kwargs: Any):  # type: ignore[override]
+    def TemplateResponse(self, *args: Any, **kwargs: Any):
         # Legacy form: TemplateResponse(name: str, context: dict, ...).
         # Modern form has a Request first, so a str in slot 0 means legacy.
         if args and isinstance(args[0], str):
             name = args[0]
             context = args[1] if len(args) > 1 else kwargs.pop("context", {}) or {}
             request = context.get("request")
+            if request is None:
+                raise ValueError(
+                    f"TemplateResponse('{name}', …) needs 'request' in the context dict"
+                )
             return super().TemplateResponse(request, name, context, *args[2:], **kwargs)
         return super().TemplateResponse(*args, **kwargs)
