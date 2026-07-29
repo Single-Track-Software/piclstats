@@ -16,19 +16,22 @@ Race-results scraper and analytics dashboard for the PA Interscholastic Cycling 
 ```bash
 git clone https://github.com/Single-Track-Software/piclstats.git
 cd piclstats
-python3.11 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env   # then fill in real values — see below
+uv venv --python 3.11        # uv reads .python-version and fetches 3.11 if missing
+uv pip install -e ".[dev]"
+cp .env.example .env         # then fill in real values — see below
 ```
+
+(`python3.11 -m venv .venv && pip install -e ".[dev]"` also works if you'd
+rather not use uv, but then a 3.11 interpreter has to already be on the box —
+a Homebrew upgrade removing `python@3.11` is what broke the venv before.)
 
 `.env` is gitignored and must be created by hand on each machine. All settings are `PICLSTATS_`-prefixed (see `src/piclstats/config.py`):
 
 | Variable | Purpose |
 |---|---|
 | `PICLSTATS_DATABASE_URL` | `postgresql+psycopg://…` connection string. Unset, it falls back to Fly's `DATABASE_URL`, then `localhost:5432/piclstats`. |
-| `PICLSTATS_SESSION_SECRET` | Signs session cookies. Generate: `python -c "import secrets; print(secrets.token_hex(32))"` |
-| `PICLSTATS_SESSION_HTTPS_ONLY` | Set `false` for local http dev or the login cookie won't be sent. Keep `true` in prod. |
+| `PICLSTATS_SESSION_SECRET` | Signs session cookies. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. **Required in production** — the app refuses to start without it when `SESSION_HTTPS_ONLY` is true. |
+| `PICLSTATS_SESSION_HTTPS_ONLY` | Set `false` for local http dev or the login cookie won't be sent. Keep `true` in prod. Doubles as the dev/prod tell for the secret check above. |
 | `PICLSTATS_ADMIN_EMAIL` / `PICLSTATS_ADMIN_PASSWORD` | Bootstrap admin: created on startup if no user with that email exists. |
 | `PICLSTATS_SCRAPE_DELAY_SECONDS` / `PICLSTATS_LOG_LEVEL` | Scraper politeness delay; log level. |
 
@@ -51,17 +54,22 @@ Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `
 
 Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`).
 
-## Tests
+Accounts are created by an admin at `/admin/users` — there's no self-signup. Failed logins are throttled per IP+account (5 in 15 minutes buys a 15-minute cooldown); the counter is in-process, so it needs a shared store before running more than one machine.
+
+## Checks
 
 ```bash
-.venv/bin/python -m pytest tests/ -q
+uv run pytest tests/ -q      # 98 tests, DB stubbed — no PostgreSQL needed
+uv run ruff check .          # lint
+uv run ruff format .         # format (line length 100)
+uv run mypy                  # types; config in pyproject.toml
 ```
 
-Tests stub the DB layer — no PostgreSQL needed. Ruff config is in `pyproject.toml` (line length 100).
+All four run in CI on every PR. Config lives in `pyproject.toml`.
 
 ## Deployment
 
-Push to `main` auto-deploys via GitHub Actions (`.github/workflows/fly-deploy.yml`, needs the `FLY_API_TOKEN` repo secret). `fly.toml`'s `release_command` runs `alembic upgrade head` before the new version serves traffic. Prod secrets are set with `flyctl secrets set`, not `.env`.
+Push to `main` runs the CI checks and, only if they pass, auto-deploys via GitHub Actions (`.github/workflows/fly-deploy.yml` calls `ci.yml` as a required job; needs the `FLY_API_TOKEN` repo secret). `fly.toml`'s `release_command` runs `alembic upgrade head` before the new version serves traffic. Prod secrets are set with `flyctl secrets set`, not `.env`.
 
 ## Docs
 
