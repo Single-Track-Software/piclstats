@@ -33,6 +33,9 @@ a Homebrew upgrade removing `python@3.11` is what broke the venv before.)
 | `PICLSTATS_SESSION_SECRET` | Signs session cookies. Generate: `python -c "import secrets; print(secrets.token_hex(32))"`. **Required in production** — the app refuses to start without it when `SESSION_HTTPS_ONLY` is true. |
 | `PICLSTATS_SESSION_HTTPS_ONLY` | Set `false` for local http dev or the login cookie won't be sent. Keep `true` in prod. Doubles as the dev/prod tell for the secret check above. |
 | `PICLSTATS_ADMIN_EMAIL` / `PICLSTATS_ADMIN_PASSWORD` | Bootstrap admin: created on startup if no user with that email exists. |
+| `PICLSTATS_RESEND_API_KEY` | Resend key for invite/reset emails. Blank = links are logged and shown in the admin UI instead of sent (fine for local dev). |
+| `PICLSTATS_EMAIL_FROM` | Sender, e.g. `PICL Stats <noreply@yourdomain>`. Must be on a domain verified in Resend. |
+| `PICLSTATS_PUBLIC_BASE_URL` | Absolute base for emailed links, e.g. `https://piclstats.fly.dev`. Unset, links use the requesting host. |
 | `PICLSTATS_SCRAPE_DELAY_SECONDS` / `PICLSTATS_LOG_LEVEL` | Scraper politeness delay; log level. |
 
 Then create/migrate the schema and load data:
@@ -54,7 +57,17 @@ Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `
 
 Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`).
 
-Accounts are created by an admin at `/admin/users` — there's no self-signup. Failed logins are throttled per IP+account (5 in 15 minutes buys a 15-minute cooldown); the counter is in-process, so it needs a shared store before running more than one machine.
+### Access model
+
+Public pages need no account. Everything gated is **invite-only** — there is no signup page.
+
+1. An admin invites an address at `/admin/users` and picks the role.
+2. The app emails a one-time link (7-day expiry) and also shows it once on screen, so the admin can send it another way if email is down.
+3. The coach opens `/invite/{token}`, sets their own password (12 chars minimum, passphrases encouraged), and lands signed in on `/staging`.
+
+A password never passes through an admin. Forgotten passwords self-serve via `/forgot` → emailed link → `/reset/{token}` (1-hour expiry); admins can also trigger that email from `/admin/users`. Only the SHA-256 hash of each token is stored, links are one-time, and issuing a new one retires any outstanding link for that address.
+
+`/forgot` returns the same response whether or not the address exists, so it can't be used to enumerate accounts. Failed logins are throttled per IP+account (5 in 15 minutes buys a 15-minute cooldown), reset requests more tightly (3). Both counters are in-process, so they need a shared store before running more than one machine.
 
 ## Checks
 

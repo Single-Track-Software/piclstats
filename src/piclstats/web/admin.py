@@ -8,17 +8,19 @@ MS/HS loop data), and manage login accounts. Auth is the shared session login
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, update
 from starlette.datastructures import FormData
 
-from piclstats.db import users_store
+from piclstats.db import tokens_store, users_store
 from piclstats.db.engine import get_session
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import course_loops, courses
-from piclstats.web.auth import hash_password, require_admin, require_same_origin
+from piclstats.web import mail
+from piclstats.web.auth import build_link, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
 from piclstats.web.templating import Jinja2Templates
 
@@ -233,43 +235,90 @@ async def course_save(
 VALID_ROLES = ("member", "admin")
 
 
-@router.get("/users", response_class=HTMLResponse)
-def users_list(
-    request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)
+def _users_page(
+    request: Request,
+    saved: str = "",
+    error: str = "",
+    invite_link: str = "",
+    invite_email: str = "",
+    emailed: bool = True,
+    status_code: int = 200,
 ):
     return templates.TemplateResponse(
         "admin/users.html",
         {
             "request": request,
             "users": users_store.list_users(),
+            "invites": tokens_store.list_pending_invites(),
             "saved": saved,
             "error": error,
             "roles": VALID_ROLES,
+            # Shown once, immediately after minting — the raw token is not
+            # recoverable afterwards, only its hash is stored.
+            "invite_link": invite_link,
+            "invite_email": invite_email,
+            "emailed": emailed,
+            "email_configured": mail.is_configured(),
         },
+        status_code=status_code,
     )
 
 
-@router.post("/users")
-async def users_create(
+@router.get("/users", response_class=HTMLResponse)
+def users_list(
+    request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)
+):
+    return _users_page(request, saved=saved, error=error)
+
+
+@router.post("/users/invite", response_class=HTMLResponse)
+async def users_invite(
     request: Request,
     admin: dict = Depends(require_admin),
     __: None = Depends(require_same_origin),
 ):
+    """Issue a one-time invite link and email it.
+
+    Renders the page directly rather than redirecting: the link carries a live
+    token, and a redirect would put it in the URL bar, browser history, and
+    every proxy log along the way.
+    """
     form = await request.form()
     email = _form_str(form, "email").strip()
-    name = _form_str(form, "name").strip() or None
     role = _form_str(form, "role") or "member"
-    password = _form_str(form, "password")
 
-    if not email or not password:
-        return RedirectResponse("/admin/users?error=Email+and+password+required", status_code=303)
+    if not email:
+        return _users_page(request, error="Email required", status_code=400)
     if role not in VALID_ROLES:
-        return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
+        return _users_page(request, error="Invalid role", status_code=400)
     if users_store.get_user_by_email(email):
-        return RedirectResponse("/admin/users?error=Email+already+exists", status_code=303)
+        return _users_page(request, error=f"{email} already has an account.", status_code=409)
 
-    users_store.create_user(email, name, hash_password(password), role)
-    return RedirectResponse("/admin/users?saved=User+created", status_code=303)
+    # Re-inviting the same address retires the earlier link rather than leaving
+    # two live invites for one person.
+    tokens_store.invalidate_outstanding(email, tokens_store.INVITE)
+    token = tokens_store.create(
+        purpose=tokens_store.INVITE, email=email, role=role, created_by=admin["id"]
+    )
+    link = build_link(request, f"/invite/{token}")
+    days = max(1, tokens_store.INVITE_TTL.days)
+    emailed = mail.send_invite(email, link, admin.get("name"), days)
+
+    saved = f"Invite sent to {email}." if emailed else ""
+    error = "" if emailed else f"Invite created, but the email to {email} failed to send."
+    return _users_page(
+        request, saved=saved, error=error, invite_link=link, invite_email=email, emailed=emailed
+    )
+
+
+@router.post("/users/invite/{token_id}/revoke")
+def users_invite_revoke(
+    token_id: int,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    tokens_store.revoke(token_id)
+    return RedirectResponse("/admin/users?saved=Invite+revoked", status_code=303)
 
 
 @router.post("/users/{user_id}")
@@ -304,11 +353,21 @@ async def users_update(
     if action == "deactivate":
         users_store.set_active(user_id, False)
         return RedirectResponse("/admin/users?saved=User+deactivated", status_code=303)
-    if action == "reset_password":
-        password = _form_str(form, "password")
-        if not password:
-            return RedirectResponse("/admin/users?error=Password+required", status_code=303)
-        users_store.set_password(user_id, hash_password(password))
-        return RedirectResponse("/admin/users?saved=Password+reset", status_code=303)
+    if action == "send_reset":
+        # Admins send a reset link rather than setting a password themselves, so
+        # no password ever passes through an admin or a chat window.
+        tokens_store.invalidate_outstanding(target["email"], tokens_store.RESET)
+        token = tokens_store.create(
+            purpose=tokens_store.RESET, email=target["email"], user_id=user_id
+        )
+        hours = max(1, int(tokens_store.RESET_TTL.total_seconds() // 3600))
+        sent = mail.send_password_reset(
+            target["email"], build_link(request, f"/reset/{token}"), hours
+        )
+        if sent:
+            return RedirectResponse(
+                "/admin/users?saved=Reset+link+sent+to+" + quote(target["email"]), status_code=303
+            )
+        return RedirectResponse("/admin/users?error=Reset+email+failed+to+send", status_code=303)
 
     return RedirectResponse("/admin/users?error=Unknown+action", status_code=303)

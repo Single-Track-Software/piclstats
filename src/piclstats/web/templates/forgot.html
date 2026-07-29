@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Reset your password — PICL Stats{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-8">
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Reset your password</h1>
+
+    {% if sent %}
+    <div class="mb-4 px-4 py-3 rounded bg-green-50 text-green-800 text-sm border border-green-200">
+        If that address has an account, a reset link is on its way. Check your spam folder
+        if it doesn't arrive in a few minutes.
+    </div>
+    <p class="text-sm text-gray-600">
+        <a href="/login" class="text-picl-700 hover:underline">Back to sign in</a>
+    </p>
+    {% else %}
+    <p class="text-sm text-gray-600 mb-6">
+        Enter the email address you sign in with and we'll send you a link to set a new password.
+    </p>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/forgot" class="bg-white rounded-lg shadow border border-gray-200 p-5 space-y-4">
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Email</label>
+            <input name="email" type="email" required autofocus class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="w-full bg-picl-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-800">
+            Send reset link
+        </button>
+        <p class="text-xs text-gray-500 text-center">
+            <a href="/login" class="hover:underline">Back to sign in</a>
+        </p>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

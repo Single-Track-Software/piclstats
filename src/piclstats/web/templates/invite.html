@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Accept your invitation — PICL Stats{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-8">
+    {% if not invite %}
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">This invitation isn't valid</h1>
+    <p class="text-sm text-gray-600 mb-6">
+        Invite links work once and expire after a week. If yours has already been used,
+        try <a href="/login" class="text-picl-700 hover:underline">signing in</a> — you may
+        already have an account. Otherwise ask whoever invited you to send a new one.
+    </p>
+    {% else %}
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Welcome to PICL Stats</h1>
+    <p class="text-sm text-gray-600 mb-6">
+        Choose a password for <span class="font-medium text-gray-800">{{ invite.email }}</span>
+        and you're in. This gives you access to staging orders, race charts, and category
+        predictions.
+    </p>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/invite/{{ token }}" class="bg-white rounded-lg shadow border border-gray-200 p-5 space-y-4">
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Your name</label>
+            <input name="name" type="text" autofocus class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Password</label>
+            <input name="password" type="password" required minlength="12" autocomplete="new-password"
+                   class="w-full border rounded px-3 py-2 text-sm">
+            <p class="text-xs text-gray-500 mt-1">At least 12 characters. A short phrase works well.</p>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Confirm password</label>
+            <input name="confirm" type="password" required minlength="12" autocomplete="new-password"
+                   class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="w-full bg-picl-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-800">
+            Create my account
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

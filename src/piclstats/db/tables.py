@@ -158,6 +158,24 @@ users = Table(
     Index("idx_users_email", "email"),
 )
 
+auth_tokens = Table(
+    "auth_tokens",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    # SHA-256 of the token, never the token itself.
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("purpose", Text, nullable=False),  # 'invite' | 'reset'
+    Column("email", Text, nullable=False),
+    Column("role", Text),  # invites only
+    Column("user_id", Integer),  # resets only
+    Column("created_by", Integer),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("used_at", DateTime(timezone=True)),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_auth_tokens_hash", "token_hash"),
+    Index("idx_auth_tokens_email", "email"),
+)
+
 rider_aliases = Table(
     "rider_aliases",
     metadata,
