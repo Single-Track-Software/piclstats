@@ -16,12 +16,16 @@ from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from piclstats.db import users_store
+from piclstats.web import ratelimit
 from piclstats.web.templating import Jinja2Templates
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 router = APIRouter(tags=["auth"])
+
+# Process-wide login throttle (see ratelimit.py for the single-machine caveat).
+throttle = ratelimit.LoginThrottle()
 
 
 # --- password hashing -------------------------------------------------------
@@ -129,6 +133,21 @@ def login_form(request: Request, next: str = "/", error: str = ""):
     )
 
 
+def client_ip(request: Request) -> str | None:
+    """Caller's IP, trusting Fly's proxy headers ahead of the socket address.
+
+    On Fly the socket peer is always the edge proxy, so without this every
+    request would throttle under one key.
+    """
+    fly_ip = request.headers.get("fly-client-ip")
+    if fly_ip:
+        return fly_ip
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
 @router.post("/login")
 def login_submit(
     request: Request,
@@ -137,13 +156,31 @@ def login_submit(
     next: str = Form("/"),
     __: None = Depends(require_same_origin),
 ):
+    key = ratelimit.client_key(client_ip(request), email)
+    wait = throttle.retry_after(key)
+    if wait:
+        minutes = max(1, round(wait / 60))
+        return templates.TemplateResponse(
+            "login.html",
+            {
+                "request": request,
+                "next": next,
+                "error": f"Too many failed attempts. Try again in {minutes} minute"
+                f"{'s' if minutes != 1 else ''}.",
+            },
+            status_code=429,
+            headers={"Retry-After": str(wait)},
+        )
+
     user = users_store.get_user_by_email(email)
     if not user or not user["is_active"] or not verify_password(password, user["password_hash"]):
+        throttle.record_failure(key)
         return templates.TemplateResponse(
             "login.html",
             {"request": request, "next": next, "error": "Invalid email or password."},
             status_code=401,
         )
+    throttle.record_success(key)
     request.session["user_id"] = user["id"]
     users_store.touch_last_login(user["id"])
     return RedirectResponse(_safe_next(next), status_code=303)

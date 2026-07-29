@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -26,7 +28,16 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="PICL Stats Dashboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Names resolve at call time, so the handlers can be defined further down.
+    _check_session_secret()
+    _bootstrap_admin()
+    yield
+
+
+app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 
@@ -40,17 +51,41 @@ async def _load_user_state(request: Request, call_next):
     return await call_next(request)
 
 
-if not settings.session_secret:
+def _insecure_session_config() -> bool:
+    """True when we'd be signing session cookies with a throwaway key in prod.
+
+    session_https_only is the dev/prod tell: it must be False to log in over
+    local http, and stays True on Fly.
+    """
+    return not settings.session_secret and settings.session_https_only
+
+
+def _session_secret() -> str:
+    """Key that signs session cookies.
+
+    Falls back to a *random per-process* key rather than the hardcoded string
+    this used to use — that fallback meant a misconfigured production deploy
+    booted happily with forgeable cookies and anyone could mint an admin
+    session. A random key at least can't be guessed; _check_session_secret()
+    then refuses to start the server at all when it's production posture.
+    """
+    if settings.session_secret:
+        return settings.session_secret
     logger.warning(
-        "PICLSTATS_SESSION_SECRET is empty; session cookies are not secure. "
-        "Set it before serving real traffic."
+        "PICLSTATS_SESSION_SECRET is empty — using a random per-process key. "
+        "Sessions will not survive a restart."
     )
+    return secrets.token_hex(32)
+
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.session_secret or "insecure-dev-only-secret",
+    secret_key=_session_secret(),
     https_only=settings.session_https_only,
     same_site="lax",
+    # Coaches shouldn't be re-logging in mid-season; 14 days is Starlette's
+    # default, set here so it reads as a decision rather than an accident.
+    max_age=14 * 24 * 60 * 60,
 )
 
 
@@ -61,7 +96,19 @@ async def _login_required_handler(request: Request, exc: LoginRequired):
     return RedirectResponse(f"/login?next={quote(exc.next_path)}", status_code=303)
 
 
-@app.on_event("startup")
+def _check_session_secret() -> None:
+    # Refuse to serve traffic with an unset secret in production posture.
+    # Raising here (rather than at import) keeps the module importable for
+    # tests and tooling, while still stopping the server from coming up.
+    if _insecure_session_config():
+        raise RuntimeError(
+            "PICLSTATS_SESSION_SECRET is not set. Generate one with "
+            '`python -c "import secrets; print(secrets.token_hex(32))"`, then '
+            "`flyctl secrets set PICLSTATS_SESSION_SECRET=…`. For local http dev, "
+            "set PICLSTATS_SESSION_HTTPS_ONLY=false instead."
+        )
+
+
 def _bootstrap_admin() -> None:
     # Seed the first admin from env so a fresh deploy has a way in. No-op once
     # that account exists, so it's safe to leave the env vars set.
