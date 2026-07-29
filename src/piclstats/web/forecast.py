@@ -122,7 +122,10 @@ class StatisticalForecastModel:
         ref_climb = cfg["reference_climbing_ft_per_mile"]
         climb_impact = cfg["climbing_impact_per_100ft_mile"]
 
-        recent = inp.observations[-cfg["recent_race_count"] :]
+        # Clamp: a configured 0 would slice observations[-0:], which is *every*
+        # race rather than none — the admin forecast form accepts any integer.
+        recent_n = max(1, int(cfg["recent_race_count"]))
+        recent = inp.observations[-recent_n:]
         decay = cfg["recency_decay"]
         weights = [decay ** (len(recent) - 1 - i) for i in range(len(recent))]
         total_w = sum(weights)
