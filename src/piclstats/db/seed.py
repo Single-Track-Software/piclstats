@@ -174,29 +174,46 @@ def seed_course_loops(session: Session, course_ids: dict[str, int]) -> int:
 
 
 def seed_division_laps(session: Session, course_ids: dict[str, int]) -> int:
-    """Seed division lap profiles for all courses."""
+    """Seed division lap profiles for all courses.
+
+    Default profiles have season = NULL (and the single-lap ones gender = NULL).
+    Postgres treats NULLs as distinct in the unique constraint, so an
+    ON CONFLICT upsert never matches them and every seed run would insert a
+    second copy — which then double-counts each race wherever results join
+    division_laps. Update-then-insert with IS NOT DISTINCT FROM is idempotent.
+    """
     count = 0
     for course_name, course_id in course_ids.items():
         for div, gender, laps, max_dur, cutoff, loop_type in DIVISION_PROFILES:
-            session.execute(
+            params = {
+                "cid": course_id,
+                "div": div,
+                "gender": gender,
+                "laps": laps,
+                "max_dur": max_dur,
+                "cutoff": cutoff,
+                "lt": loop_type,
+            }
+            updated = session.execute(
                 text("""
-                INSERT INTO division_laps (course_id, division, gender, lap_count,
-                    max_duration_mins, cutoff_mins, loop_type)
-                VALUES (:cid, :div, :gender, :laps, :max_dur, :cutoff, :lt)
-                ON CONFLICT (course_id, division, gender, season)
-                DO UPDATE SET lap_count = :laps, max_duration_mins = :max_dur,
+                UPDATE division_laps
+                SET lap_count = :laps, max_duration_mins = :max_dur,
                     cutoff_mins = :cutoff, loop_type = :lt
+                WHERE course_id = :cid AND division = :div
+                  AND gender IS NOT DISTINCT FROM :gender
+                  AND season IS NULL
             """),
-                {
-                    "cid": course_id,
-                    "div": div,
-                    "gender": gender,
-                    "laps": laps,
-                    "max_dur": max_dur,
-                    "cutoff": cutoff,
-                    "lt": loop_type,
-                },
+                params,
             )
+            if rowcount(updated) == 0:
+                session.execute(
+                    text("""
+                    INSERT INTO division_laps (course_id, division, gender, lap_count,
+                        max_duration_mins, cutoff_mins, loop_type)
+                    VALUES (:cid, :div, :gender, :laps, :max_dur, :cutoff, :lt)
+                """),
+                    params,
+                )
             count += 1
 
     logger.info("Seeded %d division-lap profiles", count)
