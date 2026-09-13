@@ -1,6 +1,9 @@
 """Event registry — maps seasons to raceresult.com event IDs."""
 
 SEASONS: dict[int, list[int]] = {
+    2026: [
+        410562,  # State Kick-Off - Playin' at Penn College
+    ],
     2025: [
         355717,  # State #1 - Playin' at Penn College
         360950,  # State #2 - Grinnin' at Granite
