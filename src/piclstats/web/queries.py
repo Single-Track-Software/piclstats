@@ -491,7 +491,10 @@ def leaderboard(
         JOIN events e ON r.event_id = e.id
         WHERE {where}
         GROUP BY c.cid, c.name, r.division, r.gender
-        HAVING count(DISTINCT r.event_id) >= 2
+        HAVING count(DISTINCT r.event_id) >= LEAST(2, (
+            SELECT count(*) FROM events e2
+            WHERE e2.event_type = 'points' {scope_season}
+        ))
         ORDER BY {order_col}
         LIMIT :limit
     """
@@ -541,13 +544,17 @@ def team_leaderboard(
 def courses_list(session: Session) -> list[dict]:
     rows = session.execute(
         text("""
-        SELECT c.id, c.name, c.location, c.distance_miles, c.elevation_ft,
-               c.difficulty_score, count(DISTINCT e.id) AS event_count,
+        SELECT c.id, c.name, c.location, c.difficulty_score,
+               ms.distance_miles AS ms_distance_miles, ms.elevation_ft AS ms_elevation_ft,
+               hs.distance_miles AS hs_distance_miles, hs.elevation_ft AS hs_elevation_ft,
+               count(DISTINCT e.id) AS event_count,
                count(r.id) AS result_count
         FROM courses c
+        LEFT JOIN course_loops ms ON ms.course_id = c.id AND ms.loop_type = 'MS'
+        LEFT JOIN course_loops hs ON hs.course_id = c.id AND hs.loop_type = 'HS'
         LEFT JOIN events e ON e.course_id = c.id
         LEFT JOIN results r ON r.event_id = e.id
-        GROUP BY c.id
+        GROUP BY c.id, ms.distance_miles, ms.elevation_ft, hs.distance_miles, hs.elevation_ft
         ORDER BY c.name
     """)
     ).all()
