@@ -1,7 +1,7 @@
 """Admin router — unlinked /admin pages behind the admin role.
 
-Lets the operator tune forecast config, edit course stats (distance, elevation,
-MS/HS loop data), and manage login accounts. Auth is the shared session login
+Lets the operator tune forecast config, edit course stats (MS/HS loop distance
+and elevation), and manage login accounts. Auth is the shared session login
 (see web/auth.py); these pages require role 'admin'.
 """
 
@@ -112,17 +112,34 @@ async def forecast_save(
 
 @router.get("/courses", response_class=HTMLResponse)
 def courses_list(request: Request, _: str = Depends(require_admin)):
+    # Only the per-loop (MS/HS) distance and elevation feed pace and forecast
+    # math, so that's what the summary shows.
     with get_session() as s:
-        rows = s.execute(
+        rows = (
+            s.execute(
+                select(courses.c.id, courses.c.name, courses.c.location).order_by(courses.c.name)
+            )
+            .mappings()
+            .all()
+        )
+        loops = s.execute(
             select(
-                courses.c.id,
-                courses.c.name,
-                courses.c.location,
-                courses.c.distance_miles,
-                courses.c.elevation_ft,
-            ).order_by(courses.c.name)
+                course_loops.c.course_id,
+                course_loops.c.loop_type,
+                course_loops.c.distance_miles,
+                course_loops.c.elevation_ft,
+            )
         ).all()
-    return templates.TemplateResponse("admin/courses.html", {"request": request, "courses": rows})
+    by_course: dict[int, dict[str, dict]] = {}
+    for course_id, loop_type, dist, elev in loops:
+        by_course.setdefault(course_id, {})[loop_type] = {
+            "distance_miles": dist,
+            "elevation_ft": elev,
+        }
+    course_rows = [{**row, "loops": by_course.get(row["id"], {})} for row in rows]
+    return templates.TemplateResponse(
+        "admin/courses.html", {"request": request, "courses": course_rows}
+    )
 
 
 def _load_course(course_id: int):
@@ -176,8 +193,6 @@ async def course_save(
 ):
     form = await request.form()
     try:
-        distance = _opt_float(form, "distance_miles")
-        elevation = _opt_float(form, "elevation_ft")
         difficulty = _opt_float(form, "difficulty_score")
         ms_distance = _opt_float(form, "ms_distance_miles")
         ms_elevation = _opt_float(form, "ms_elevation_ft")
@@ -194,8 +209,6 @@ async def course_save(
             .where(courses.c.id == course_id)
             .values(
                 location=location,
-                distance_miles=distance,
-                elevation_ft=elevation,
                 difficulty_score=difficulty,
                 notes=notes,
             )

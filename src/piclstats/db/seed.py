@@ -97,7 +97,8 @@ DIVISION_PROFILES = [
     ("Single Lap Middle School", None, 1, None, None, "MS"),
 ]
 
-# Default loop distances (can be overridden per course later)
+# Default loop distances. Seeded only when a course has no loop row yet;
+# values entered in /admin/courses are never overwritten by a re-seed.
 DEFAULT_LOOP_DISTANCES = {
     "MS": 2.0,  # ~2 miles (based on Granite, Hershey, Penn College actuals)
     "HS": 3.5,  # ~3.5 miles (based on Penn College, Hershey actuals)
@@ -164,7 +165,7 @@ def seed_course_loops(session: Session, course_ids: dict[str, int]) -> int:
                 text("""
                 INSERT INTO course_loops (course_id, loop_type, distance_miles)
                 VALUES (:cid, :lt, :dist)
-                ON CONFLICT (course_id, loop_type) DO UPDATE SET distance_miles = :dist
+                ON CONFLICT (course_id, loop_type) DO NOTHING
             """),
                 {"cid": course_id, "lt": loop_type, "dist": distance},
             )

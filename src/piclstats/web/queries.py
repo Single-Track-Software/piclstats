@@ -443,11 +443,18 @@ def leaderboard(
     metric: str = "avg_points",
     limit: int = 25,
 ) -> list[dict]:
-    """Top riders by chosen metric — merged riders unified."""
+    """Top riders by chosen metric — merged riders unified.
+
+    A rider needs two scored races to rank, except while the selected season
+    has only one scored event (the opening weeks), when one race is enough —
+    otherwise the season leaderboard is empty until race two.
+    """
     params: dict = {}
     filters: list[str] = ["r.place IS NOT NULL", _POINTS_ONLY]
+    scope_season = ""
     if season:
         filters.append("e.season = :season")
+        scope_season = "AND e2.season = :season"
         params["season"] = season
     if division:
         filters.append("r.division = :division")
