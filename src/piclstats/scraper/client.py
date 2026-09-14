@@ -54,9 +54,7 @@ def resolve_list_name(config: dict) -> str:
     # Older format: TabConfig.Lists[].Name
     tab_config = config.get("TabConfig", {})
     if "Lists" in tab_config:
-        candidates.extend(
-            item["Name"] for item in tab_config["Lists"] if "Name" in item
-        )
+        candidates.extend(item["Name"] for item in tab_config["Lists"] if "Name" in item)
 
     # 2024 format: resultLists[] (flat strings, need prefix)
     if "resultLists" in config:
@@ -67,15 +65,10 @@ def resolve_list_name(config: dict) -> str:
             if pattern in candidate:
                 return candidate
 
-    raise ValueError(
-        f"Could not find individual results list. "
-        f"Available lists: {candidates}"
-    )
+    raise ValueError(f"Could not find individual results list. Available lists: {candidates}")
 
 
-def fetch_results(
-    server: str, event_id: int, key: str, list_name: str
-) -> dict:
+def fetch_results(server: str, event_id: int, key: str, list_name: str) -> dict:
     """Fetch race results for an event. Returns raw JSON dict."""
     url = RESULTS_URL.format(server=server, event_id=event_id)
     params = {

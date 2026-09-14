@@ -23,10 +23,34 @@ _LAP_KEYS = ("lap1", "lap2", "lap3", "lap4", "lap5", "lap6")
 # A small, high-contrast palette cycled across riders. Lead riders (drawn last)
 # read clearest; the table beneath the chart is the authoritative key.
 _PALETTE = [
-    "#1020e8", "#e8590c", "#2f9e44", "#c2255c", "#7048e8", "#0c8599",
-    "#f08c00", "#495057", "#1864ab", "#a61e4d", "#5c940d", "#862e9c",
-    "#e03131", "#1098ad", "#d9480f", "#364fc7", "#2b8a3e", "#9c36b5",
+    "#1020e8",
+    "#e8590c",
+    "#2f9e44",
+    "#c2255c",
+    "#7048e8",
+    "#0c8599",
+    "#f08c00",
+    "#495057",
+    "#1864ab",
+    "#a61e4d",
+    "#5c940d",
+    "#862e9c",
+    "#e03131",
+    "#1098ad",
+    "#d9480f",
+    "#364fc7",
+    "#2b8a3e",
+    "#9c36b5",
 ]
+
+
+@dataclass
+class _PosEntry:
+    """Working record while building the bump chart (one plottable rider)."""
+
+    row: dict
+    cum: list[float]  # elapsed seconds at the end of each completed lap
+    laps_done: int
 
 
 @dataclass(frozen=True)
@@ -37,11 +61,11 @@ class RiderTrack:
     name: str
     team: str | None
     color: str
-    positions: list[int | None]   # position at lap 1..N (None once they stop)
-    laps_done: int                # number of laps actually completed
-    finish_place: int | None      # official place from results, if any
-    status: str                   # OK | DNF | DNS | DSQ
-    complete: bool                # finished the full category distance
+    positions: list[int | None]  # position at lap 1..N (None once they stop)
+    laps_done: int  # number of laps actually completed
+    finish_place: int | None  # official place from results, if any
+    status: str  # OK | DNF | DNS | DSQ
+    complete: bool  # finished the full category distance
 
 
 def _lap_durations(row: dict) -> list[float]:
@@ -83,43 +107,54 @@ def build_position_chart(rows: list[dict], top: int | None = None) -> dict:
     and `max_position` reports the deepest position still on screen so the
     template can scale the Y axis to the shown riders rather than the full pack.
     """
-    riders = []
+    riders: list[_PosEntry] = []
     for r in rows:
         cum = _cumulative_seconds(r)
         if not cum:
             continue  # DNS / no timing — nothing to plot
-        riders.append({"row": r, "cum": cum, "laps_done": len(cum)})
+        riders.append(_PosEntry(row=r, cum=cum, laps_done=len(cum)))
 
     if not riders:
-        return {"tracks": [], "n_laps": 0, "lap_labels": [], "field": 0,
-                "finishers": 0, "shown": 0, "max_position": 0}
+        return {
+            "tracks": [],
+            "n_laps": 0,
+            "lap_labels": [],
+            "field": 0,
+            "finishers": 0,
+            "shown": 0,
+            "max_position": 0,
+        }
 
-    n_laps = max(r["laps_done"] for r in riders)
+    n_laps = max(r.laps_done for r in riders)
 
     # Position at each lap = rank by elapsed time among riders who completed it.
     # ranks[lap_index][bib] = position
     ranks: list[dict[int, int]] = []
     for lap in range(n_laps):
-        contenders = [r for r in riders if r["laps_done"] > lap]
-        contenders.sort(key=lambda r: r["cum"][lap])
+        contenders = [r for r in riders if r.laps_done > lap]
+        contenders.sort(key=lambda r: r.cum[lap])
         ranks.append({id(r): pos for pos, r in enumerate(contenders, start=1)})
 
     tracks: list[RiderTrack] = []
-    for i, r in enumerate(sorted(riders, key=lambda r: (r["laps_done"], -r["cum"][-1]), reverse=True)):
-        row = r["row"]
-        positions = [ranks[lap].get(id(r)) for lap in range(n_laps)]
-        complete = r["laps_done"] == n_laps and (row.get("status") or "OK") == "OK"
-        tracks.append(RiderTrack(
-            bib=row["bib"],
-            name=row.get("name") or f"#{row['bib']}",
-            team=row.get("team"),
-            color=_PALETTE[i % len(_PALETTE)],
-            positions=positions,
-            laps_done=r["laps_done"],
-            finish_place=row.get("place"),
-            status=row.get("status") or "OK",
-            complete=complete,
-        ))
+    for i, entry in enumerate(
+        sorted(riders, key=lambda r: (r.laps_done, -r.cum[-1]), reverse=True)
+    ):
+        row = entry.row
+        positions = [ranks[lap].get(id(entry)) for lap in range(n_laps)]
+        complete = entry.laps_done == n_laps and (row.get("status") or "OK") == "OK"
+        tracks.append(
+            RiderTrack(
+                bib=row["bib"],
+                name=row.get("name") or f"#{row['bib']}",
+                team=row.get("team"),
+                color=_PALETTE[i % len(_PALETTE)],
+                positions=positions,
+                laps_done=entry.laps_done,
+                finish_place=row.get("place"),
+                status=row.get("status") or "OK",
+                complete=complete,
+            )
+        )
 
     # Order tracks by finishing position (final-lap rank, then official place) so
     # the table and legend read top-to-bottom like a results sheet.
@@ -164,6 +199,14 @@ _LAP_COLORS = [
 ]
 
 
+@dataclass
+class _LapEntry:
+    """Working record while building the lap-times chart (one plottable rider)."""
+
+    row: dict
+    laps: list[float]  # per-lap durations in seconds
+
+
 @dataclass(frozen=True)
 class LapTrack:
     """One rider's row on the stacked lap-times chart."""
@@ -171,9 +214,9 @@ class LapTrack:
     bib: int
     name: str
     team: str | None
-    laps: list[float]             # per-lap durations in seconds (len == laps_done)
+    laps: list[float]  # per-lap durations in seconds (len == laps_done)
     laps_done: int
-    total: float                  # total elapsed seconds across completed laps
+    total: float  # total elapsed seconds across completed laps
     finish_place: int | None
     status: str
     complete: bool
@@ -190,42 +233,55 @@ def build_lap_chart(rows: list[dict], top: int | None = None) -> dict:
     `top` limits the chart to the N best finishers; the stacked `series` is then
     built from just those riders.
     """
-    riders = []
+    riders: list[_LapEntry] = []
     for r in rows:
         laps = _lap_durations(r)
         if not laps:
             continue  # DNS / no timing
-        riders.append({"row": r, "laps": laps})
+        riders.append(_LapEntry(row=r, laps=laps))
 
     if not riders:
-        return {"tracks": [], "series": [], "n_laps": 0, "lap_colors": [],
-                "field": 0, "finishers": 0, "shown": 0}
+        return {
+            "tracks": [],
+            "series": [],
+            "n_laps": 0,
+            "lap_colors": [],
+            "field": 0,
+            "finishers": 0,
+            "shown": 0,
+        }
 
-    n_laps = max(len(r["laps"]) for r in riders)
+    n_laps = max(len(r.laps) for r in riders)
 
     tracks: list[LapTrack] = []
-    for r in riders:
-        row = r["row"]
-        laps = r["laps"]
+    for entry in riders:
+        row = entry.row
+        laps = entry.laps
         complete = len(laps) == n_laps and (row.get("status") or "OK") == "OK"
-        tracks.append(LapTrack(
-            bib=row["bib"],
-            name=row.get("name") or f"#{row['bib']}",
-            team=row.get("team"),
-            laps=laps,
-            laps_done=len(laps),
-            total=sum(laps),
-            finish_place=row.get("place"),
-            status=row.get("status") or "OK",
-            complete=complete,
-        ))
+        tracks.append(
+            LapTrack(
+                bib=row["bib"],
+                name=row.get("name") or f"#{row['bib']}",
+                team=row.get("team"),
+                laps=laps,
+                laps_done=len(laps),
+                total=sum(laps),
+                finish_place=row.get("place"),
+                status=row.get("status") or "OK",
+                complete=complete,
+            )
+        )
 
     # Fastest finisher first; riders who didn't go the full distance sort last
     # (by laps completed, then time), matching the bump chart's ordering.
-    tracks.sort(key=lambda t: (
-        not t.complete, -t.laps_done if not t.complete else 0,
-        t.finish_place if t.finish_place is not None else 10_000, t.total,
-    ))
+    tracks.sort(
+        key=lambda t: (
+            not t.complete,
+            -t.laps_done if not t.complete else 0,
+            t.finish_place if t.finish_place is not None else 10_000,
+            t.total,
+        )
+    )
 
     full_field = len(riders)
     finishers = sum(1 for t in tracks if t.complete)
@@ -235,10 +291,7 @@ def build_lap_chart(rows: list[dict], top: int | None = None) -> dict:
     # One stacked series per lap, aligned to `tracks`: series[lap][rider] is that
     # rider's split for the lap, or None if they didn't complete it. Built here
     # (not in the template) so the per-lap/per-rider alignment is unit-tested.
-    series = [
-        [t.laps[lap] if t.laps_done > lap else None for t in tracks]
-        for lap in range(n_laps)
-    ]
+    series = [[t.laps[lap] if t.laps_done > lap else None for t in tracks] for lap in range(n_laps)]
 
     return {
         "tracks": tracks,

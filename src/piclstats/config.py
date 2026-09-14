@@ -30,6 +30,16 @@ class Settings(BaseSettings):
     # serves https); set False for local http dev or the cookie won't be sent.
     session_https_only: bool = True
 
+    # Transactional email (Resend) for invite and password-reset links. With no
+    # API key the app logs the link instead of sending it, so local dev and CI
+    # work unchanged — see web/mail.py.
+    resend_api_key: str = ""
+    # Must be on a domain verified in Resend, e.g. "PICL Stats <noreply@example.org>".
+    email_from: str = ""
+    # Absolute base for links in emails, e.g. "https://piclstats.fly.dev". Unset,
+    # links are built from the incoming request's own base URL.
+    public_base_url: str = ""
+
     # extra="ignore" so unrelated env vars (Fly's DATABASE_URL, shell exports,
     # stray .env lines) don't crash startup — only PICLSTATS_-prefixed keys bind.
     model_config = {"env_prefix": "PICLSTATS_", "env_file": ".env", "extra": "ignore"}

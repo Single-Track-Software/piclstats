@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Query, Request
@@ -26,8 +28,18 @@ TEMPLATE_DIR = Path(__file__).parent / "templates"
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="PICL Stats Dashboard")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Names resolve at call time, so the handlers can be defined further down.
+    _check_session_secret()
+    _bootstrap_admin()
+    yield
+
+
+app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+
 
 # Middleware runs outermost-last, so add the user-context middleware first and
 # SessionMiddleware second — SessionMiddleware then wraps it and request.session
@@ -39,17 +51,41 @@ async def _load_user_state(request: Request, call_next):
     return await call_next(request)
 
 
-if not settings.session_secret:
+def _insecure_session_config() -> bool:
+    """True when we'd be signing session cookies with a throwaway key in prod.
+
+    session_https_only is the dev/prod tell: it must be False to log in over
+    local http, and stays True on Fly.
+    """
+    return not settings.session_secret and settings.session_https_only
+
+
+def _session_secret() -> str:
+    """Key that signs session cookies.
+
+    Falls back to a *random per-process* key rather than the hardcoded string
+    this used to use — that fallback meant a misconfigured production deploy
+    booted happily with forgeable cookies and anyone could mint an admin
+    session. A random key at least can't be guessed; _check_session_secret()
+    then refuses to start the server at all when it's production posture.
+    """
+    if settings.session_secret:
+        return settings.session_secret
     logger.warning(
-        "PICLSTATS_SESSION_SECRET is empty; session cookies are not secure. "
-        "Set it before serving real traffic."
+        "PICLSTATS_SESSION_SECRET is empty — using a random per-process key. "
+        "Sessions will not survive a restart."
     )
+    return secrets.token_hex(32)
+
 
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.session_secret or "insecure-dev-only-secret",
+    secret_key=_session_secret(),
     https_only=settings.session_https_only,
     same_site="lax",
+    # Coaches shouldn't be re-logging in mid-season; 14 days is Starlette's
+    # default, set here so it reads as a decision rather than an accident.
+    max_age=14 * 24 * 60 * 60,
 )
 
 
@@ -60,7 +96,19 @@ async def _login_required_handler(request: Request, exc: LoginRequired):
     return RedirectResponse(f"/login?next={quote(exc.next_path)}", status_code=303)
 
 
-@app.on_event("startup")
+def _check_session_secret() -> None:
+    # Refuse to serve traffic with an unset secret in production posture.
+    # Raising here (rather than at import) keeps the module importable for
+    # tests and tooling, while still stopping the server from coming up.
+    if _insecure_session_config():
+        raise RuntimeError(
+            "PICLSTATS_SESSION_SECRET is not set. Generate one with "
+            '`python -c "import secrets; print(secrets.token_hex(32))"`, then '
+            "`flyctl secrets set PICLSTATS_SESSION_SECRET=…`. For local http dev, "
+            "set PICLSTATS_SESSION_HTTPS_ONLY=false instead."
+        )
+
+
 def _bootstrap_admin() -> None:
     # Seed the first admin from env so a fresh deploy has a way in. No-op once
     # that account exists, so it's safe to leave the env vars set.
@@ -85,6 +133,7 @@ def _bootstrap_admin() -> None:
 
 from piclstats.web.admin import router as admin_router  # noqa: E402
 from piclstats.web.auth import router as auth_router  # noqa: E402
+
 app.include_router(auth_router)
 app.include_router(admin_router)
 
@@ -105,10 +154,16 @@ def home(request: Request):
         seasons = queries.seasons_list(session)
         top_riders = queries.leaderboard(session, limit=10)
         top_teams = queries.team_leaderboard(session, limit=10)
-    return templates.TemplateResponse("home.html", _ctx(
-        request, stats=stats, seasons=seasons,
-        top_riders=top_riders, top_teams=top_teams,
-    ))
+    return templates.TemplateResponse(
+        "home.html",
+        _ctx(
+            request,
+            stats=stats,
+            seasons=seasons,
+            top_riders=top_riders,
+            top_teams=top_teams,
+        ),
+    )
 
 
 @app.get("/riders", response_class=HTMLResponse)
@@ -122,10 +177,18 @@ def rider_search(
         results = queries.search_riders(session, q, team or None, season) if q else []
         seasons = queries.seasons_list(session)
         teams = queries.teams_list(session)
-    return templates.TemplateResponse("riders.html", _ctx(
-        request, results=results, q=q, team=team,
-        season=season, seasons=seasons, teams=teams,
-    ))
+    return templates.TemplateResponse(
+        "riders.html",
+        _ctx(
+            request,
+            results=results,
+            q=q,
+            team=team,
+            season=season,
+            seasons=seasons,
+            teams=teams,
+        ),
+    )
 
 
 @app.get("/rider/{rider_id}", response_class=HTMLResponse)
@@ -146,9 +209,16 @@ def team_search(
     with get_session() as session:
         results = queries.search_teams(session, q, season) if q else []
         seasons = queries.seasons_list(session)
-    return templates.TemplateResponse("teams.html", _ctx(
-        request, results=results, q=q, season=season, seasons=seasons,
-    ))
+    return templates.TemplateResponse(
+        "teams.html",
+        _ctx(
+            request,
+            results=results,
+            q=q,
+            season=season,
+            seasons=seasons,
+        ),
+    )
 
 
 @app.get("/team/{team_name}", response_class=HTMLResponse)
@@ -182,10 +252,20 @@ def leaderboard_page(
             results = queries.leaderboard(
                 session, season, division or None, gender or None, metric, limit=50
             )
-    return templates.TemplateResponse("leaderboard.html", _ctx(
-        request, results=results, seasons=seasons, divisions=divisions,
-        season=season, division=division, gender=gender, metric=metric, view=view,
-    ))
+    return templates.TemplateResponse(
+        "leaderboard.html",
+        _ctx(
+            request,
+            results=results,
+            seasons=seasons,
+            divisions=divisions,
+            season=season,
+            division=division,
+            gender=gender,
+            metric=metric,
+            view=view,
+        ),
+    )
 
 
 @app.get("/courses", response_class=HTMLResponse)
@@ -237,11 +317,19 @@ def rider_forecast(
         gender = rider_data["gender"]
 
         if not source_div or not gender:
-            return templates.TemplateResponse("forecast.html", _ctx(
-                request, rider=rider_data, divisions=[], target_division="",
-                forecast=None, season=season, speed_rating=speed_rating,
-                error="Not enough race data to forecast.",
-            ))
+            return templates.TemplateResponse(
+                "forecast.html",
+                _ctx(
+                    request,
+                    rider=rider_data,
+                    divisions=[],
+                    target_division="",
+                    forecast=None,
+                    season=season,
+                    speed_rating=speed_rating,
+                    error="Not enough race data to forecast.",
+                ),
+            )
 
         divisions = queries.available_target_divisions(session, source_div, gender)
 
@@ -298,25 +386,38 @@ def rider_forecast(
                     )
 
                     from piclstats.db.settings_store import get_forecast_config
+
                     model = StatisticalForecastModel(config=get_forecast_config())
                     forecast_result = model.predict(inp)
                     if forecast_result is None:
                         error = "Not enough data to produce a reliable forecast."
 
-    return templates.TemplateResponse("forecast.html", _ctx(
-        request, rider=rider_data, divisions=divisions,
-        target_division=target_division, forecast=forecast_result,
-        season=season, speed_rating=speed_rating,
-        error=error if not forecast_result else None,
-    ))
+    return templates.TemplateResponse(
+        "forecast.html",
+        _ctx(
+            request,
+            rider=rider_data,
+            divisions=divisions,
+            target_division=target_division,
+            forecast=forecast_result,
+            season=season,
+            speed_rating=speed_rating,
+            error=error if not forecast_result else None,
+        ),
+    )
 
 
 def _staging_grid(session, age_group, gender, season, metric, sort, division, conference, wave):
     from piclstats.web import staging as staging_mod
+
     rows = queries.staging_rows(session, age_group, gender, season)
     return staging_mod.build_grid(
-        rows, metric=metric, sort=sort, division=division or None,
-        conference=conference or None, wave_size=max(1, wave),
+        rows,
+        metric=metric,
+        sort=sort,
+        division=division or None,
+        conference=conference or None,
+        wave_size=max(1, wave),
     )
 
 
@@ -339,13 +440,25 @@ def staging_page(
             season = seasons[-1] if seasons else None
         grid = None
         if season is not None:
-            grid = _staging_grid(session, age_group, gender, season,
-                                 metric, sort, division, conference, wave)
-    return templates.TemplateResponse("staging.html", _ctx(
-        request, grid=grid, seasons=seasons, season=season,
-        age_group=age_group, gender=gender, metric=metric, sort=sort,
-        division=division, conference=conference, wave=wave,
-    ))
+            grid = _staging_grid(
+                session, age_group, gender, season, metric, sort, division, conference, wave
+            )
+    return templates.TemplateResponse(
+        "staging.html",
+        _ctx(
+            request,
+            grid=grid,
+            seasons=seasons,
+            season=season,
+            age_group=age_group,
+            gender=gender,
+            metric=metric,
+            sort=sort,
+            division=division,
+            conference=conference,
+            wave=wave,
+        ),
+    )
 
 
 @app.get("/racechart", response_class=HTMLResponse)
@@ -354,24 +467,34 @@ def racechart_page(
     event_id: int | None = Query(None),
     category: str = Query(""),
     top: int = Query(0, description="Show only the top N finishers; 0 = all"),
-    _user: dict = Depends(require_member),
 ):
     from piclstats.web import racechart as racechart_mod
 
     with get_session() as session:
         events = queries.events_list(session)
         if not events:
-            return templates.TemplateResponse("racechart.html", _ctx(
-                request, events=[], event=None, categories=[],
-                category="", chart=None, lap_chart=None, top=top,
-            ))
+            return templates.TemplateResponse(
+                "racechart.html",
+                _ctx(
+                    request,
+                    events=[],
+                    event=None,
+                    categories=[],
+                    category="",
+                    chart=None,
+                    lap_chart=None,
+                    top=top,
+                ),
+            )
 
         # Default to the most recent event with timing.
         if event_id is None or not any(e["id"] == event_id for e in events):
-            event_id = events[0]["id"]
-        event = next(e for e in events if e["id"] == event_id)
+            selected_id: int = events[0]["id"]
+        else:
+            selected_id = event_id
+        event = next(e for e in events if e["id"] == selected_id)
 
-        categories = queries.event_categories(session, event_id)
+        categories = queries.event_categories(session, selected_id)
         cat_names = [c["category"] for c in categories]
         # Default to the largest field in the event (the marquee race).
         if category not in cat_names:
@@ -381,14 +504,23 @@ def racechart_page(
         chart = None
         lap_chart = None
         if category:
-            rows = queries.event_lap_rows(session, event_id, category)
+            rows = queries.event_lap_rows(session, selected_id, category)
             chart = racechart_mod.build_position_chart(rows, top=top_n)
             lap_chart = racechart_mod.build_lap_chart(rows, top=top_n)
 
-    return templates.TemplateResponse("racechart.html", _ctx(
-        request, events=events, event=event, categories=categories,
-        category=category, chart=chart, lap_chart=lap_chart, top=top,
-    ))
+    return templates.TemplateResponse(
+        "racechart.html",
+        _ctx(
+            request,
+            events=events,
+            event=event,
+            categories=categories,
+            category=category,
+            chart=chart,
+            lap_chart=lap_chart,
+            top=top,
+        ),
+    )
 
 
 @app.get("/staging.csv")
@@ -409,27 +541,40 @@ def staging_csv(
             season = seasons[-1] if seasons else None
         if season is None:
             return Response("No data", media_type="text/plain")
-        grid = _staging_grid(session, age_group, gender, season,
-                             metric, sort, division, conference, wave)
+        grid = _staging_grid(
+            session, age_group, gender, season, metric, sort, division, conference, wave
+        )
 
     buf = io.StringIO()
     w = csv.writer(buf)
     events = grid["events"]
-    w.writerow(["Rank", "Wave", "Name", "Team", "Conference", "Division", "Best z", "Avg z", "Races"]
-               + [e["event_name"] for e in events])
+    w.writerow(
+        ["Rank", "Wave", "Name", "Team", "Conference", "Division", "Best z", "Avg z", "Races"]
+        + [e["event_name"] for e in events]
+    )
     for r in grid["riders"]:
         per = []
         for e in events:
             v = r["per_event"].get(e["event_id"])
             per.append("" if v is None else v)
-        w.writerow([
-            r["rank"], r["wave"] or "", r["name"], r["team"] or "",
-            r["conference"] or "", r["division"] or "",
-            "" if r["best_z"] is None else r["best_z"],
-            "" if r["avg_z"] is None else r["avg_z"],
-            r["n_events"],
-        ] + per)
+        w.writerow(
+            [
+                r["rank"],
+                r["wave"] or "",
+                r["name"],
+                r["team"] or "",
+                r["conference"] or "",
+                r["division"] or "",
+                "" if r["best_z"] is None else r["best_z"],
+                "" if r["avg_z"] is None else r["avg_z"],
+                r["n_events"],
+            ]
+            + per
+        )
 
     fname = f"staging_{season}_{age_group}_{gender}.csv"
-    return Response(buf.getvalue(), media_type="text/csv",
-                    headers={"Content-Disposition": f"attachment; filename={fname}"})
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )

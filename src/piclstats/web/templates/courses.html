@@ -25,10 +25,10 @@
                 </div>
             </div>
         </div>
-        {% if c.distance_miles or c.elevation_ft %}
+        {% if c.ms_distance_miles or c.hs_distance_miles %}
         <div class="mt-2 flex gap-3 text-xs text-gray-400">
-            {% if c.distance_miles %}<span>{{ "%.1f"|format(c.distance_miles) }} mi/lap</span>{% endif %}
-            {% if c.elevation_ft %}<span>{{ c.elevation_ft|int }} ft gain/lap</span>{% endif %}
+            {% if c.ms_distance_miles %}<span>MS {{ "%.1f"|format(c.ms_distance_miles) }} mi{% if c.ms_elevation_ft %} / {{ c.ms_elevation_ft|int }} ft{% endif %}</span>{% endif %}
+            {% if c.hs_distance_miles %}<span>HS {{ "%.1f"|format(c.hs_distance_miles) }} mi{% if c.hs_elevation_ft %} / {{ c.hs_elevation_ft|int }} ft{% endif %}</span>{% endif %}
         </div>
         {% endif %}
     </a>

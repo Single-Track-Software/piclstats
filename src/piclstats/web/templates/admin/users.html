@@ -12,17 +12,19 @@
     <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
     {% endif %}
 
-    <!-- Add user -->
-    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-8">
-        <h2 class="font-semibold text-picl-800 mb-3">Add user</h2>
-        <form method="post" action="/admin/users" class="grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
+    <!-- Invite a coach -->
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
+        <h2 class="font-semibold text-picl-800 mb-1">Invite a coach</h2>
+        <p class="text-xs text-gray-500 mb-3">
+            Sends a one-time link. They choose their own password — you never handle it.
+            {% if not email_configured %}
+            <span class="text-amber-700">Email isn't configured, so copy the link below and send it yourself.</span>
+            {% endif %}
+        </p>
+        <form method="post" action="/admin/users/invite" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
             <div class="sm:col-span-2">
                 <label class="block text-xs text-gray-600 mb-1">Email</label>
                 <input name="email" type="email" required class="w-full border rounded px-2 py-1 text-sm">
-            </div>
-            <div>
-                <label class="block text-xs text-gray-600 mb-1">Name</label>
-                <input name="name" type="text" class="w-full border rounded px-2 py-1 text-sm">
             </div>
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Role</label>
@@ -31,14 +33,47 @@
                 </select>
             </div>
             <div>
-                <label class="block text-xs text-gray-600 mb-1">Temp password</label>
-                <input name="password" type="text" required class="w-full border rounded px-2 py-1 text-sm">
-            </div>
-            <div class="sm:col-span-5">
-                <button type="submit" class="bg-picl-700 text-white px-4 py-1.5 rounded text-sm hover:bg-picl-800">Create user</button>
+                <button type="submit" class="w-full bg-picl-700 text-white px-4 py-1.5 rounded text-sm hover:bg-picl-800">Send invite</button>
             </div>
         </form>
+
+        {% if invite_link %}
+        <div class="mt-4 p-3 rounded bg-picl-50 border border-picl-200">
+            <p class="text-xs text-gray-700 mb-1">
+                {% if emailed %}Emailed to{% else %}Invite for{% endif %}
+                <span class="font-medium">{{ invite_email }}</span>. This link is shown once — it
+                can't be retrieved later, but you can always send a fresh invite.
+            </p>
+            <input readonly value="{{ invite_link }}" onclick="this.select()"
+                   class="w-full border rounded px-2 py-1 text-xs font-mono bg-white">
+        </div>
+        {% endif %}
     </div>
+
+    <!-- Pending invites -->
+    {% if invites %}
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-8">
+        <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
+            <h2 class="font-semibold text-picl-800 text-sm">Pending invites</h2>
+        </div>
+        <table class="w-full text-sm">
+            <tbody class="divide-y divide-gray-100">
+                {% for i in invites %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-4 py-2 font-medium text-gray-800">{{ i.email }}</td>
+                    <td class="px-4 py-2 text-gray-600">{{ i.role }}</td>
+                    <td class="px-4 py-2 text-gray-500">expires {{ i.expires_at.strftime('%b %d') }}</td>
+                    <td class="px-4 py-2 text-right">
+                        <form method="post" action="/admin/users/invite/{{ i.id }}/revoke">
+                            <button class="text-xs text-red-600 hover:underline">revoke</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
 
     <!-- Existing users -->
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
@@ -88,10 +123,9 @@
                                 <button class="text-xs text-green-700 hover:underline">activate</button>
                             </form>
                             {% endif %}
-                            <form method="post" action="/admin/users/{{ u.id }}" class="flex items-center gap-1">
-                                <input type="hidden" name="action" value="reset_password">
-                                <input name="password" type="text" placeholder="new password" class="border rounded px-1 py-0.5 text-xs w-28">
-                                <button class="text-xs text-picl-700 hover:underline">reset</button>
+                            <form method="post" action="/admin/users/{{ u.id }}">
+                                <input type="hidden" name="action" value="send_reset">
+                                <button class="text-xs text-picl-700 hover:underline">send reset link</button>
                             </form>
                         </div>
                     </td>

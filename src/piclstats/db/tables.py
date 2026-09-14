@@ -74,7 +74,9 @@ results = Table(
     Index("idx_results_rider", "rider_id"),
     Index("idx_results_category", "category"),
     Index("idx_results_event_category", "event_id", "category"),
-    Index("idx_results_conference", "conference", postgresql_where=Column("conference").isnot(None)),
+    Index(
+        "idx_results_conference", "conference", postgresql_where=Column("conference").isnot(None)
+    ),
 )
 
 team_conferences = Table(
@@ -126,8 +128,7 @@ division_laps = Table(
     Column("max_duration_mins", SmallInteger),
     Column("cutoff_mins", SmallInteger),
     Column("season", SmallInteger),
-    UniqueConstraint("course_id", "division", "gender", "season",
-                     name="uq_div_laps_course_div"),
+    UniqueConstraint("course_id", "division", "gender", "season", name="uq_div_laps_course_div"),
     Index("idx_div_laps_course", "course_id"),
 )
 
@@ -155,6 +156,24 @@ users = Table(
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("last_login_at", DateTime(timezone=True)),
     Index("idx_users_email", "email"),
+)
+
+auth_tokens = Table(
+    "auth_tokens",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    # SHA-256 of the token, never the token itself.
+    Column("token_hash", Text, nullable=False, unique=True),
+    Column("purpose", Text, nullable=False),  # 'invite' | 'reset'
+    Column("email", Text, nullable=False),
+    Column("role", Text),  # invites only
+    Column("user_id", Integer),  # resets only
+    Column("created_by", Integer),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+    Column("used_at", DateTime(timezone=True)),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_auth_tokens_hash", "token_hash"),
+    Index("idx_auth_tokens_email", "email"),
 )
 
 rider_aliases = Table(

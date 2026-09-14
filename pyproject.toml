@@ -15,7 +15,7 @@ dependencies = [
     "click==8.1.8",
     "alembic==1.15.2",
     "fastapi==0.136.3",
-    "starlette==1.2.1",
+    "starlette==1.3.1",
     "uvicorn[standard]==0.34.2",
     "jinja2==3.1.6",
     "python-multipart==0.0.32",
@@ -42,3 +42,18 @@ where = ["src"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src"]
+# Deliberately not --strict: the query layer hands back untyped row dicts, and
+# annotating all of that buys little. These settings catch the class of bug that
+# actually bites — None slipping into a non-optional argument.
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Jinja/Starlette response plumbing is dynamically typed by design.
+module = "piclstats.web.templating"
+disallow_untyped_defs = false

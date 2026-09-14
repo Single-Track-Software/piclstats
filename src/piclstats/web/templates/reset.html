@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Set a new password — PICL Stats{% endblock %}
+{% block content %}
+<div class="max-w-sm mx-auto mt-8">
+    {% if not valid %}
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">This reset link isn't valid</h1>
+    <p class="text-sm text-gray-600 mb-6">
+        Reset links work once and expire after an hour.
+        <a href="/forgot" class="text-picl-700 hover:underline">Request a new one</a>.
+    </p>
+    {% else %}
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">Set a new password</h1>
+    <p class="text-sm text-gray-600 mb-6">You'll be signed in straight away.</p>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    <form method="post" action="/reset/{{ token }}" class="bg-white rounded-lg shadow border border-gray-200 p-5 space-y-4">
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">New password</label>
+            <input name="password" type="password" required minlength="12" autofocus autocomplete="new-password"
+                   class="w-full border rounded px-3 py-2 text-sm">
+            <p class="text-xs text-gray-500 mt-1">At least 12 characters. A short phrase works well.</p>
+        </div>
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Confirm password</label>
+            <input name="confirm" type="password" required minlength="12" autocomplete="new-password"
+                   class="w-full border rounded px-3 py-2 text-sm">
+        </div>
+        <button type="submit" class="w-full bg-picl-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-800">
+            Set password and sign in
+        </button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}
