@@ -113,7 +113,14 @@ course_loops = Table(
     Column("loop_type", Text, nullable=False),  # 'MS' or 'HS'
     Column("distance_miles", Float),
     Column("elevation_ft", Float),
-    UniqueConstraint("course_id", "loop_type", name="uq_course_loop"),
+    Column("season", SmallInteger),  # NULL = default for every season
+    UniqueConstraint(
+        "course_id",
+        "loop_type",
+        "season",
+        name="uq_course_loop",
+        postgresql_nulls_not_distinct=True,
+    ),
     Index("idx_course_loops_course", "course_id"),
 )
 
@@ -128,7 +135,14 @@ division_laps = Table(
     Column("max_duration_mins", SmallInteger),
     Column("cutoff_mins", SmallInteger),
     Column("season", SmallInteger),
-    UniqueConstraint("course_id", "division", "gender", "season", name="uq_div_laps_course_div"),
+    UniqueConstraint(
+        "course_id",
+        "division",
+        "gender",
+        "season",
+        name="uq_div_laps_course_div",
+        postgresql_nulls_not_distinct=True,
+    ),
     Index("idx_div_laps_course", "course_id"),
 )
 

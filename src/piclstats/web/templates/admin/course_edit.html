@@ -1,24 +1,29 @@
 {% extends "base.html" %}
 {% block title %}{{ course.name }} — Admin{% endblock %}
 {% block content %}
-<div class="max-w-2xl">
+<div class="max-w-3xl">
     <div class="mb-4"><a href="/admin/courses" class="text-sm text-picl-700 hover:underline">&larr; Courses</a></div>
     <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ course.name }}</h1>
-    <p class="text-sm text-gray-500 mb-6">Lap distance and elevation gain per loop drive every pace and forecast calculation; MS and HS loops are tracked separately.</p>
+    <p class="text-sm text-gray-500 mb-6">
+        Lap distance, elevation gain, and lap counts drive every pace and forecast calculation.
+        Each season can carry its own values; anything left blank in a season falls back to the defaults.
+    </p>
 
     {% if saved %}
-    <div class="mb-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">Saved.</div>
+    <div class="mb-4 p-3 bg-green-50 border border-green-200 text-green-800 rounded text-sm">
+        Saved{% if saved == 'course' %} course details{% elif saved == 'default' %} defaults{% else %} {{ saved }} season{% endif %}.
+    </div>
     {% endif %}
 
-    <form method="post" action="/admin/courses/{{ course.id }}" class="space-y-6">
+    <form method="post" action="/admin/courses/{{ course.id }}" class="mb-8">
         <div class="bg-white rounded-lg shadow p-6 border border-gray-200 space-y-4">
             <div class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Course</div>
-            <div>
-                <label class="block text-xs text-gray-600 mb-1">Location</label>
-                <input type="text" name="location" value="{{ course.location or '' }}"
-                       class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-            </div>
             <div class="grid grid-cols-3 gap-3">
+                <div class="col-span-2">
+                    <label class="block text-xs text-gray-600 mb-1">Location</label>
+                    <input type="text" name="location" value="{{ course.location or '' }}"
+                           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
+                </div>
                 <div>
                     <label class="block text-xs text-gray-600 mb-1">Difficulty score</label>
                     <input type="number" step="0.01" name="difficulty_score" value="{{ course.difficulty_score or '' }}"
@@ -27,34 +32,105 @@
             </div>
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Notes</label>
-                <textarea name="notes" rows="3"
+                <textarea name="notes" rows="2"
                           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">{{ course.notes or '' }}</textarea>
             </div>
-        </div>
-
-        {% for lp in loops %}
-        <div class="bg-white rounded-lg shadow p-6 border border-gray-200 space-y-4">
-            <div class="text-sm font-semibold text-gray-700 uppercase tracking-wide">{{ lp.loop_type }} loop</div>
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Lap distance (mi)</label>
-                    <input type="number" step="0.01" name="{{ lp.loop_type|lower }}_distance_miles"
-                           value="{{ lp.distance_miles or '' }}"
-                           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                </div>
-                <div>
-                    <label class="block text-xs text-gray-600 mb-1">Lap elevation (ft)</label>
-                    <input type="number" step="1" name="{{ lp.loop_type|lower }}_elevation_ft"
-                           value="{{ lp.elevation_ft or '' }}"
-                           class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm">
-                </div>
+            <div>
+                <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md text-sm">Save course</button>
             </div>
         </div>
-        {% endfor %}
+    </form>
 
-        <div>
-            <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md">Save</button>
+    {% macro profile_block(block, title, is_default) %}
+    <form method="post" action="/admin/courses/{{ course.id }}/profile/{{ block.key }}" id="season-{{ block.key }}" class="mb-6">
+        <div class="bg-white rounded-lg shadow border border-gray-200">
+            <div class="px-6 py-4 border-b border-gray-100 flex items-baseline justify-between">
+                <div class="text-sm font-semibold text-gray-700 uppercase tracking-wide">{{ title }}</div>
+                {% if is_default %}
+                <div class="text-xs text-gray-400">Used for any season without its own value</div>
+                {% else %}
+                <div class="text-xs text-gray-400">Blank = use default</div>
+                {% endif %}
+            </div>
+            <div class="px-6 py-4 grid grid-cols-2 gap-6">
+                {% for lt in ('MS', 'HS') %}
+                {% set lp = block.loops[lt] %}
+                <div>
+                    <div class="text-xs font-semibold text-gray-600 mb-2">{{ lt }} loop</div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Lap distance (mi)</label>
+                            <input type="number" step="0.01" min="0" name="{{ lt|lower }}_distance_miles"
+                                   value="{{ lp.distance_miles if lp.distance_miles is not none else '' }}"
+                                   placeholder="{{ lp.fallback_distance if lp.fallback_distance is not none else '' }}"
+                                   class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-500 mb-1">Lap gain (ft)</label>
+                            <input type="number" step="1" min="0" name="{{ lt|lower }}_elevation_ft"
+                                   value="{{ lp.elevation_ft|int if lp.elevation_ft is not none else '' }}"
+                                   placeholder="{{ lp.fallback_elevation|int if lp.fallback_elevation is not none else '' }}"
+                                   class="w-full rounded-md border border-gray-300 px-3 py-2 text-sm font-mono">
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <table class="w-full text-sm border-t border-gray-100">
+                <thead class="bg-gray-50 text-gray-600 text-xs">
+                    <tr>
+                        <th class="text-left px-6 py-2">Division</th>
+                        <th class="text-left px-2 py-2">Gender</th>
+                        <th class="text-right px-2 py-2">Laps</th>
+                        {% if not is_default %}<th class="text-right px-6 py-2">Recorded</th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for lap in block.laps %}
+                    <tr class="{% if lap.mismatch %}bg-amber-50{% endif %}">
+                        <td class="px-6 py-1.5 text-gray-800">{{ lap.division }}</td>
+                        <td class="px-2 py-1.5 text-gray-500">{{ lap.gender or '—' }}</td>
+                        <td class="px-2 py-1.5 text-right">
+                            <input type="number" min="1" max="6" step="1" name="{{ lap.key }}"
+                                   value="{{ lap.lap_count if lap.lap_count is not none else '' }}"
+                                   placeholder="{{ lap.fallback if lap.fallback is not none else '' }}"
+                                   class="w-16 rounded-md border border-gray-300 px-2 py-1 text-sm text-right font-mono">
+                        </td>
+                        {% if not is_default %}
+                        <td class="px-6 py-1.5 text-right font-mono text-xs {% if lap.mismatch %}text-amber-700 font-semibold{% else %}text-gray-400{% endif %}"
+                            title="Most common lap count among finishers whose splits add up">
+                            {% if lap.recorded is not none %}{{ lap.recorded }} <span class="font-normal">(n={{ lap.finishers }})</span>{% else %}—{% endif %}
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            <div class="px-6 py-4 border-t border-gray-100">
+                <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md text-sm">Save {{ title|lower }}</button>
+            </div>
         </div>
     </form>
+    {% endmacro %}
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-3">Seasons</h2>
+    <p class="text-xs text-gray-500 mb-4">
+        "Recorded" is the lap count most finishers actually logged that season; rows are highlighted where it differs from the value in effect.
+    </p>
+    {% for block in blocks %}
+        {{ profile_block(block, block.season ~ ' season', false) }}
+    {% endfor %}
+
+    <form method="get" action="/admin/courses/{{ course.id }}" class="mb-10 flex items-end gap-3">
+        <div>
+            <label class="block text-xs text-gray-600 mb-1">Add a season</label>
+            <input type="number" name="add" min="2000" max="2100" placeholder="2027"
+                   class="w-28 rounded-md border border-gray-300 px-3 py-2 text-sm font-mono">
+        </div>
+        <button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-md text-sm">Open</button>
+    </form>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-3">Defaults</h2>
+    {{ profile_block(defaults, 'Defaults', true) }}
 </div>
 {% endblock %}
