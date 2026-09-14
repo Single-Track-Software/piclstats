@@ -467,7 +467,6 @@ def racechart_page(
     event_id: int | None = Query(None),
     category: str = Query(""),
     top: int = Query(0, description="Show only the top N finishers; 0 = all"),
-    _user: dict = Depends(require_member),
 ):
     from piclstats.web import racechart as racechart_mod
 
