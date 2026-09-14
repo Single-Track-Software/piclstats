@@ -668,9 +668,14 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     division_stats = session.execute(
         text(f"""
         SELECT r.division, r.gender,
-               dl.loop_type,
-               dl.lap_count,
-               cl.distance_miles AS loop_distance,
+               min(dl.loop_type) AS loop_type,
+               -- profiles are per season, so the all-time view may span
+               -- several lap counts / loop lengths: list them rather than
+               -- splitting the division into one row per profile
+               string_agg(DISTINCT dl.lap_count::text, '/' ORDER BY dl.lap_count::text)
+                   AS lap_count,
+               string_agg(DISTINCT cl.distance_miles::text, '/' ORDER BY cl.distance_miles::text)
+                   AS loop_distance,
                count(DISTINCT COALESCE(ra.canonical_id, ri.id)) AS riders,
                count(r.id) AS results,
                round(avg(r.place)::numeric, 1) AS avg_place,
@@ -693,7 +698,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         WHERE e.course_id = :cid AND r.place IS NOT NULL AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
           {season_filter}
-        GROUP BY r.division, r.gender, dl.loop_type, dl.lap_count, cl.distance_miles
+        GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
     """),
         params,
