@@ -95,6 +95,19 @@ _LAP_JOINS = _lap_joins()
 _LAP_JOINS_INNER = _lap_joins(inner=True)
 _LAP_JOINS_AGE_GROUP = _lap_joins(inner=True, loop_filter="AND d.loop_type = :age_group")
 
+# A result covered the full race distance: it recorded as many laps as anyone
+# in the same event, division and gender. PICL still places (and scores) riders
+# pulled at the cutoff after fewer laps, so "fastest time" must exclude them or
+# a one-lap finisher shows up as the course record.
+_FULL_DISTANCE = f"""
+    {_ACTUAL_LAPS} = (
+        SELECT max({_ACTUAL_LAPS.replace("r.lap", "r2.lap")})
+        FROM results r2
+        WHERE r2.event_id = r.event_id AND r2.division = r.division
+          AND r2.gender IS NOT DISTINCT FROM r.gender
+    )
+"""
+
 # Sanity guardrail: MTB pace outside this range is physiologically implausible
 # and usually signals bad loop distance data (e.g. rally events on short tracks
 # where the default 2.0/3.5 mi loop distance doesn't apply).
@@ -662,8 +675,9 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                count(r.id) AS results,
                round(avg(r.place)::numeric, 1) AS avg_place,
                round(avg(r.points)::numeric, 1) AS avg_points,
-               round(avg(EXTRACT(EPOCH FROM r.total_time))::numeric, 1) AS avg_time_secs,
-               min(r.total_time) AS fastest_time,
+               round(avg(EXTRACT(EPOCH FROM r.total_time))
+                     FILTER (WHERE {_FULL_DISTANCE})::numeric, 1) AS avg_time_secs,
+               min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS fastest_time,
                round(avg(
                    EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT})::numeric, 1) AS avg_pace_per_lap_secs,
@@ -696,7 +710,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
             count(DISTINCT e.id) AS appearances,
             round(avg(r.place)::numeric, 1) AS avg_place,
             round(avg(r.points)::numeric, 1) AS avg_points,
-            min(r.total_time) AS best_time
+            min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS best_time
         FROM results r
         JOIN events e ON r.event_id = e.id
         JOIN canonical c ON c.rider_id = r.rider_id
