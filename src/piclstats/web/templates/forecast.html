@@ -89,6 +89,14 @@
                     <option value="{{ d }}" {{ 'selected' if d == target_division }}>{{ d }}</option>
                     {% endfor %}
                 </select>
+                <select name="course_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-picl-500 focus:border-picl-500">
+                    <option value="">Any course (league default laps)</option>
+                    {% for c in courses %}
+                    <option value="{{ c.id }}" {{ 'selected' if c.id == course_id }}>{{ c.name }}</option>
+                    {% endfor %}
+                </select>
+                {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
+                <p class="text-xs text-gray-400">Pick the course to get laps, loop distance, and climbing from its {{ season or 'current' }} season profile — and a finish-time estimate.</p>
                 <button type="submit" class="w-full bg-picl-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-picl-700 transition-colors">
                     Predict Performance
                 </button>
@@ -127,7 +135,7 @@
         </div>
 
         <!-- Key metrics -->
-        <div class="grid md:grid-cols-3 gap-4 mb-6">
+        <div class="grid md:grid-cols-{{ 4 if forecast.predicted_finish_minutes is not none else 3 }} gap-4 mb-6">
             <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-center">
                 <div class="text-gray-400 text-xs mb-1">Predicted Place</div>
                 <div class="text-3xl font-bold text-gray-900">
@@ -152,6 +160,18 @@
                 </div>
                 <div class="text-xs text-gray-400 mt-1">min/mile</div>
             </div>
+            {% if forecast.predicted_finish_minutes is not none %}
+            <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 text-center">
+                <div class="text-gray-400 text-xs mb-1">Predicted Finish</div>
+                <div class="text-3xl font-bold text-picl-700 font-mono">{{ forecast.inputs_summary.predicted_finish_display }}</div>
+                <div class="text-xs text-gray-400 mt-1">
+                    {{ forecast.inputs_summary.target_laps }} laps × {{ forecast.inputs_summary.target_loop }}
+                    {% if forecast.inputs_summary.target_course %}
+                    at {{ forecast.inputs_summary.target_course }}{% if forecast.inputs_summary.target_profile_season %} ({{ forecast.inputs_summary.target_profile_season }} profile){% else %} (default profile){% endif %}
+                    {% else %}(league defaults){% endif %}
+                </div>
+            </div>
+            {% endif %}
         </div>
 
         <!-- Pace distribution chart -->
@@ -202,6 +222,12 @@
                             <td class="py-2 px-3 text-gray-600">Target: {{ forecast.inputs_summary.target_division }} ({{ forecast.inputs_summary.target_laps }} laps, {{ forecast.inputs_summary.target_loop }})</td>
                             <td class="py-2 px-3"></td>
                         </tr>
+                        {% if forecast.inputs_summary.target_course %}
+                        <tr>
+                            <td class="py-2 px-3 text-gray-600">Course: {{ forecast.inputs_summary.target_course }}{% if forecast.inputs_summary.target_profile_season %} ({{ forecast.inputs_summary.target_profile_season }} season profile){% else %} (course default profile){% endif %}{% if forecast.inputs_summary.target_climb_ft_per_mile is not none %} · {{ forecast.inputs_summary.target_climb_ft_per_mile }} ft/mi climbing{% endif %}</td>
+                            <td class="py-2 px-3 text-right font-mono">× {{ forecast.inputs_summary.target_climb_adjustment }}</td>
+                        </tr>
+                        {% endif %}
                         <tr>
                             <td class="py-2 px-3 text-gray-600">Extra laps: {{ forecast.inputs_summary.fatigue_extra_laps }} → +{{ forecast.inputs_summary.fatigue_pct }}% fatigue</td>
                             <td class="py-2 px-3 text-right font-mono">× {{ forecast.inputs_summary.fatigue_multiplier }}</td>

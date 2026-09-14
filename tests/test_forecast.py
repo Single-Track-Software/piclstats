@@ -245,3 +245,28 @@ def test_summary_reports_the_knobs_that_were_applied():
     assert s["fatigue_pct"] == pytest.approx(6.0)
     assert s["loop_transition_factor"] == DEFAULT_CONFIG["ms_to_hs_loop_penalty"]
     assert s["typical_field_size"] == 20
+
+
+def test_finish_time_is_pace_times_distance():
+    result = _model().predict(_inp(target_laps=3, target_loop_miles=2.0))
+    assert result is not None
+    assert result.predicted_finish_minutes is not None
+    # adjusted pace is rounded to 0.1 in the result; allow for that
+    assert abs(result.predicted_finish_minutes - result.predicted_min_per_mile * 3 * 2.0) < 0.5
+    assert result.inputs_summary["predicted_finish_display"]
+
+
+def test_finish_time_grows_with_target_climbing():
+    ref = DEFAULT_CONFIG["reference_climbing_ft_per_mile"]
+    flat = _model().predict(_inp(target_elevation_ft_per_mile=ref))
+    hilly = _model().predict(_inp(target_elevation_ft_per_mile=ref + 200))
+    assert flat and hilly
+    assert hilly.predicted_finish_minutes > flat.predicted_finish_minutes
+    # place prediction is pace-distribution based and unaffected by target climbing
+    assert hilly.predicted_place_mid == flat.predicted_place_mid
+
+
+def test_finish_time_absent_without_loop_data():
+    result = _model().predict(_inp(target_loop_miles=0.0))
+    assert result is not None
+    assert result.predicted_finish_minutes is None

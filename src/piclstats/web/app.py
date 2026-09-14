@@ -293,6 +293,7 @@ def rider_forecast(
     request: Request,
     rider_id: int,
     target_division: str = Query(""),
+    course_id: int | None = Query(None),
     season: int | None = Depends(optional_season),
     _user: dict = Depends(require_member),
 ):
@@ -323,6 +324,8 @@ def rider_forecast(
                     request,
                     rider=rider_data,
                     divisions=[],
+                    courses=[],
+                    course_id=None,
                     target_division="",
                     forecast=None,
                     season=season,
@@ -333,12 +336,25 @@ def rider_forecast(
 
         divisions = queries.available_target_divisions(session, source_div, gender)
 
+        # Course picker: laps, loop distance and climbing come from that
+        # course's profile for the selected (else latest) season, so the
+        # forecast reflects the race as it will actually be run.
+        courses = queries.forecast_courses(session)
+        course = next((c for c in courses if c["id"] == course_id), None)
+        seasons = queries.seasons_list(session)
+        profile_season = season or (max(seasons) if seasons else None)
+
         forecast_result = None
         error = None
 
         if target_division:
-            source_profile = queries.division_profile_lookup(session, source_div, gender)
-            target_profile = queries.division_profile_lookup(session, target_division, gender)
+            lookup_course = course["id"] if course else None
+            source_profile = queries.division_profile_lookup(
+                session, source_div, gender, lookup_course, profile_season
+            )
+            target_profile = queries.division_profile_lookup(
+                session, target_division, gender, lookup_course, profile_season
+            )
 
             if not source_profile or not target_profile:
                 error = f"Could not find division profiles for {source_div} or {target_division}"
@@ -383,6 +399,9 @@ def rider_forecast(
                         target_loop_type=target_profile["loop_type"],
                         source_loop_miles=source_profile["loop_miles"],
                         target_loop_miles=target_profile["loop_miles"],
+                        target_elevation_ft_per_mile=target_profile["elevation_ft_per_mile"],
+                        target_course=course["name"] if course else None,
+                        target_profile_season=target_profile["profile_season"],
                     )
 
                     from piclstats.db.settings_store import get_forecast_config
@@ -398,6 +417,8 @@ def rider_forecast(
             request,
             rider=rider_data,
             divisions=divisions,
+            courses=courses,
+            course_id=course["id"] if course else None,
             target_division=target_division,
             forecast=forecast_result,
             season=season,
