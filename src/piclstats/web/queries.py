@@ -56,6 +56,45 @@ _LAPS_CONSISTENT = f"""
      AND abs(EXTRACT(EPOCH FROM (r.total_time - {_SUM_LAPS}))) < 10)
 """
 
+
+def _lap_joins(*, inner: bool = False, loop_filter: str = "") -> str:
+    """Join the lap profile (dl) and loop (cl) for a result row `r` at event `e`.
+
+    Course profiles are per season: a division_laps / course_loops row whose
+    season matches the event wins, otherwise the season-NULL default applies.
+    `inner` drops results with no profile at all (staging needs that);
+    `loop_filter` is extra SQL against alias `d` (e.g. an age-group filter).
+    """
+    kind = "JOIN" if inner else "LEFT JOIN"
+    return f"""
+        {kind} LATERAL (
+            SELECT d.lap_count, d.loop_type, d.max_duration_mins, d.cutoff_mins, d.season
+            FROM division_laps d
+            WHERE d.course_id = e.course_id
+              AND d.division = r.division
+              AND d.gender IS NOT DISTINCT FROM r.gender
+              AND (d.season = e.season OR d.season IS NULL)
+              AND d.loop_type IS NOT NULL
+              {loop_filter}
+            ORDER BY d.season NULLS LAST
+            LIMIT 1
+        ) dl ON true
+        LEFT JOIN LATERAL (
+            SELECT l.distance_miles, l.elevation_ft, l.season
+            FROM course_loops l
+            WHERE l.course_id = e.course_id
+              AND l.loop_type = dl.loop_type
+              AND (l.season = e.season OR l.season IS NULL)
+            ORDER BY l.season NULLS LAST
+            LIMIT 1
+        ) cl ON true
+    """
+
+
+_LAP_JOINS = _lap_joins()
+_LAP_JOINS_INNER = _lap_joins(inner=True)
+_LAP_JOINS_AGE_GROUP = _lap_joins(inner=True, loop_filter="AND d.loop_type = :age_group")
+
 # Sanity guardrail: MTB pace outside this range is physiologically implausible
 # and usually signals bad loop distance data (e.g. rally events on short tracks
 # where the default 2.0/3.5 mi loop distance doesn't apply).
@@ -239,13 +278,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         FROM results r
         JOIN events e ON r.event_id = e.id
         JOIN riders ri ON r.rider_id = ri.id
-        LEFT JOIN division_laps dl ON dl.course_id = e.course_id
-            AND dl.division = r.division
-            AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-            AND dl.season IS NULL
-            AND dl.loop_type IS NOT NULL
-        LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-            AND cl.loop_type = dl.loop_type
+        {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
         ORDER BY e.season, e.event_order
     """),
@@ -551,7 +584,9 @@ def courses_list(session: Session) -> list[dict]:
                count(r.id) AS result_count
         FROM courses c
         LEFT JOIN course_loops ms ON ms.course_id = c.id AND ms.loop_type = 'MS'
+            AND ms.season IS NULL
         LEFT JOIN course_loops hs ON hs.course_id = c.id AND hs.loop_type = 'HS'
+            AND hs.season IS NULL
         LEFT JOIN events e ON e.course_id = c.id
         LEFT JOIN results r ON r.event_id = e.id
         GROUP BY c.id, ms.distance_miles, ms.elevation_ft, hs.distance_miles, hs.elevation_ft
@@ -572,13 +607,15 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     if not info:
         return None
 
+    # Season rows win over the season-NULL defaults when a season is selected.
     loops = session.execute(
         text("""
-        SELECT loop_type, distance_miles, elevation_ft
-        FROM course_loops WHERE course_id = :id
-        ORDER BY loop_type
+        SELECT DISTINCT ON (loop_type) loop_type, distance_miles, elevation_ft
+        FROM course_loops
+        WHERE course_id = :id AND (season IS NULL OR season = :season)
+        ORDER BY loop_type, season NULLS LAST
     """),
-        {"id": course_id},
+        {"id": course_id, "season": season},
     ).all()
 
     params: dict = {"cid": course_id}
@@ -603,11 +640,16 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     laps = session.execute(
         text("""
         SELECT division, gender, lap_count, max_duration_mins, cutoff_mins
-        FROM division_laps
-        WHERE course_id = :cid AND season IS NULL
+        FROM (
+            SELECT DISTINCT ON (division, gender)
+                   division, gender, lap_count, max_duration_mins, cutoff_mins
+            FROM division_laps
+            WHERE course_id = :cid AND (season IS NULL OR season = :season)
+            ORDER BY division, gender, season NULLS LAST
+        ) resolved
         ORDER BY lap_count DESC, division, gender
     """),
-        {"cid": course_id},
+        {"cid": course_id, "season": season},
     ).all()
 
     division_stats = session.execute(
@@ -633,13 +675,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         JOIN events e ON r.event_id = e.id
         JOIN riders ri ON r.rider_id = ri.id
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
-        LEFT JOIN division_laps dl ON dl.course_id = e.course_id
-            AND dl.division = r.division
-            AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-            AND dl.season IS NULL
-            AND dl.loop_type IS NOT NULL
-        LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-            AND cl.loop_type = dl.loop_type
+        {_LAP_JOINS}
         WHERE e.course_id = :cid AND r.place IS NOT NULL AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
           {season_filter}
@@ -761,12 +797,7 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
             END AS elevation_ft_per_mile
         FROM results r
         JOIN events e ON r.event_id = e.id
-        LEFT JOIN division_laps dl ON dl.course_id = e.course_id
-            AND dl.division = r.division
-            AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-            AND dl.season IS NULL AND dl.loop_type IS NOT NULL
-        LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-            AND cl.loop_type = dl.loop_type
+        {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
           AND r.place IS NOT NULL
           AND r.status = 'OK'
@@ -856,12 +887,7 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
             JOIN events e ON r.event_id = e.id AND e.event_type = 'points'
             JOIN riders ri ON r.rider_id = ri.id
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
-            JOIN division_laps dl ON dl.course_id = e.course_id
-                AND dl.division = r.division
-                AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-                AND dl.season IS NULL AND dl.loop_type IS NOT NULL
-            LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-                AND cl.loop_type = dl.loop_type
+            {_LAP_JOINS_INNER}
             WHERE r.status = 'OK' AND r.place IS NOT NULL
               AND e.id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
         ),
@@ -935,12 +961,7 @@ def staging_rows(
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
             JOIN riders cri ON cri.id = COALESCE(ra.canonical_id, ri.id)
             LEFT JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
-            JOIN division_laps dl ON dl.course_id = e.course_id
-                AND dl.division = r.division
-                AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-                AND dl.season IS NULL AND dl.loop_type = :age_group
-            LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-                AND cl.loop_type = dl.loop_type
+            {_LAP_JOINS_AGE_GROUP}
             WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.gender = :gender
         ),
         clean AS (
@@ -1001,12 +1022,7 @@ def division_pace_distribution(
             )::numeric, 1) AS min_per_mile
         FROM results r
         JOIN events e ON r.event_id = e.id
-        LEFT JOIN division_laps dl ON dl.course_id = e.course_id
-            AND dl.division = r.division
-            AND (dl.gender = r.gender OR (dl.gender IS NULL AND r.gender IS NULL))
-            AND dl.season IS NULL AND dl.loop_type IS NOT NULL
-        LEFT JOIN course_loops cl ON cl.course_id = e.course_id
-            AND cl.loop_type = dl.loop_type
+        {_LAP_JOINS}
         WHERE {div_filter}
           AND r.gender = :gender
           AND r.place IS NOT NULL

@@ -57,6 +57,12 @@ Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `
 
 Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`).
 
+### Course profiles
+
+Pace, staging ratings, and forecasts divide a rider's time by laps × loop distance, so each course carries MS and HS loop distance and elevation gain plus a lap count per division and gender. Profiles are **per season**: a season-NULL default plus optional rows for each year, resolved season-first everywhere (`web/queries._lap_joins`). `piclstats seed` creates a row for every course-season with results, taking lap counts from what finishers actually recorded (the spreadsheet defaults were wrong at most venues — see `docs/decisions/001`). Seeding never overwrites rows, so edits made at `/admin/courses/{id}` stick. That page shows the recorded lap count beside each entry and highlights mismatches.
+
+After a fresh deploy that adds this migration, run `piclstats seed` against production once to populate the season rows.
+
 ### Access model
 
 Public pages need no account. Everything gated is **invite-only** — there is no signup page.
@@ -87,3 +93,4 @@ Push to `main` runs the CI checks and, only if they pass, auto-deploys via GitHu
 ## Docs
 
 - `docs/staging-and-dq-spec.md` — staging speed-rating (z-score) and data-quality spec
+- `docs/decisions/` — architecture decision records (index in `DECISIONS.md`)

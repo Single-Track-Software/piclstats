@@ -97,6 +97,13 @@ DIVISION_PROFILES = [
     ("Single Lap Middle School", None, 1, None, None, "MS"),
 ]
 
+# (division, gender) pairs the admin course form edits, in display order. The
+# "Middle School Advanced" alias is folded into "MS Advanced" in results (see
+# DIVISION_ALIASES), so it is not offered as a separate row.
+PROFILE_KEYS: list[tuple[str, str | None]] = [
+    (div, gender) for div, gender, *_ in DIVISION_PROFILES if div != "Middle School Advanced"
+]
+
 # Default loop distances. Seeded only when a course has no loop row yet;
 # values entered in /admin/courses are never overwritten by a re-seed.
 DEFAULT_LOOP_DISTANCES = {
@@ -163,9 +170,9 @@ def seed_course_loops(session: Session, course_ids: dict[str, int]) -> int:
         for loop_type, distance in DEFAULT_LOOP_DISTANCES.items():
             session.execute(
                 text("""
-                INSERT INTO course_loops (course_id, loop_type, distance_miles)
-                VALUES (:cid, :lt, :dist)
-                ON CONFLICT (course_id, loop_type) DO NOTHING
+                INSERT INTO course_loops (course_id, loop_type, distance_miles, season)
+                VALUES (:cid, :lt, :dist, NULL)
+                ON CONFLICT (course_id, loop_type, season) DO NOTHING
             """),
                 {"cid": course_id, "lt": loop_type, "dist": distance},
             )
@@ -219,6 +226,94 @@ def seed_division_laps(session: Session, course_ids: dict[str, int]) -> int:
 
     logger.info("Seeded %d division-lap profiles", count)
     return count
+
+
+# Laps a result actually recorded: split columns that are populated. Mirrors
+# web/queries._ACTUAL_LAPS; kept separate so the db layer doesn't import web.
+RIDDEN_LAPS_SQL = """
+    ((r.lap1 IS NOT NULL)::int + (r.lap2 IS NOT NULL)::int + (r.lap3 IS NOT NULL)::int
+   + (r.lap4 IS NOT NULL)::int + (r.lap5 IS NOT NULL)::int + (r.lap6 IS NOT NULL)::int)
+"""
+
+# Fewer consistent finishers than this and the recorded-lap mode is not
+# trusted; the season row copies the default lap count instead.
+MIN_FINISHERS_FOR_MODE = 3
+
+
+def seed_season_profiles(session: Session) -> tuple[int, int]:
+    """Create per-season loop and lap rows for every course-season with results.
+
+    Loop rows copy the course default distance/elevation. Lap counts come from
+    the data: the most common number of recorded laps among OK finishers whose
+    splits add up to their total time. Rows are only ever inserted — anything
+    already present (seeded earlier or entered in /admin/courses) is kept, so
+    re-running seed after a new race never undoes an admin's edits.
+
+    Returns (loop rows inserted, lap rows inserted).
+    """
+    course_seasons = session.execute(
+        text("""
+        SELECT DISTINCT e.course_id, e.season
+        FROM events e
+        WHERE e.course_id IS NOT NULL AND e.event_type = 'points' AND e.season > 0
+        ORDER BY e.course_id, e.season
+    """)
+    ).all()
+
+    loops_added = 0
+    for course_id, season in course_seasons:
+        result = session.execute(
+            text("""
+            INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft, season)
+            SELECT course_id, loop_type, distance_miles, elevation_ft, :season
+            FROM course_loops
+            WHERE course_id = :cid AND season IS NULL
+            ON CONFLICT (course_id, loop_type, season) DO NOTHING
+        """),
+            {"cid": course_id, "season": season},
+        )
+        loops_added += rowcount(result)
+
+    laps_added = 0
+    for course_id, season in course_seasons:
+        result = session.execute(
+            text(f"""
+            WITH ridden AS (
+                SELECT r.division, r.gender,
+                       mode() WITHIN GROUP (ORDER BY {RIDDEN_LAPS_SQL}) AS laps,
+                       count(*) AS finishers
+                FROM results r
+                JOIN events e ON e.id = r.event_id
+                WHERE e.course_id = :cid AND e.season = :season AND e.event_type = 'points'
+                  AND r.status = 'OK' AND r.total_time IS NOT NULL
+                  AND {RIDDEN_LAPS_SQL} > 0
+                  AND abs(EXTRACT(EPOCH FROM (r.total_time - (
+                        COALESCE(r.lap1, interval '0') + COALESCE(r.lap2, interval '0')
+                      + COALESCE(r.lap3, interval '0') + COALESCE(r.lap4, interval '0')
+                      + COALESCE(r.lap5, interval '0') + COALESCE(r.lap6, interval '0'))))) < 10
+                GROUP BY r.division, r.gender
+            )
+            INSERT INTO division_laps (course_id, division, gender, lap_count,
+                max_duration_mins, cutoff_mins, loop_type, season)
+            SELECT d.course_id, d.division, d.gender,
+                   CASE WHEN x.finishers >= :min_n THEN x.laps ELSE d.lap_count END,
+                   d.max_duration_mins, d.cutoff_mins, d.loop_type, :season
+            FROM division_laps d
+            JOIN ridden x ON x.division = d.division AND x.gender IS NOT DISTINCT FROM d.gender
+            WHERE d.course_id = :cid AND d.season IS NULL
+            ON CONFLICT (course_id, division, gender, season) DO NOTHING
+        """),
+            {"cid": course_id, "season": season, "min_n": MIN_FINISHERS_FOR_MODE},
+        )
+        laps_added += rowcount(result)
+
+    logger.info(
+        "Season profiles: %d course-seasons, %d loop rows and %d lap rows added",
+        len(course_seasons),
+        loops_added,
+        laps_added,
+    )
+    return loops_added, laps_added
 
 
 # Division label aliases → canonical name. Same division recorded under
@@ -316,6 +411,7 @@ def seed_all(session: Session) -> None:
     seed_division_laps(session, course_ids)
     normalize_divisions(session)
     classify_event_types(session)
+    seed_season_profiles(session)
     seed_conferences(session)
     session.commit()
     logger.info("Seed complete")

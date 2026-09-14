@@ -7,18 +7,22 @@ and elevation), and manage login accounts. Auth is the shared session login
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import text, update
+from sqlalchemy.orm import Session
 from starlette.datastructures import FormData
 
 from piclstats.db import tokens_store, users_store
 from piclstats.db.engine import get_session
+from piclstats.db.seed import RIDDEN_LAPS_SQL, DIVISION_PROFILES, PROFILE_KEYS
 from piclstats.db.settings_store import get_forecast_config, set_value
-from piclstats.db.tables import course_loops, courses
+from piclstats.db.tables import courses
 from piclstats.web import mail
 from piclstats.web.auth import build_link, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
@@ -113,22 +117,25 @@ async def forecast_save(
 @router.get("/courses", response_class=HTMLResponse)
 def courses_list(request: Request, _: str = Depends(require_admin)):
     # Only the per-loop (MS/HS) distance and elevation feed pace and forecast
-    # math, so that's what the summary shows.
+    # math, so that's what the summary shows: the defaults, plus which seasons
+    # carry their own rows.
     with get_session() as s:
         rows = (
-            s.execute(
-                select(courses.c.id, courses.c.name, courses.c.location).order_by(courses.c.name)
-            )
-            .mappings()
-            .all()
+            s.execute(text("SELECT id, name, location FROM courses ORDER BY name")).mappings().all()
         )
         loops = s.execute(
-            select(
-                course_loops.c.course_id,
-                course_loops.c.loop_type,
-                course_loops.c.distance_miles,
-                course_loops.c.elevation_ft,
-            )
+            text("""
+            SELECT course_id, loop_type, distance_miles, elevation_ft
+            FROM course_loops WHERE season IS NULL
+        """)
+        ).all()
+        season_rows = s.execute(
+            text("""
+            SELECT course_id, season FROM course_loops WHERE season IS NOT NULL
+            UNION
+            SELECT course_id, season FROM division_laps WHERE season IS NOT NULL
+            ORDER BY course_id, season
+        """)
         ).all()
     by_course: dict[int, dict[str, dict]] = {}
     for course_id, loop_type, dist, elev in loops:
@@ -136,44 +143,207 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
             "distance_miles": dist,
             "elevation_ft": elev,
         }
-    course_rows = [{**row, "loops": by_course.get(row["id"], {})} for row in rows]
+    seasons_by_course: dict[int, list[int]] = {}
+    for course_id, season in season_rows:
+        seasons_by_course.setdefault(course_id, []).append(season)
+    course_rows = [
+        {
+            **row,
+            "loops": by_course.get(row["id"], {}),
+            "seasons": seasons_by_course.get(row["id"], []),
+        }
+        for row in rows
+    ]
     return templates.TemplateResponse(
         "admin/courses.html", {"request": request, "courses": course_rows}
     )
 
 
-def _load_course(course_id: int):
-    with get_session() as s:
-        course = s.execute(select(courses).where(courses.c.id == course_id)).mappings().first()
-        if not course:
-            return None, []
-        loops = (
-            s.execute(
-                select(course_loops)
-                .where(course_loops.c.course_id == course_id)
-                .order_by(course_loops.c.loop_type)
-            )
-            .mappings()
-            .all()
+# ── Per-season course profiles ─────────────────────────────────────────
+#
+# A course has a default profile (season NULL) and optional per-season rows.
+# Each profile = MS/HS loop distance + elevation and a lap count per
+# (division, gender). Queries resolve the event's season row first and fall
+# back to the default, so a season block only needs the values that differ.
+
+
+@dataclass
+class ProfileForm:
+    """Parsed per-season profile form. None = field left blank."""
+
+    loops: dict[str, tuple[float | None, float | None]]  # loop_type -> (miles, ft)
+    laps: dict[int, int | None]  # index into PROFILE_KEYS -> lap count
+
+
+def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
+    """Parse the loop and lap fields of a season block. Raises ValueError on bad input."""
+
+    def opt_float(key: str) -> float | None:
+        raw = form.get(key, "").strip()
+        return float(raw) if raw else None
+
+    loops: dict[str, tuple[float | None, float | None]] = {}
+    for loop_type in ("MS", "HS"):
+        prefix = loop_type.lower()
+        loops[loop_type] = (
+            opt_float(f"{prefix}_distance_miles"),
+            opt_float(f"{prefix}_elevation_ft"),
         )
-    return dict(course), [dict(loop) for loop in loops]
+    laps: dict[int, int | None] = {}
+    for i in range(len(PROFILE_KEYS)):
+        raw = form.get(f"lap_{i}", "").strip()
+        if raw == "":
+            laps[i] = None
+            continue
+        count = int(raw)
+        if not 1 <= count <= 6:
+            raise ValueError(f"Lap count must be 1-6, got {raw}")
+        laps[i] = count
+    return ProfileForm(loops=loops, laps=laps)
+
+
+def _season_key(season: int | None) -> str:
+    return "default" if season is None else str(season)
+
+
+def _parse_season_key(key: str) -> int | None:
+    if key == "default":
+        return None
+    try:
+        season = int(key)
+    except ValueError:
+        raise HTTPException(404, "Unknown season")
+    if not 2000 <= season <= 2100:
+        raise HTTPException(404, "Unknown season")
+    return season
+
+
+def _course_seasons(s: Session, course_id: int) -> list[int]:
+    """Seasons the course has raced in or has explicit profile rows for, newest first."""
+    rows = s.execute(
+        text("""
+        SELECT season FROM events WHERE course_id = :cid AND season > 0
+        UNION SELECT season FROM course_loops WHERE course_id = :cid AND season IS NOT NULL
+        UNION SELECT season FROM division_laps WHERE course_id = :cid AND season IS NOT NULL
+        ORDER BY season DESC
+    """),
+        {"cid": course_id},
+    ).all()
+    return [r[0] for r in rows]
+
+
+def _recorded_laps(
+    s: Session, course_id: int
+) -> dict[tuple[int, str, str | None], tuple[int, int]]:
+    """(season, division, gender) -> (most common laps recorded by OK finishers, finishers)."""
+    rows = s.execute(
+        text(f"""
+        SELECT e.season, r.division, r.gender,
+               mode() WITHIN GROUP (ORDER BY {RIDDEN_LAPS_SQL}) AS laps,
+               count(*) AS finishers
+        FROM results r
+        JOIN events e ON e.id = r.event_id
+        WHERE e.course_id = :cid AND e.event_type = 'points'
+          AND r.status = 'OK' AND r.total_time IS NOT NULL AND {RIDDEN_LAPS_SQL} > 0
+        GROUP BY e.season, r.division, r.gender
+    """),
+        {"cid": course_id},
+    ).all()
+    return {(r[0], r[1], r[2]): (r[3], r[4]) for r in rows}
+
+
+def _profile_block(
+    s: Session,
+    course_id: int,
+    season: int | None,
+    recorded: dict[tuple[int, str, str | None], tuple[int, int]],
+) -> dict:
+    """Everything the template needs to render one season block (or the defaults)."""
+    loop_rows = s.execute(
+        text("""
+        SELECT loop_type, distance_miles, elevation_ft, season
+        FROM course_loops
+        WHERE course_id = :cid AND (season IS NULL OR season = :season)
+    """),
+        {"cid": course_id, "season": season},
+    ).all()
+    lap_rows = s.execute(
+        text("""
+        SELECT division, gender, lap_count, season
+        FROM division_laps
+        WHERE course_id = :cid AND (season IS NULL OR season = :season)
+    """),
+        {"cid": course_id, "season": season},
+    ).all()
+
+    loops: dict[str, dict] = {}
+    for loop_type in ("MS", "HS"):
+        own = next((r for r in loop_rows if r[0] == loop_type and r[3] == season), None)
+        default = next((r for r in loop_rows if r[0] == loop_type and r[3] is None), None)
+        loops[loop_type] = {
+            "distance_miles": own[1] if own else None,
+            "elevation_ft": own[2] if own else None,
+            "fallback_distance": default[1] if default else None,
+            "fallback_elevation": default[2] if default else None,
+        }
+
+    laps = []
+    for i, (division, gender) in enumerate(PROFILE_KEYS):
+        own = next(
+            (r for r in lap_rows if (r[0], r[1]) == (division, gender) and r[3] == season), None
+        )
+        default = next(
+            (r for r in lap_rows if (r[0], r[1]) == (division, gender) and r[3] is None), None
+        )
+        rec = recorded.get((season, division, gender)) if season is not None else None
+        laps.append(
+            {
+                "key": f"lap_{i}",
+                "division": division,
+                "gender": gender or "",
+                "lap_count": own[2] if own else None,
+                "fallback": default[2] if default else None,
+                "recorded": rec[0] if rec else None,
+                "finishers": rec[1] if rec else None,
+                "mismatch": bool(
+                    rec and (own[2] if own else default[2] if default else None) != rec[0]
+                ),
+            }
+        )
+    return {"season": season, "key": _season_key(season), "loops": loops, "laps": laps}
 
 
 @router.get("/courses/{course_id}", response_class=HTMLResponse)
-def course_edit(request: Request, course_id: int, saved: int = 0, _: str = Depends(require_admin)):
-    course, loops = _load_course(course_id)
-    if not course:
-        raise HTTPException(404, "Course not found")
-    # Ensure both MS and HS rows exist in the form, even if DB has none
-    by_type = {loop["loop_type"]: loop for loop in loops}
-    for loop_type in ("MS", "HS"):
-        by_type.setdefault(
-            loop_type, {"loop_type": loop_type, "distance_miles": None, "elevation_ft": None}
+def course_edit(
+    request: Request,
+    course_id: int,
+    saved: int = 0,
+    add: int | None = None,
+    _: str = Depends(require_admin),
+):
+    with get_session() as s:
+        course = (
+            s.execute(text("SELECT * FROM courses WHERE id = :id"), {"id": course_id})
+            .mappings()
+            .first()
         )
-    loops_display = [by_type["MS"], by_type["HS"]]
+        if not course:
+            raise HTTPException(404, "Course not found")
+        seasons = _course_seasons(s, course_id)
+        if add is not None and 2000 <= add <= 2100 and add not in seasons:
+            seasons = sorted(seasons + [add], reverse=True)
+        recorded = _recorded_laps(s, course_id)
+        blocks = [_profile_block(s, course_id, season, recorded) for season in seasons]
+        defaults = _profile_block(s, course_id, None, recorded)
     return templates.TemplateResponse(
         "admin/course_edit.html",
-        {"request": request, "course": course, "loops": loops_display, "saved": bool(saved)},
+        {
+            "request": request,
+            "course": dict(course),
+            "blocks": blocks,
+            "defaults": defaults,
+            "saved": saved,
+        },
     )
 
 
@@ -194,10 +364,6 @@ async def course_save(
     form = await request.form()
     try:
         difficulty = _opt_float(form, "difficulty_score")
-        ms_distance = _opt_float(form, "ms_distance_miles")
-        ms_elevation = _opt_float(form, "ms_elevation_ft")
-        hs_distance = _opt_float(form, "hs_distance_miles")
-        hs_elevation = _opt_float(form, "hs_elevation_ft")
     except ValueError:
         raise HTTPException(400, "Invalid number in form")
     location = _form_str(form, "location") or None
@@ -207,40 +373,110 @@ async def course_save(
         s.execute(
             update(courses)
             .where(courses.c.id == course_id)
-            .values(
-                location=location,
-                difficulty_score=difficulty,
-                notes=notes,
-            )
+            .values(location=location, difficulty_score=difficulty, notes=notes)
         )
-        for loop_type, dist, elev in (
-            ("MS", ms_distance, ms_elevation),
-            ("HS", hs_distance, hs_elevation),
-        ):
-            existing = s.execute(
-                select(course_loops.c.id).where(
-                    (course_loops.c.course_id == course_id)
-                    & (course_loops.c.loop_type == loop_type)
-                )
-            ).first()
-            if existing:
-                s.execute(
-                    update(course_loops)
-                    .where(course_loops.c.id == existing[0])
-                    .values(distance_miles=dist, elevation_ft=elev)
-                )
-            elif dist is not None or elev is not None:
-                s.execute(
-                    course_loops.insert().values(
-                        course_id=course_id,
-                        loop_type=loop_type,
-                        distance_miles=dist,
-                        elevation_ft=elev,
-                    )
-                )
         s.commit()
 
-    return RedirectResponse(f"/admin/courses/{course_id}?saved=1", status_code=303)
+    return RedirectResponse(f"/admin/courses/{course_id}?saved=course", status_code=303)
+
+
+@router.post("/courses/{course_id}/profile/{season_key}")
+async def profile_save(
+    request: Request,
+    course_id: int,
+    season_key: str,
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Save one season block (or the defaults).
+
+    Blank fields in a season block remove that season's row so the default
+    applies again. Blank fields in the defaults block are left unchanged —
+    every query needs a default to fall back to.
+    """
+    season = _parse_season_key(season_key)
+    form = await request.form()
+    fields = {k: v for k, v in form.items() if isinstance(v, str)}
+    try:
+        parsed = parse_profile_form(fields)
+    except ValueError as exc:
+        raise HTTPException(400, f"Invalid number in form: {exc}")
+
+    with get_session() as s:
+        exists = s.execute(text("SELECT 1 FROM courses WHERE id = :id"), {"id": course_id}).first()
+        if not exists:
+            raise HTTPException(404, "Course not found")
+
+        for loop_type, (dist, elev) in parsed.loops.items():
+            params = {"cid": course_id, "lt": loop_type, "season": season}
+            if dist is None and elev is None:
+                if season is not None:
+                    s.execute(
+                        text("""
+                        DELETE FROM course_loops
+                        WHERE course_id = :cid AND loop_type = :lt AND season = :season
+                    """),
+                        params,
+                    )
+                continue
+            s.execute(
+                text("""
+                INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft, season)
+                VALUES (:cid, :lt, :dist, :elev, :season)
+                ON CONFLICT (course_id, loop_type, season)
+                DO UPDATE SET distance_miles = :dist, elevation_ft = :elev
+            """),
+                {**params, "dist": dist, "elev": elev},
+            )
+
+        for i, (division, gender) in enumerate(PROFILE_KEYS):
+            laps = parsed.laps.get(i)
+            params = {"cid": course_id, "div": division, "gender": gender, "season": season}
+            if laps is None:
+                if season is not None:
+                    s.execute(
+                        text("""
+                        DELETE FROM division_laps
+                        WHERE course_id = :cid AND division = :div
+                          AND gender IS NOT DISTINCT FROM :gender AND season = :season
+                    """),
+                        params,
+                    )
+                continue
+            # Duration/cutoff/loop type aren't edited here; copy them from the
+            # course default (seeded for every division) or the league profile.
+            profile = next(
+                (p for p in DIVISION_PROFILES if p[0] == division and p[1] == gender), None
+            )
+            s.execute(
+                text("""
+                INSERT INTO division_laps (course_id, division, gender, lap_count,
+                    max_duration_mins, cutoff_mins, loop_type, season)
+                SELECT :cid, :div, :gender, :laps,
+                       COALESCE(d.max_duration_mins, :max_dur),
+                       COALESCE(d.cutoff_mins, :cutoff),
+                       COALESCE(d.loop_type, :lt),
+                       :season
+                FROM (SELECT 1) one
+                LEFT JOIN division_laps d ON d.course_id = :cid AND d.division = :div
+                    AND d.gender IS NOT DISTINCT FROM :gender AND d.season IS NULL
+                ON CONFLICT (course_id, division, gender, season)
+                DO UPDATE SET lap_count = :laps
+            """),
+                {
+                    **params,
+                    "laps": laps,
+                    "max_dur": profile[3] if profile else None,
+                    "cutoff": profile[4] if profile else None,
+                    "lt": profile[5] if profile else None,
+                },
+            )
+        s.commit()
+
+    return RedirectResponse(
+        f"/admin/courses/{course_id}?saved={_season_key(season)}#season-{_season_key(season)}",
+        status_code=303,
+    )
 
 
 # --- user management --------------------------------------------------------
