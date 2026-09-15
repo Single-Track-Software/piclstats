@@ -86,6 +86,12 @@ uv run mypy                  # types; config in pyproject.toml
 
 All four run in CI on every PR. Config lives in `pyproject.toml`.
 
+## Backups
+
+`scripts/backup_prod.sh [DEST_DIR]` dumps the production database through a temporary `fly proxy` with `pg_dump` (custom format) and keeps the newest 30 dumps (`KEEP=n` to change). Default destination is `~/Backups/piclstats`; point `DEST_DIR` or `PICLSTATS_BACKUP_DIR` at a TrueNAS share to keep copies off the laptop. Needs flyctl logged in and `pg_dump` from `brew install libpq`. Fly's daily volume snapshots (retained a few days) are the only other backup, so run this after each results load at minimum. Restore into an empty database with `pg_restore --no-owner --no-privileges -d "$URL" file.dump`.
+
+The app sets a 15 s server-side `statement_timeout` on its connections (`PICLSTATS_STATEMENT_TIMEOUT_MS`, 0 disables) so one slow query fails one request rather than starving the small Postgres VM.
+
 ## Deployment
 
 Push to `main` runs the CI checks and, only if they pass, auto-deploys via GitHub Actions (`.github/workflows/fly-deploy.yml` calls `ci.yml` as a required job; needs the `FLY_API_TOKEN` repo secret). `fly.toml`'s `release_command` runs `alembic upgrade head` before the new version serves traffic. Prod secrets are set with `flyctl secrets set`, not `.env`.
