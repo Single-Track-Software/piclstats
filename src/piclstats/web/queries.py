@@ -594,8 +594,15 @@ def team_leaderboard(
     limit: int | None = 25,
     metric: str = "avg_points",
     direction: str | None = None,
+    min_riders: int = 1,
 ) -> list[dict]:
-    params: dict = {}
+    """Teams ranked by their riders' results.
+
+    `min_riders` hides tiny teams; the full leaderboard shows every team (a
+    two-rider school squad still scored points), while the home page top-10
+    keeps a floor so one strong rider can't top the league as a "team".
+    """
+    params: dict = {"min_riders": min_riders}
     if limit:
         params["limit"] = limit
     season_filter = ""
@@ -621,7 +628,7 @@ def team_leaderboard(
           AND {_POINTS_ONLY}
           {season_filter}
         GROUP BY ri.team
-        HAVING count(DISTINCT ri.id) >= 3
+        HAVING count(DISTINCT ri.id) >= :min_riders
         ORDER BY {order_col}
         {limit_sql}
     """

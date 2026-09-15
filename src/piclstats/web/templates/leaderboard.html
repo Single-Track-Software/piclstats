@@ -148,7 +148,7 @@
     {% if not results %}
     <div class="px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
     {% else %}
-    <div class="px-4 py-2 text-xs text-gray-400 border-t bg-gray-50">{{ results|length }} {{ 'teams' if view == 'teams' else 'riders' }} · click a column to sort{% if view == 'teams' %} · teams need 3+ riders{% endif %}</div>
+    <div class="px-4 py-2 text-xs text-gray-400 border-t bg-gray-50">{{ results|length }} {{ 'teams' if view == 'teams' else 'riders' }} · click a column to sort</div>
     {% endif %}
 </div>
 
