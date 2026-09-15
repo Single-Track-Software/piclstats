@@ -38,7 +38,7 @@ URL="postgres://postgres:${PW}@localhost:${PORT}/piclstats?sslmode=disable"
 
 fly proxy "${PORT}:5432" -a "$DB_APP" >/dev/null 2>&1 &
 PROXY_PID=$!
-trap 'kill "$PROXY_PID" 2>/dev/null || true' EXIT
+trap 'kill "$PROXY_PID" 2>/dev/null; wait "$PROXY_PID" 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 30); do
     nc -z localhost "$PORT" 2>/dev/null && break
