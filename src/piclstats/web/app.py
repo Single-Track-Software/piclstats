@@ -153,7 +153,7 @@ def home(request: Request):
         stats = queries.overview_stats(session)
         seasons = queries.seasons_list(session)
         top_riders = queries.leaderboard(session, limit=10)
-        top_teams = queries.team_leaderboard(session, limit=10)
+        top_teams = queries.team_leaderboard(session, limit=10, min_riders=3)
     return templates.TemplateResponse(
         "home.html",
         _ctx(
