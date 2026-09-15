@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Dump the production database (Fly Postgres) to a local directory.
 #
-# Opens a temporary `fly proxy` to the piclstats-db app, reads the connection
-# string from the running app machine, runs pg_dump through the proxy, and
-# keeps the newest N dumps. Fly's own daily volume snapshots are the only other
+# Opens a temporary `fly proxy` to the piclstats-db app, reads the superuser
+# password from that machine, runs pg_dump through the proxy, and keeps the
+# newest N dumps. Fly's own daily volume snapshots are the only other
 # backup this database has, and they are retained for a few days.
 #
 # Usage:  scripts/backup_prod.sh [DEST_DIR]
@@ -17,7 +17,6 @@
 #   pg_restore --no-owner --no-privileges -d "$TARGET_URL" piclstats-YYYYmmdd-HHMMSS.dump
 set -euo pipefail
 
-APP="piclstats"
 DB_APP="piclstats-db"
 PORT="${PICLSTATS_BACKUP_PORT:-15433}"
 DEST="${1:-${PICLSTATS_BACKUP_DIR:-$HOME/Backups/piclstats}}"
@@ -31,10 +30,11 @@ mkdir -p "$DEST"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT="$DEST/piclstats-$STAMP.dump"
 
-# Connection string lives only in the app's secrets; never echo it.
-RAW="$(fly ssh console -a "$APP" -C "printenv DATABASE_URL" 2>/dev/null | grep '^postgres' || true)"
-[ -n "$RAW" ] || { echo "could not read DATABASE_URL from the $APP machine (is it running?)" >&2; exit 1; }
-URL="$(printf '%s' "$RAW" | sed -E "s#@[^/]+/#@localhost:${PORT}/#")"
+# The app machine scales to zero, so read the superuser password from the
+# always-on Postgres machine instead of the app's DATABASE_URL. Never echo it.
+PW="$(fly ssh console -a "$DB_APP" -C "printenv OPERATOR_PASSWORD" 2>/dev/null | grep -v -e '^Connecting' -e '^$' | tail -1 || true)"
+[ -n "$PW" ] || { echo "could not read OPERATOR_PASSWORD from the $DB_APP machine" >&2; exit 1; }
+URL="postgres://postgres:${PW}@localhost:${PORT}/piclstats?sslmode=disable"
 
 fly proxy "${PORT}:5432" -a "$DB_APP" >/dev/null 2>&1 &
 PROXY_PID=$!
