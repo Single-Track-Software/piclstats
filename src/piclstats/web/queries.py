@@ -95,18 +95,23 @@ _LAP_JOINS = _lap_joins()
 _LAP_JOINS_INNER = _lap_joins(inner=True)
 _LAP_JOINS_AGE_GROUP = _lap_joins(inner=True, loop_filter="AND d.loop_type = :age_group")
 
-# A result covered the full race distance: it recorded as many laps as anyone
-# in the same event, division and gender. PICL still places (and scores) riders
+# Results at one course with `full_laps` = the most laps anyone recorded in
+# the same event, division and gender. PICL still places (and scores) riders
 # pulled at the cutoff after fewer laps, so "fastest time" must exclude them or
-# a one-lap finisher shows up as the course record.
-_FULL_DISTANCE = f"""
-    {_ACTUAL_LAPS} = (
-        SELECT max({_ACTUAL_LAPS.replace("r.lap", "r2.lap")})
-        FROM results r2
-        WHERE r2.event_id = r.event_id AND r2.division = r.division
-          AND r2.gender IS NOT DISTINCT FROM r.gender
-    )
+# a one-lap finisher shows up as the course record. A window function does
+# this in one pass — a correlated subquery here re-scanned results per row and
+# took the production database down (2026-09-15).
+_COURSE_RESULTS = f"""
+    (
+        SELECT r.*,
+               max({_ACTUAL_LAPS}) OVER (PARTITION BY r.event_id, r.division, r.gender)
+                   AS full_laps
+        FROM results r
+        JOIN events ce ON ce.id = r.event_id
+        WHERE ce.course_id = :cid
+    ) r
 """
+_FULL_DISTANCE = f"{_ACTUAL_LAPS} = r.full_laps"
 
 # Sanity guardrail: MTB pace outside this range is physiologically implausible
 # and usually signals bad loop distance data (e.g. rally events on short tracks
@@ -690,12 +695,12 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                    (EXTRACT(EPOCH FROM r.total_time) / 60.0)
                    / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT} AND cl.distance_miles > 0)::numeric, 1) AS avg_min_per_mile
-        FROM results r
+        FROM {_COURSE_RESULTS}
         JOIN events e ON r.event_id = e.id
         JOIN riders ri ON r.rider_id = ri.id
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
         {_LAP_JOINS}
-        WHERE e.course_id = :cid AND r.place IS NOT NULL AND r.total_time IS NOT NULL
+        WHERE r.place IS NOT NULL AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
           {season_filter}
         GROUP BY r.division, r.gender
@@ -716,10 +721,10 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
             round(avg(r.place)::numeric, 1) AS avg_place,
             round(avg(r.points)::numeric, 1) AS avg_points,
             min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS best_time
-        FROM results r
+        FROM {_COURSE_RESULTS}
         JOIN events e ON r.event_id = e.id
         JOIN canonical c ON c.rider_id = r.rider_id
-        WHERE e.course_id = :cid AND r.place IS NOT NULL
+        WHERE r.place IS NOT NULL
           {season_filter}
         GROUP BY c.cid, c.name, r.division
         HAVING count(DISTINCT e.id) >= 2
