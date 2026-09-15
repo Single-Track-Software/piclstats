@@ -48,6 +48,11 @@ class ForecastInput:
     target_loop_type: str
     source_loop_miles: float
     target_loop_miles: float
+    # Set when the forecast is for a specific course: its loop's climbing rate
+    # (ft gain per mile) and which profile season the laps/loop came from.
+    target_elevation_ft_per_mile: float | None = None
+    target_course: str | None = None
+    target_profile_season: int | None = None
 
 
 @dataclass(frozen=True)
@@ -65,6 +70,9 @@ class ForecastResult:
     readiness_detail: str
     confidence: str  # "High", "Medium", "Low"
     inputs_summary: dict
+    # Finish time on the target course: adjusted pace × laps × loop distance,
+    # re-scaled for the target loop's climbing. None if laps/loop are unknown.
+    predicted_finish_minutes: float | None = None
 
 
 # ── Configuration ────────────────────────────────────────────────────
@@ -94,6 +102,16 @@ DEFAULT_CONFIG: dict = {
     # courses once we have data for most of them.
     "reference_climbing_ft_per_mile": 110.0,
 }
+
+
+def _format_minutes(minutes: float | None) -> str | None:
+    """62.4 -> '1:02:24'; 38.5 -> '38:30'."""
+    if minutes is None:
+        return None
+    total_secs = int(round(minutes * 60))
+    hours, rem = divmod(total_secs, 3600)
+    mins, secs = divmod(rem, 60)
+    return f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
 
 
 # ── Model Implementation ────────────────────────────────────────────
@@ -235,7 +253,21 @@ class StatisticalForecastModel:
         else:
             confidence = "Low"
 
-        # Step 7: Transparency
+        # Step 7: Finish time on the target course. adjusted_pace is at the
+        # reference climbing rate; scale it for the target loop's climbing (the
+        # inverse of the Step 1 normalisation), then multiply out the distance.
+        predicted_finish: float | None = None
+        target_climb_adj = 1.0
+        if inp.target_laps > 0 and inp.target_loop_miles > 0:
+            if inp.target_elevation_ft_per_mile is not None and ref_climb > 0:
+                target_climb_adj = 1 + climb_impact * (
+                    (inp.target_elevation_ft_per_mile - ref_climb) / 100.0
+                )
+            predicted_finish = round(
+                adjusted_pace * target_climb_adj * inp.target_laps * inp.target_loop_miles, 1
+            )
+
+        # Step 8: Transparency
         target_avg = mean(sorted_paces) if sorted_paces else 0
         target_med = median(sorted_paces) if sorted_paces else 0
 
@@ -271,6 +303,11 @@ class StatisticalForecastModel:
             "target_median_pace": round(target_med, 1),
             "target_sample_size": field_size,
             "typical_field_size": typical_field,
+            "target_course": inp.target_course,
+            "target_profile_season": inp.target_profile_season,
+            "target_climb_ft_per_mile": inp.target_elevation_ft_per_mile,
+            "target_climb_adjustment": round(target_climb_adj, 3),
+            "predicted_finish_display": _format_minutes(predicted_finish),
         }
 
         return ForecastResult(
@@ -285,4 +322,5 @@ class StatisticalForecastModel:
             readiness_detail=readiness_detail,
             confidence=confidence,
             inputs_summary=inputs_summary,
+            predicted_finish_minutes=predicted_finish,
         )

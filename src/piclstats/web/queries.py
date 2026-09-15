@@ -95,6 +95,19 @@ _LAP_JOINS = _lap_joins()
 _LAP_JOINS_INNER = _lap_joins(inner=True)
 _LAP_JOINS_AGE_GROUP = _lap_joins(inner=True, loop_filter="AND d.loop_type = :age_group")
 
+# A result covered the full race distance: it recorded as many laps as anyone
+# in the same event, division and gender. PICL still places (and scores) riders
+# pulled at the cutoff after fewer laps, so "fastest time" must exclude them or
+# a one-lap finisher shows up as the course record.
+_FULL_DISTANCE = f"""
+    {_ACTUAL_LAPS} = (
+        SELECT max({_ACTUAL_LAPS.replace("r.lap", "r2.lap")})
+        FROM results r2
+        WHERE r2.event_id = r.event_id AND r2.division = r.division
+          AND r2.gender IS NOT DISTINCT FROM r.gender
+    )
+"""
+
 # Sanity guardrail: MTB pace outside this range is physiologically implausible
 # and usually signals bad loop distance data (e.g. rally events on short tracks
 # where the default 2.0/3.5 mi loop distance doesn't apply).
@@ -655,15 +668,21 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     division_stats = session.execute(
         text(f"""
         SELECT r.division, r.gender,
-               dl.loop_type,
-               dl.lap_count,
-               cl.distance_miles AS loop_distance,
+               min(dl.loop_type) AS loop_type,
+               -- profiles are per season, so the all-time view may span
+               -- several lap counts / loop lengths: list them rather than
+               -- splitting the division into one row per profile
+               string_agg(DISTINCT dl.lap_count::text, '/' ORDER BY dl.lap_count::text)
+                   AS lap_count,
+               string_agg(DISTINCT cl.distance_miles::text, '/' ORDER BY cl.distance_miles::text)
+                   AS loop_distance,
                count(DISTINCT COALESCE(ra.canonical_id, ri.id)) AS riders,
                count(r.id) AS results,
                round(avg(r.place)::numeric, 1) AS avg_place,
                round(avg(r.points)::numeric, 1) AS avg_points,
-               round(avg(EXTRACT(EPOCH FROM r.total_time))::numeric, 1) AS avg_time_secs,
-               min(r.total_time) AS fastest_time,
+               round(avg(EXTRACT(EPOCH FROM r.total_time))
+                     FILTER (WHERE {_FULL_DISTANCE})::numeric, 1) AS avg_time_secs,
+               min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS fastest_time,
                round(avg(
                    EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT})::numeric, 1) AS avg_pace_per_lap_secs,
@@ -679,7 +698,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         WHERE e.course_id = :cid AND r.place IS NOT NULL AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
           {season_filter}
-        GROUP BY r.division, r.gender, dl.loop_type, dl.lap_count, cl.distance_miles
+        GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
     """),
         params,
@@ -696,7 +715,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
             count(DISTINCT e.id) AS appearances,
             round(avg(r.place)::numeric, 1) AS avg_place,
             round(avg(r.points)::numeric, 1) AS avg_points,
-            min(r.total_time) AS best_time
+            min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS best_time
         FROM results r
         JOIN events e ON r.event_id = e.id
         JOIN canonical c ON c.rider_id = r.rider_id
@@ -1045,21 +1064,47 @@ def division_pace_distribution(
     return {"paces": paces, "field_sizes": field_sizes}
 
 
-def division_profile_lookup(session: Session, division: str, gender: str) -> dict | None:
-    """Get lap count, loop type, and distance for a division."""
+def division_profile_lookup(
+    session: Session,
+    division: str,
+    gender: str,
+    course_id: int | None = None,
+    season: int | None = None,
+) -> dict | None:
+    """Lap count, loop type, loop distance and climbing for a division.
+
+    With a course, that course's profile is used — its row for `season` when
+    one exists, else the course default. Without a course the league-wide
+    defaults apply (every course seeds the same spreadsheet values), which is
+    all the forecast can do before it knows where the race is.
+    """
     div_filter = "dl.division = :division"
-    params: dict = {"division": division, "gender": gender}
+    params: dict = {"division": division, "gender": gender, "season": season}
     if division in ("MS Advanced", "Middle School Advanced"):
         div_filter = "dl.division IN ('MS Advanced', 'Middle School Advanced')"
+    if course_id is not None:
+        scope = "AND dl.course_id = :course_id AND (dl.season = :season OR dl.season IS NULL)"
+        params["course_id"] = course_id
+    else:
+        scope = "AND dl.season IS NULL"
 
     row = session.execute(
         text(f"""
-        SELECT DISTINCT dl.lap_count, dl.loop_type, cl.distance_miles
+        SELECT dl.lap_count, dl.loop_type, cl.distance_miles, cl.elevation_ft, dl.season
         FROM division_laps dl
-        JOIN course_loops cl ON cl.course_id = dl.course_id AND cl.loop_type = dl.loop_type
+        JOIN LATERAL (
+            SELECT l.distance_miles, l.elevation_ft
+            FROM course_loops l
+            WHERE l.course_id = dl.course_id AND l.loop_type = dl.loop_type
+              AND (l.season = :season OR l.season IS NULL)
+            ORDER BY l.season NULLS LAST
+            LIMIT 1
+        ) cl ON true
         WHERE {div_filter}
           AND (dl.gender = :gender OR (dl.gender IS NULL AND :gender IS NULL))
-          AND dl.season IS NULL
+          AND dl.loop_type IS NOT NULL
+          {scope}
+        ORDER BY dl.season NULLS LAST, dl.course_id
         LIMIT 1
     """),
         params,
@@ -1067,7 +1112,29 @@ def division_profile_lookup(session: Session, division: str, gender: str) -> dic
 
     if not row:
         return None
-    return {"lap_count": row[0], "loop_type": row[1], "loop_miles": float(row[2])}
+    lap_count, loop_type, miles, elev, profile_season = row
+    climb = round(elev / miles, 1) if miles and elev is not None else None
+    return {
+        "lap_count": lap_count,
+        "loop_type": loop_type,
+        "loop_miles": float(miles),
+        "elevation_ft_per_mile": climb,
+        "profile_season": profile_season,
+    }
+
+
+def forecast_courses(session: Session) -> list[dict]:
+    """Courses that have hosted a points race — the forecast page's course picker."""
+    rows = session.execute(
+        text("""
+        SELECT c.id, c.name, max(e.season) AS last_season
+        FROM courses c
+        JOIN events e ON e.course_id = c.id AND e.event_type = 'points'
+        GROUP BY c.id, c.name
+        ORDER BY c.name
+    """)
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
 
 
 def available_target_divisions(session: Session, source_division: str, gender: str) -> list[str]:
