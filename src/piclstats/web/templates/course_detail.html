@@ -109,7 +109,7 @@
                 {% for e in events %}
                 <tr class="hover:bg-gray-50">
                     <td class="py-2 font-medium">{{ e.season }}</td>
-                    <td class="py-2 text-gray-600 truncate max-w-xs" title="{{ e.event_name }}">{{ e.event_name }}</td>
+                    <td class="py-2 truncate max-w-xs" title="{{ e.event_name }}"><a href="/results?event_id={{ e.id }}" class="text-picl-700 hover:underline">{{ e.event_name }}</a></td>
                     <td class="py-2 text-right font-mono">{{ e.results }}</td>
                 </tr>
                 {% endfor %}

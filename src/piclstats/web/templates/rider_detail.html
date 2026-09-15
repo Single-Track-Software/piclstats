@@ -112,7 +112,7 @@
                 <tr class="hover:bg-picl-50 transition-colors {% if r.status != 'OK' %}text-gray-400{% endif %}">
                     <td class="px-4 py-2 font-medium">{{ r.season }}</td>
                     <td class="px-4 py-2 max-w-xs truncate" title="{{ r.event_name }}">
-                        {{ r.event_name }}
+                        <a href="/results?event_id={{ r.event_id }}&category={{ r.category | urlencode }}" class="text-picl-700 hover:underline">{{ r.event_name }}</a>
                         {% if r.event_type and r.event_type != 'points' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle" title="Does not count toward standings">non-scoring</span>{% endif %}
                     </td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ r.team or '' }}</td>

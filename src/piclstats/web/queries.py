@@ -265,6 +265,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
     races = session.execute(
         text(f"""
         SELECT
+            e.id AS event_id,
             e.season,
             e.event_name,
             e.event_order,
@@ -1265,3 +1266,77 @@ def event_lap_rows(session: Session, event_id: int, category: str) -> list[dict]
         {"eid": event_id, "cat": category},
     ).all()
     return [dict(r._mapping) for r in rows]
+
+
+# ── Race results (the /results page) ────────────────────────────────────
+
+
+def all_events(session: Session) -> list[dict]:
+    """Every scraped event, newest first, with its course and result count."""
+    rows = session.execute(
+        text("""
+        SELECT e.id, e.season, e.event_order, e.event_name, e.event_type, e.raceresult_id,
+               c.name AS course_name,
+               count(r.id) AS result_count,
+               bool_or(r.lap1 IS NOT NULL) AS has_laps
+        FROM events e
+        LEFT JOIN courses c ON c.id = e.course_id
+        LEFT JOIN results r ON r.event_id = e.id
+        GROUP BY e.id, c.name
+        ORDER BY e.season DESC, e.event_order DESC
+    """)
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def event_result_categories(session: Session, event_id: int) -> list[dict]:
+    """Every category raced in one event (not just those with lap timing), in race order."""
+    rows = session.execute(
+        text("""
+        SELECT category, max(category_order) AS category_order,
+               count(*) AS field, bool_or(lap1 IS NOT NULL) AS has_laps
+        FROM results
+        WHERE event_id = :eid
+        GROUP BY category
+        ORDER BY category_order, category
+    """),
+        {"eid": event_id},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def event_results(session: Session, event_id: int, category: str) -> list[dict]:
+    """The finish list for one event + category, as published.
+
+    Ordered by official place with DNF/DSQ last. `gap_secs` is the time behind
+    the winner for riders who covered the full distance; riders pulled early
+    get `laps_down` instead. Rider links resolve to the canonical (merged) id.
+    """
+    rows = session.execute(
+        text(f"""
+        WITH cat AS (
+            SELECT r.*,
+                   {_ACTUAL_LAPS} AS laps,
+                   max({_ACTUAL_LAPS}) OVER () AS full_laps,
+                   first_value(r.total_time) OVER (ORDER BY r.place NULLS LAST) AS win_time
+            FROM results r
+            WHERE r.event_id = :eid AND r.category = :cat
+        )
+        SELECT c.place, c.status, c.bib, c.points, c.conference, c.laps, c.full_laps,
+               c.total_time_raw,
+               CASE WHEN c.place IS NOT NULL AND c.laps = c.full_laps AND c.total_time IS NOT NULL
+                    THEN EXTRACT(EPOCH FROM (c.total_time - c.win_time)) END AS gap_secs,
+               CASE WHEN c.place IS NOT NULL AND c.laps < c.full_laps
+                    THEN c.full_laps - c.laps END AS laps_down,
+               EXTRACT(EPOCH FROM c.lap1) AS lap1, EXTRACT(EPOCH FROM c.lap2) AS lap2,
+               EXTRACT(EPOCH FROM c.lap3) AS lap3, EXTRACT(EPOCH FROM c.lap4) AS lap4,
+               EXTRACT(EPOCH FROM c.lap5) AS lap5, EXTRACT(EPOCH FROM c.lap6) AS lap6,
+               ri.name, ri.team, COALESCE(ra.canonical_id, ri.id) AS rider_id
+        FROM cat c
+        JOIN riders ri ON ri.id = c.rider_id
+        LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
+        ORDER BY c.place NULLS LAST, c.status, c.bib
+    """),
+        {"eid": event_id, "cat": category},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Results — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Race Results</h1>
+    <p class="mt-1 text-sm text-gray-500">Finish order, points, and times for one race, as published by the league.</p>
+</div>
+
+<!-- Pickers -->
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="grid md:grid-cols-5 gap-4">
+        <div class="md:col-span-3">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Event</label>
+            <select name="event_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for e in events %}
+                <option value="{{ e.id }}" {{ 'selected' if event and e.id == event.id }}>{{ e.season }} #{{ e.event_order }} — {{ e.event_name }}{% if e.event_type != 'points' %} (non-scoring){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Category</label>
+            <select name="category" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for c in categories %}
+                <option value="{{ c.category }}" {{ 'selected' if c.category == category }}>{{ c.category }} ({{ c.field }})</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+</form>
+
+{% if event and results %}
+{% set n_laps = results[0].full_laps %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+        <div>
+            <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
+            <div class="text-xs text-gray-500">
+                {{ event.season }} · {{ event.event_name }}{% if event.course_name %} · {{ event.course_name }}{% endif %}
+                {% if event.event_type != 'points' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle">non-scoring</span>{% endif %}
+            </div>
+        </div>
+        <div class="text-xs text-gray-400 flex items-center gap-3">
+            <span>{{ finishers }} placed of {{ results | length }} · {{ n_laps }} lap{{ 's' if n_laps != 1 }}</span>
+            {% if has_laps %}<a href="/racechart?event_id={{ event.id }}&category={{ category | urlencode }}" class="text-picl-700 hover:underline">race position chart &rarr;</a>{% endif %}
+            <a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="text-picl-700 hover:underline" title="Official timing page">raceresult.com &nearr;</a>
+        </div>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                <th class="px-4 py-3 w-14 text-right">Place</th>
+                <th class="px-4 py-3 w-12 text-right">Bib</th>
+                <th class="px-4 py-3">Rider</th>
+                <th class="px-4 py-3">Team</th>
+                <th class="px-4 py-3">Conf</th>
+                <th class="px-4 py-3 text-right">Points</th>
+                <th class="px-4 py-3 text-right">Laps</th>
+                <th class="px-4 py-3 text-right">Time</th>
+                <th class="px-4 py-3 text-right">Gap</th>
+                {% for i in range(1, n_laps + 1) %}<th class="px-3 py-3 text-right">L{{ i }}</th>{% endfor %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for r in results %}
+            <tr class="hover:bg-picl-50 transition-colors {% if r.place is none %}text-gray-400{% endif %}">
+                <td class="px-4 py-2 text-right font-mono font-medium">{% if r.place %}{{ r.place }}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}</td>
+                <td class="px-4 py-2 text-right font-mono text-xs text-gray-400">{{ r.bib }}</td>
+                <td class="px-4 py-2"><a href="/rider/{{ r.rider_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a></td>
+                <td class="px-4 py-2 text-gray-600 text-xs">{% if r.team %}<a href="/team/{{ r.team | urlencode }}" class="hover:underline">{{ r.team }}</a>{% endif %}</td>
+                <td class="px-4 py-2 text-gray-500 text-xs">{{ r.conference or '' }}</td>
+                <td class="px-4 py-2 text-right font-mono font-medium">{{ r.points if r.points is not none else '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.laps or '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono text-xs">{{ r.total_time_raw or '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono text-xs text-gray-500">
+                    {% if r.laps_down %}−{{ r.laps_down }} lap{{ 's' if r.laps_down != 1 }}
+                    {% elif r.gap_secs is not none %}{% if r.gap_secs < 0.05 %}—{% else %}+{{ (r.gap_secs // 60) | int }}:{{ '%02d' | format((r.gap_secs % 60) | int) }}{% endif %}
+                    {% endif %}
+                </td>
+                {% for i in range(1, n_laps + 1) %}
+                {% set lap = r['lap' ~ i] %}
+                <td class="px-3 py-2 text-right font-mono text-xs text-gray-500">{% if lap %}{{ (lap // 60) | int }}:{{ '%02d' | format((lap % 60) | int) }}{% endif %}</td>
+                {% endfor %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% elif event %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No results in this category.</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No events scraped yet.</div>
+{% endif %}
+{% endblock %}
