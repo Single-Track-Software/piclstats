@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     database_url: str = Field(default_factory=_default_database_url)
     scrape_delay_seconds: float = 1.5
     request_timeout_seconds: float = 30.0
+    # Server-side cap on any single statement, in ms. A runaway query then
+    # fails one request instead of starving the (small) Postgres VM and taking
+    # the whole site down, as happened on 2026-09-15. 0 disables.
+    statement_timeout_ms: int = 15000
     log_level: str = "INFO"
     admin_password: str = ""
     # Bootstrap admin login and the key that signs session cookies. Set both

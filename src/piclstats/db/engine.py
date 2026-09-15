@@ -15,11 +15,16 @@ def get_engine() -> Engine:
     # pool_pre_ping guards against stale connections after the app machine
     # auto-stops (min_machines_running=0) and the Fly Postgres link over
     # .flycast drops idle conns; pool_recycle caps connection age.
+    connect_args: dict[str, str] = {}
+    if settings.statement_timeout_ms > 0:
+        # psycopg passes `options` straight to the server as startup params.
+        connect_args["options"] = f"-c statement_timeout={int(settings.statement_timeout_ms)}"
     return create_engine(
         settings.database_url,
         echo=False,
         pool_pre_ping=True,
         pool_recycle=300,
+        connect_args=connect_args,
     )
 
 
