@@ -486,13 +486,52 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
     }
 
 
+# Sortable leaderboard columns: key -> (SQL expression, natural direction).
+# Places are "lower is better", everything else "higher is better".
+RIDER_SORTS: dict[str, tuple[str, str]] = {
+    "avg_points": ("avg_points", "desc"),
+    "total_points": ("total_points", "desc"),
+    "avg_place": ("avg_place", "asc"),
+    "best_place": ("best_place", "asc"),
+    "races": ("races", "desc"),
+    "name": ("c.name", "asc"),
+    "division": ("r.division, r.gender", "asc"),
+}
+TEAM_SORTS: dict[str, tuple[str, str]] = {
+    "avg_points": ("avg_points", "desc"),
+    "total_points": ("total_points", "desc"),
+    "avg_place": ("avg_place", "asc"),
+    "best_place": ("best_place", "asc"),
+    "races": ("races", "desc"),
+    "riders": ("riders", "desc"),
+    "team": ("ri.team", "asc"),
+}
+
+
+def leaderboard_order(
+    sorts: dict[str, tuple[str, str]], metric: str, direction: str | None
+) -> tuple[str, str, str]:
+    """Resolve a requested sort to (metric, direction, ORDER BY sql).
+
+    Unknown metrics fall back to avg_points; an unknown or missing direction
+    uses the column's natural one. Only whitelisted expressions reach the SQL.
+    """
+    if metric not in sorts:
+        metric = "avg_points"
+    expr, natural = sorts[metric]
+    direction = direction if direction in ("asc", "desc") else natural
+    order = ", ".join(f"{col.strip()} {direction.upper()} NULLS LAST" for col in expr.split(","))
+    return metric, direction, order
+
+
 def leaderboard(
     session: Session,
     season: int | None = None,
     division: str | None = None,
     gender: str | None = None,
     metric: str = "avg_points",
-    limit: int = 25,
+    limit: int | None = 25,
+    direction: str | None = None,
 ) -> list[dict]:
     """Top riders by chosen metric — merged riders unified.
 
@@ -515,14 +554,8 @@ def leaderboard(
         params["gender"] = gender
 
     where = " AND ".join(filters)
-
-    order_col = {
-        "avg_points": "avg_points DESC NULLS LAST",
-        "avg_place": "avg_place ASC NULLS LAST",
-        "total_points": "total_points DESC NULLS LAST",
-        "races": "races DESC",
-        "best_place": "best_place ASC NULLS LAST",
-    }.get(metric, "avg_points DESC NULLS LAST")
+    _, _, order_col = leaderboard_order(RIDER_SORTS, metric, direction)
+    limit_sql = "LIMIT :limit" if limit else ""
 
     sql = f"""
         WITH {_CANONICAL_CTE}
@@ -547,9 +580,10 @@ def leaderboard(
             WHERE e2.event_type = 'points' {scope_season}
         ))
         ORDER BY {order_col}
-        LIMIT :limit
+        {limit_sql}
     """
-    params["limit"] = limit
+    if limit:
+        params["limit"] = limit
     rows = session.execute(text(sql), params).all()
     return [_serialize(r._mapping) for r in rows]
 
@@ -557,13 +591,19 @@ def leaderboard(
 def team_leaderboard(
     session: Session,
     season: int | None = None,
-    limit: int = 25,
+    limit: int | None = 25,
+    metric: str = "avg_points",
+    direction: str | None = None,
 ) -> list[dict]:
-    params: dict = {"limit": limit}
+    params: dict = {}
+    if limit:
+        params["limit"] = limit
     season_filter = ""
     if season:
         season_filter = "AND e.season = :season"
         params["season"] = season
+    _, _, order_col = leaderboard_order(TEAM_SORTS, metric, direction)
+    limit_sql = "LIMIT :limit" if limit else ""
 
     sql = f"""
         SELECT
@@ -582,8 +622,8 @@ def team_leaderboard(
           {season_filter}
         GROUP BY ri.team
         HAVING count(DISTINCT ri.id) >= 3
-        ORDER BY avg_points DESC NULLS LAST
-        LIMIT :limit
+        ORDER BY {order_col}
+        {limit_sql}
     """
     rows = session.execute(text(sql), params).all()
     return [_serialize(r._mapping) for r in rows]

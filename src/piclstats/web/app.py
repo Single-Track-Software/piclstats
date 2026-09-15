@@ -241,16 +241,30 @@ def leaderboard_page(
     division: str = Query(""),
     gender: str = Query(""),
     metric: str = Query("avg_points"),
+    dir: str | None = Query(None),
     view: str = Query("riders"),
 ):
+    # Column headers sort: `metric` is the column, `dir` the direction; an
+    # unknown/missing direction uses the column's natural one. No row cap —
+    # the table shows everyone who qualifies, only the chart is trimmed.
+    sorts = queries.TEAM_SORTS if view == "teams" else queries.RIDER_SORTS
+    metric, direction, _ = queries.leaderboard_order(sorts, metric, dir)
     with get_session() as session:
         seasons = queries.seasons_list(session)
         divisions = queries.divisions_list(session)
         if view == "teams":
-            results = queries.team_leaderboard(session, season, limit=50)
+            results = queries.team_leaderboard(
+                session, season, limit=None, metric=metric, direction=direction
+            )
         else:
             results = queries.leaderboard(
-                session, season, division or None, gender or None, metric, limit=50
+                session,
+                season,
+                division or None,
+                gender or None,
+                metric,
+                limit=None,
+                direction=direction,
             )
     return templates.TemplateResponse(
         "leaderboard.html",
@@ -263,6 +277,8 @@ def leaderboard_page(
             division=division,
             gender=gender,
             metric=metric,
+            direction=direction,
+            sort_defaults={k: v[1] for k, v in sorts.items()},
             view=view,
         ),
     )

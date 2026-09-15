@@ -2,6 +2,18 @@
 {% block title %}Leaderboard — PICL Stats{% endblock %}
 
 {% block content %}
+{% macro th(col, label, align='right') %}
+{#- Sortable header: click sorts by this column; clicking the active column flips direction. -#}
+{% set active = (col == metric) %}
+{% set next_dir = ('asc' if direction == 'desc' else 'desc') if active else sort_defaults.get(col, 'desc') %}
+{% set qs = {'view': view, 'season': season or '', 'division': division or '', 'gender': gender or '', 'metric': col, 'dir': next_dir} %}
+<th class="px-4 py-3 {{ 'text-right' if align == 'right' else '' }}">
+    <a href="?{{ qs | urlencode }}" class="hover:text-picl-700 {{ 'text-picl-700' if active else '' }}" title="Sort by {{ label }}">
+        {{ label }}{% if active %} <span class="text-[10px]">{{ '▲' if direction == 'asc' else '▼' }}</span>{% endif %}
+    </a>
+</th>
+{% endmacro %}
+
 <h1 class="text-3xl font-bold text-gray-900 mb-6">Leaderboard</h1>
 
 <!-- Filters -->
@@ -51,6 +63,7 @@
                 <option value="best_place" {{ 'selected' if metric == 'best_place' }}>Best Place</option>
                 <option value="races" {{ 'selected' if metric == 'races' }}>Most Races</option>
             </select>
+            <input type="hidden" name="dir" value="">
         </div>
         {% endif %}
         <div class="flex items-end">
@@ -68,13 +81,13 @@
         <thead>
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
                 <th class="px-4 py-3 w-12">#</th>
-                <th class="px-4 py-3">Team</th>
-                <th class="px-4 py-3 text-right">Riders</th>
-                <th class="px-4 py-3 text-right">Races</th>
-                <th class="px-4 py-3 text-right">Avg Pts</th>
-                <th class="px-4 py-3 text-right">Avg Place</th>
-                <th class="px-4 py-3 text-right">Best Place</th>
-                <th class="px-4 py-3 text-right">Total Pts</th>
+                {{ th('team', 'Team', 'left') }}
+                {{ th('riders', 'Riders') }}
+                {{ th('races', 'Races') }}
+                {{ th('avg_points', 'Avg Pts') }}
+                {{ th('avg_place', 'Avg Place') }}
+                {{ th('best_place', 'Best Place') }}
+                {{ th('total_points', 'Total Pts') }}
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -100,14 +113,14 @@
         <thead>
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
                 <th class="px-4 py-3 w-12">#</th>
-                <th class="px-4 py-3">Rider</th>
+                {{ th('name', 'Rider', 'left') }}
                 <th class="px-4 py-3">Team</th>
-                <th class="px-4 py-3">Division</th>
-                <th class="px-4 py-3 text-right">Races</th>
-                <th class="px-4 py-3 text-right">Avg Pts</th>
-                <th class="px-4 py-3 text-right">Avg Place</th>
-                <th class="px-4 py-3 text-right">Best</th>
-                <th class="px-4 py-3 text-right">Total Pts</th>
+                {{ th('division', 'Division', 'left') }}
+                {{ th('races', 'Races') }}
+                {{ th('avg_points', 'Avg Pts') }}
+                {{ th('avg_place', 'Avg Place') }}
+                {{ th('best_place', 'Best') }}
+                {{ th('total_points', 'Total Pts') }}
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
@@ -134,22 +147,24 @@
 
     {% if not results %}
     <div class="px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
+    {% else %}
+    <div class="px-4 py-2 text-xs text-gray-400 border-t bg-gray-50">{{ results|length }} {{ 'teams' if view == 'teams' else 'riders' }} · click a column to sort{% if view == 'teams' %} · teams need 3+ riders{% endif %}</div>
     {% endif %}
 </div>
 
-{% if view == 'riders' and results %}
-<!-- Chart -->
+{% if view == 'riders' and results and metric in ('avg_points', 'total_points', 'avg_place', 'best_place', 'races') %}
+<!-- Chart: first 25 rows in the current sort -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-8">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">Top {{ results|length }} Riders</h2>
+    <h2 class="text-lg font-semibold text-gray-900 mb-4">Top {{ [results|length, 25] | min }} Riders by {{ metric.replace('_', ' ') }}</h2>
     <canvas id="leaderChart" height="150"></canvas>
 </div>
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-{% if view == 'riders' and results %}
+{% if view == 'riders' and results and metric in ('avg_points', 'total_points', 'avg_place', 'best_place', 'races') %}
 <script>
-const data = {{ results | tojson }};
+const data = {{ results[:25] | tojson }};
 const metric = '{{ metric }}';
 new Chart(document.getElementById('leaderChart'), {
     type: 'bar',
