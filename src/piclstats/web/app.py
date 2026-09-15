@@ -284,6 +284,41 @@ def leaderboard_page(
     )
 
 
+@app.get("/results", response_class=HTMLResponse)
+def results_page(
+    request: Request,
+    event_id: int | None = Query(None),
+    category: str = Query(""),
+):
+    """Published finish list for one event + category (place, points, time, laps)."""
+    with get_session() as session:
+        events = queries.all_events(session)
+        event = next((e for e in events if e["id"] == event_id), None)
+        if event is None and events:
+            event = events[0]  # newest race
+        categories = queries.event_result_categories(session, event["id"]) if event else []
+        cat_names = [c["category"] for c in categories]
+        if category not in cat_names:
+            category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
+        results = (
+            queries.event_results(session, event["id"], category) if event and category else []
+        )
+    selected_cat = next((c for c in categories if c["category"] == category), None)
+    return templates.TemplateResponse(
+        "results.html",
+        _ctx(
+            request,
+            events=events,
+            event=event,
+            categories=categories,
+            category=category,
+            has_laps=bool(selected_cat and selected_cat["has_laps"]),
+            results=results,
+            finishers=sum(1 for r in results if r["place"] is not None),
+        ),
+    )
+
+
 @app.get("/courses", response_class=HTMLResponse)
 def courses_page(request: Request):
     with get_session() as session:

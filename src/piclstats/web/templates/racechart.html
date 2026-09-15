@@ -44,7 +44,7 @@
 {% if chart and chart.tracks %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
-        <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
+        <h2 class="text-lg font-semibold text-gray-900">{{ category }} <a href="/results?event_id={{ event.id }}&category={{ category | urlencode }}" class="ml-2 text-xs font-normal text-picl-700 hover:underline">full results &rarr;</a></h2>
         <span class="text-xs text-gray-400">
             {% if chart.shown < chart.field %}showing top {{ chart.shown }} of {% endif %}{{ chart.field }} riders timed · {{ chart.finishers }} completed all {{ chart.n_laps }} laps
         </span>
