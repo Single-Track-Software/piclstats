@@ -419,6 +419,100 @@ def search_teams(session: Session, q: str, season: int | None = None) -> list[di
     return [_serialize(r._mapping) for r in rows]
 
 
+# Per race, the field it was raced in: placed clean rows, the winner's time
+# and lap count. Used for percentile and the gap to the winner.
+_FIELD_CTE = f"""
+    field AS (
+        SELECT r2.event_id, r2.category,
+               count(*) FILTER (WHERE r2.place IS NOT NULL AND r2.dq_status <> 'excluded')
+                   AS field_size,
+               min(r2.total_time) FILTER (WHERE r2.place = 1 AND r2.dq_status <> 'excluded')
+                   AS winner_time,
+               max({_ACTUAL_LAPS_R2}) FILTER (WHERE r2.place = 1) AS winner_laps
+        FROM results r2
+        JOIN events e2 ON e2.id = r2.event_id AND e2.is_published
+        WHERE e2.season = ANY(:seasons)
+        GROUP BY r2.event_id, r2.category
+    )
+"""
+
+
+def team_rider_seasons(session: Session, team_name: str, season: int) -> list[dict]:
+    """Each rider on the team this season, with this and last season's form.
+
+    Percentile and the gap to the winner are averaged over placed, clean,
+    scoring races. Last season counts the rider's races on any team.
+    """
+    rows = session.execute(
+        text(f"""
+        WITH {_CANONICAL_CTE},
+        {_FIELD_CTE},
+        members AS (
+            SELECT DISTINCT c.cid
+            FROM canonical c
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+            WHERE c.team = :team
+        ),
+        per_race AS (
+            SELECT c.cid, c.name, e.season, e.event_order, r.division, r.gender, r.place,
+                   r.points,
+                   (1 - r.place::numeric / NULLIF(f.field_size, 0)) * 100 AS percentile,
+                   CASE WHEN r.total_time IS NOT NULL AND f.winner_time > interval '0'
+                             AND {_ACTUAL_LAPS} = COALESCE(f.winner_laps, 0)
+                        THEN EXTRACT(EPOCH FROM (r.total_time - f.winner_time))
+                             / EXTRACT(EPOCH FROM f.winner_time) * 100
+                   END AS pct_behind
+            FROM members m
+            JOIN canonical c ON c.cid = m.cid
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = ANY(:seasons)
+            JOIN field f ON f.event_id = r.event_id AND f.category = r.category
+            WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND {_POINTS_ONLY}
+        )
+        SELECT cid, season,
+               (array_agg(name ORDER BY event_order DESC))[1] AS name,
+               (array_agg(division ORDER BY event_order DESC))[1] AS division,
+               (array_agg(gender ORDER BY event_order DESC))[1] AS gender,
+               count(*) AS races,
+               round(avg(percentile)::numeric, 1) AS avg_percentile,
+               round(avg(pct_behind)::numeric, 1) AS avg_pct_behind,
+               round(avg(points)::numeric, 1) AS avg_points,
+               sum(points) AS total_points,
+               min(place) AS best_place
+        FROM per_race
+        GROUP BY cid, season
+        ORDER BY cid, season
+        """),
+        {"team": team_name, "season": season, "seasons": [season - 1, season]},
+    ).all()
+    by_rider: dict[int, dict] = {}
+    for row in rows:
+        d = _serialize(row._mapping)
+        entry = by_rider.setdefault(d["cid"], {"id": d["cid"], "name": d["name"]})
+        entry["now" if d["season"] == season else "prev"] = d
+    out = []
+    for entry in by_rider.values():
+        now, prev = entry.get("now"), entry.get("prev")
+        if not now:
+            continue  # raced this season but no placed scoring result yet
+        entry["name"] = now["name"]
+        entry["division"] = now["division"]
+        entry["gender"] = now["gender"]
+        entry["moved_up"] = bool(prev and prev["division"] != now["division"])
+        if prev and prev["avg_percentile"] is not None and now["avg_percentile"] is not None:
+            entry["delta_percentile"] = round(now["avg_percentile"] - prev["avg_percentile"], 1)
+        else:
+            entry["delta_percentile"] = None
+        if prev and prev["avg_pct_behind"] is not None and now["avg_pct_behind"] is not None:
+            entry["delta_behind"] = round(now["avg_pct_behind"] - prev["avg_pct_behind"], 1)
+        else:
+            entry["delta_behind"] = None
+        out.append(entry)
+    out.sort(key=lambda x: (x["division"] or "", -(x["now"]["avg_percentile"] or 0)))
+    return out
+
+
 def team_detail(session: Session, team_name: str, season: int | None = None) -> dict | None:
     params: dict = {"team": team_name}
     season_filter = ""
@@ -428,48 +522,66 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
 
     # Use canonical IDs so riders who changed teams still show their full stats
     # when viewing from any of their teams
+    # One row per rider: the division and gender from their latest race, so a
+    # rider who moved mid-season (or over the years) appears once, under the
+    # category a coach would look for them in.
     roster = session.execute(
         text(f"""
-        WITH {_CANONICAL_CTE}
+        WITH {_CANONICAL_CTE},
+        placed AS (
+            SELECT c.cid, c.name, r.division, r.gender, r.event_id, r.place, r.points,
+                   e.season, e.event_order,
+                   (1 - r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0)) * 100
+                       AS percentile
+            FROM canonical c
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON r.event_id = e.id AND e.is_published
+            WHERE c.team = :team {season_filter}
+              AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+              AND {_POINTS_ONLY}
+        )
         SELECT
-            c.cid AS id,
-            c.name,
-            r.division,
-            r.gender,
-            count(DISTINCT r.event_id) AS races,
-            round(avg(r.points)::numeric, 1) AS avg_points,
-            round(avg(r.place)::numeric, 1) AS avg_place,
-            min(r.place) AS best_place,
-            max(r.points) AS best_points,
-            sum(r.points) AS total_points
-        FROM canonical c
-        JOIN results r ON r.rider_id = c.rider_id
-        JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE c.team = :team {season_filter}
-          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
-          AND {_POINTS_ONLY}
-        GROUP BY c.cid, c.name, r.division, r.gender
-        ORDER BY r.division, avg_points DESC NULLS LAST
+            cid AS id,
+            (array_agg(name ORDER BY season DESC, event_order DESC))[1] AS name,
+            (array_agg(division ORDER BY season DESC, event_order DESC))[1] AS division,
+            (array_agg(gender ORDER BY season DESC, event_order DESC))[1] AS gender,
+            count(DISTINCT event_id) AS races,
+            round(avg(percentile)::numeric, 1) AS avg_percentile,
+            round(avg(points)::numeric, 1) AS avg_points,
+            round(avg(place)::numeric, 1) AS avg_place,
+            min(place) AS best_place,
+            max(points) AS best_points,
+            sum(points) AS total_points
+        FROM placed
+        GROUP BY cid
+        ORDER BY division, avg_percentile DESC NULLS LAST
     """),
         params,
     ).all()
 
     division_summary = session.execute(
         text(f"""
+        WITH placed AS (
+            SELECT r.division, r.gender, ri.id AS rider_id, r.points, r.place,
+                   (1 - r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0)) * 100
+                       AS percentile
+            FROM riders ri
+            JOIN results r ON r.rider_id = ri.id
+            JOIN events e ON r.event_id = e.id AND e.is_published
+            WHERE ri.team = :team {season_filter}
+              AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+              AND {_POINTS_ONLY}
+        )
         SELECT
-            r.division,
-            r.gender,
-            count(DISTINCT ri.id) AS riders,
-            round(avg(r.points)::numeric, 1) AS avg_points,
-            round(avg(r.place)::numeric, 1) AS avg_place
-        FROM riders ri
-        JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE ri.team = :team {season_filter}
-          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
-          AND {_POINTS_ONLY}
-        GROUP BY r.division, r.gender
-        ORDER BY r.division, r.gender
+            division,
+            gender,
+            count(DISTINCT rider_id) AS riders,
+            round(avg(percentile)::numeric, 1) AS avg_percentile,
+            round(avg(points)::numeric, 1) AS avg_points,
+            round(avg(place)::numeric, 1) AS avg_place
+        FROM placed
+        GROUP BY division, gender
+        ORDER BY division, gender
     """),
         params,
     ).all()

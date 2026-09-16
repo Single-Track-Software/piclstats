@@ -323,11 +323,13 @@ def team_profile(
         course_history = (
             queries.team_course_history(session, team_name, course["id"]) if course else None
         )
+        movers = queries.team_rider_seasons(session, team_name, season) if season else []
     return templates.TemplateResponse(
         "team_detail.html",
         _ctx(
             request,
             **data,
+            movers=movers,
             season=season,
             team_courses=courses,
             course=course,
