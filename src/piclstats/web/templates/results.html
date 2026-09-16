@@ -4,12 +4,16 @@
 {% block content %}
 <div class="mb-6">
     <h1 class="text-3xl font-bold text-gray-900">Race Results</h1>
-    <p class="mt-1 text-sm text-gray-500">Finish order, points, and times for one race, as published by the league.</p>
+    <p class="mt-1 text-sm text-gray-500">
+        {% if tab == 'position' %}How positions changed lap by lap. Each line is a rider; lower is better (1 = leading). A line that ends early means the rider was pulled or lapped before the finish.
+        {% else %}Finish order, points, and times for one race, as published by the league.{% endif %}
+    </p>
 </div>
 
 <!-- Pickers -->
-<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
-    <div class="grid md:grid-cols-5 gap-4">
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-4">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div class="grid md:grid-cols-6 gap-4">
         <div class="md:col-span-3">
             <label class="block text-xs font-medium text-gray-500 mb-1">Event</label>
             <select name="event_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
@@ -26,8 +30,36 @@
                 {% endfor %}
             </select>
         </div>
+        {% if tab == 'position' %}
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Show</label>
+            <select name="top" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="0" {{ 'selected' if not top }}>All</option>
+                {% for n in [10, 20, 30] %}
+                <option value="{{ n }}" {{ 'selected' if top == n }}>Top {{ n }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
     </div>
 </form>
+
+{# Tabs keep the event/category (and top-N) context across views #}
+{% set base_qs = 'event_id=' ~ (event.id if event else '') ~ '&category=' ~ (category | urlencode) %}
+<div class="flex gap-1 border-b border-gray-200 mb-6">
+    {% for key, label in [('results', 'Results'), ('position', 'Race Position')] %}
+    <a href="?tab={{ key }}&{{ base_qs }}{% if key == 'position' and top %}&top={{ top }}{% endif %}"
+       class="px-4 py-2 text-sm font-medium -mb-px border-b-2 {% if tab == key %}border-picl-600 text-picl-700{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %}">
+        {{ label }}{% if key == 'position' and not has_laps %} <span class="text-[10px] text-gray-400" title="No lap timing for this category">(no splits)</span>{% endif %}
+    </a>
+    {% endfor %}
+</div>
+
+{% if tab == 'position' and event %}
+{% include "_racechart_body.html" %}
+{% elif tab == 'position' %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No events scraped yet.</div>
+{% else %}
 
 {% if event and results %}
 {% set n_laps = results[0].full_laps %}
@@ -42,7 +74,6 @@
         </div>
         <div class="text-xs text-gray-400 flex items-center gap-3">
             <span>{{ finishers }} placed of {{ results | length }} · {{ n_laps }} lap{{ 's' if n_laps != 1 }}</span>
-            {% if has_laps %}<a href="/racechart?event_id={{ event.id }}&category={{ category | urlencode }}" class="text-picl-700 hover:underline">race position chart &rarr;</a>{% endif %}
             <a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="text-picl-700 hover:underline" title="Official timing page">raceresult.com &nearr;</a>
         </div>
     </div>
@@ -93,4 +124,9 @@
 {% else %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No events scraped yet.</div>
 {% endif %}
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if tab == 'position' %}{% include "_racechart_scripts.html" %}{% endif %}
 {% endblock %}

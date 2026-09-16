@@ -1,0 +1,113 @@
+{#- Chart.js setup for _racechart_body.html -#}
+{% if chart and chart.tracks %}
+<script>
+(function() {
+    const labels = {{ chart.lap_labels | tojson }};
+    const tracks = [
+        {% for t in chart.tracks %}
+        {name: {{ t.name | tojson }}, color: {{ t.color | tojson }},
+         data: [{% for p in t.positions %}{{ 'null' if p is none else p }},{% endfor %}],
+         complete: {{ 'true' if t.complete else 'false' }}},
+        {% endfor %}
+    ];
+
+    // Draw the pack first and the top finishers last so leaders sit on top.
+    const order = tracks.map((_, i) => i).reverse();
+    const datasets = order.map(i => {
+        const t = tracks[i];
+        return {
+            label: t.name,
+            data: t.data,
+            borderColor: t.color,
+            backgroundColor: t.color,
+            borderWidth: t.complete ? 2 : 1,
+            borderDash: t.complete ? [] : [4, 4],
+            tension: 0.25,
+            spanGaps: false,
+            pointRadius: 2,
+            pointHoverRadius: 5,
+        };
+    });
+
+    const maxPosition = {{ chart.max_position }};
+    new Chart(document.getElementById('positionChart'), {
+        type: 'line',
+        data: {labels: labels, datasets: datasets},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: {mode: 'nearest', intersect: false},
+            plugins: {
+                legend: {display: false},
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ctx.dataset.label + ' — P' + ctx.parsed.y,
+                    }
+                }
+            },
+            scales: {
+                y: {
+                    reverse: true, min: 1, max: maxPosition,
+                    title: {display: true, text: 'Position'},
+                    ticks: {stepSize: 1, precision: 0, font: {size: 10}},
+                },
+                x: {ticks: {font: {size: 11}}},
+            }
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% if lap_chart and lap_chart.tracks %}
+<script>
+(function() {
+    // mm:ss, or h:mm:ss past an hour — for axis ticks and tooltips.
+    function fmt(secs) {
+        secs = Math.round(secs);
+        const h = Math.floor(secs / 3600), m = Math.floor((secs % 3600) / 60), s = secs % 60;
+        const mm = (h && m < 10) ? '0' + m : m;
+        return (h ? h + ':' + mm : m) + ':' + (s < 10 ? '0' + s : s);
+    }
+
+    const riders = {{ lap_chart.tracks | map(attribute='name') | list | tojson }};
+    const colors = {{ lap_chart.lap_colors | tojson }};
+    // series[lap][rider] = that rider's split for the lap (null if not completed).
+    const series = {{ lap_chart.series | tojson }};
+    const datasets = colors.map((color, j) => ({
+        label: 'Lap ' + (j + 1),
+        data: series[j],
+        backgroundColor: color,
+        borderColor: 'rgba(255,255,255,0.6)',
+        borderWidth: 0.5,
+    }));
+
+    new Chart(document.getElementById('lapChart'), {
+        type: 'bar',
+        data: {labels: riders, datasets: datasets},
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: 'y',
+            interaction: {mode: 'nearest', intersect: true},
+            plugins: {
+                legend: {position: 'top', labels: {font: {size: 11}, boxWidth: 12}},
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ctx.dataset.label + ': ' + fmt(ctx.parsed.x),
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    stacked: true,
+                    title: {display: true, text: 'Elapsed time'},
+                    ticks: {callback: (v) => fmt(v), font: {size: 10}},
+                },
+                y: {stacked: true, ticks: {font: {size: 9}, autoSkip: false}},
+            }
+        }
+    });
+})();
+</script>
+{% endif %}

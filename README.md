@@ -51,7 +51,7 @@ piclstats query stats    # quick sanity check (also: rider/team/event)
 
 ## Web app
 
-Public pages: `/` (home), `/leaderboard`, `/riders`, `/rider/{id}`, `/teams`, `/team/{name}`, `/courses`, `/course/{id}`, `/racechart` (position bump chart + lap-times Gantt with top-N filter).
+Public pages: `/` (home), `/leaderboard`, `/riders`, `/rider/{id}`, `/teams`, `/team/{name}`, `/courses`, `/course/{id}`, `/results` (published finish list per event and category, with a Race Position tab: position bump chart + lap-times Gantt with top-N filter; `/racechart` redirects there).
 
 Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `/staging` + `/staging.csv` (age-group z-score speed ratings, the seeding formula), `/rider/{id}/forecast`.
 
