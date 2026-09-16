@@ -49,6 +49,7 @@ piclstats serve --reload # dashboard at http://localhost:8000
 piclstats query stats    # quick sanity check (also: rider/team/event)
 piclstats dq check --all # data-quality checks over every event (scrape runs them per event)
 piclstats dq status      # results by dq_status + recent scrape runs
+piclstats dq lineage     # rebuild the lineage log (merges and folds); seed and merge auto do this too
 ```
 
 ### Data quality
@@ -62,6 +63,14 @@ and roll up into `results.dq_status`: `excluded` rows (any error) leave every
 statistic, `warn` rows stay but show a badge on the rider page. Raw columns are
 never rewritten. After a deploy that adds new checks, run
 `piclstats dq check --all` once against production. Design: ADR 002.
+
+Rider merging (`piclstats merge auto`) blocks on `riders.name_key`, so
+punctuation and spacing variants of one name (O'REILLY / OREILLY) merge, while
+two riders sharing a name who raced in the same event never do. Every merge
+and every fold `seed` performs (division aliases, event types, course mapping,
+conference groups, team spelling variants) is recorded as an edge in
+`picl_lineage` with its mechanism (exact, casing, whitespace, punctuation,
+alias, pattern, typo, manual); the admin DQ page renders that as a merge map.
 
 ## Web app
 

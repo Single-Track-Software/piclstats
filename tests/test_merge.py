@@ -58,13 +58,13 @@ def _alias_writes(session):
 
 # ── Candidate grouping ───────────────────────────────────────────────
 
-# (name, rider_id, team, races) — the query orders by name, races DESC, id.
+# (name_key, rider_id, team, races, name) — the query orders by key, races DESC, id.
 _DUPES = [
-    ("Alex Smith", 10, "Ridgeview", 12),
-    ("Alex Smith", 11, "Northgate", 3),
-    ("Sam Jones", 20, "Eastfield", 8),
-    ("Sam Jones", 21, "Eastfield", 5),
-    ("Sam Jones", 22, "Westhill", 1),
+    ("ALEXSMITH", 10, "Ridgeview", 12, "Alex Smith"),
+    ("ALEXSMITH", 11, "Northgate", 3, "Alex Smith"),
+    ("SAMJONES", 20, "Eastfield", 8, "Sam Jones"),
+    ("SAMJONES", 21, "Eastfield", 5, "Sam Jones"),
+    ("SAMJONES", 22, "Westhill", 1, "Sam Jones"),
 ]
 
 
@@ -82,7 +82,7 @@ def test_group_carries_teams_and_race_counts():
 
 
 def test_single_rider_names_are_not_candidates():
-    rows = [("Solo Rider", 30, "Ridgeview", 6)]
+    rows = [("SOLORIDER", 30, "Ridgeview", 6, "Solo Rider")]
     assert merge.find_auto_merge_candidates(_FakeSession(rows)) == []
 
 
@@ -102,6 +102,16 @@ def test_canonical_is_the_rider_with_most_races():
         (21, 20, "auto_name"),
         (22, 20, "auto_name"),
     ]
+
+
+def test_spelling_variants_record_their_mechanism():
+    rows = [
+        ("NEVEOREILLY", 40, "Twin Valley School", 9, "NEVE OREILLY"),
+        ("NEVEOREILLY", 41, "Twin Valley School", 2, "NEVE O'REILLY"),
+    ]
+    session = _FakeSession(rows)
+    assert merge.auto_merge(session) == 1
+    assert _alias_writes(session) == [(41, 40, "auto_punctuation")]
 
 
 def test_auto_merge_commits_once():

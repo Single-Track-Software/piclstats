@@ -344,6 +344,21 @@ def dq_check(event_ids: tuple[int, ...], check_all: bool) -> None:
         session.close()
 
 
+@dq.command("lineage")
+def dq_lineage() -> None:
+    """Rebuild the lineage log (rider merges, team/division/event/conference folds)."""
+    from piclstats.db.engine import get_session
+    from piclstats.quality.lineage import rebuild_all
+
+    session = get_session()
+    try:
+        runs = rebuild_all(session)
+        for level, run_id in runs.items():
+            click.echo(f"{level:11} run {run_id}")
+    finally:
+        session.close()
+
+
 @dq.command("status")
 def dq_status() -> None:
     """Counts of results by dq_status and the last few scrape runs."""
@@ -392,6 +407,10 @@ def merge_auto(dry_run: bool) -> None:
             click.echo(f"\nDry run complete. Would create {count} aliases.")
         else:
             click.echo(f"Created {count} aliases.")
+            from piclstats.quality.lineage import rebuild_rider_lineage
+
+            rebuild_rider_lineage(session)
+            session.commit()
     finally:
         session.close()
 
