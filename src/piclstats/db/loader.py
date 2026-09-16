@@ -6,7 +6,9 @@ import json
 import logging
 from datetime import timedelta
 
-from sqlalchemy import func
+from dataclasses import dataclass
+
+from sqlalchemy import func, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -24,7 +26,14 @@ def _td_to_interval(td: timedelta | None) -> float | None:
     return td.total_seconds()
 
 
-def load_event(session: Session, event_results: EventResults) -> int:
+@dataclass
+class LoadStats:
+    event_id: int
+    results: int
+    riders_new: int
+
+
+def load_event(session: Session, event_results: EventResults) -> LoadStats:
     """Upsert a full event's results. Returns count of results loaded."""
     config = event_results.config
 
@@ -69,6 +78,7 @@ def load_event(session: Session, event_results: EventResults) -> int:
             unique_riders[key]["school"] = r.school
 
     rider_lookup: dict[tuple[str, str | None], int] = {}
+    riders_new = 0
     for rider_key, vals in unique_riders.items():
         rider_stmt = (
             insert(riders)
@@ -77,10 +87,11 @@ def load_event(session: Session, event_results: EventResults) -> int:
                 constraint="uq_riders_name_team",
                 set_={"school": vals["school"]} if vals["school"] else {"name": vals["name"]},
             )
-            .returning(riders.c.id)
+            .returning(riders.c.id, text("(xmax = 0) AS inserted"))
         )
-        rider_id = session.execute(rider_stmt).scalar_one()
+        rider_id, inserted = session.execute(rider_stmt).one()
         rider_lookup[rider_key] = rider_id
+        riders_new += 1 if inserted else 0
 
     # 3. Batch upsert results
     count = 0
@@ -130,4 +141,4 @@ def load_event(session: Session, event_results: EventResults) -> int:
         count,
         len(rider_lookup),
     )
-    return count
+    return LoadStats(event_id=event_id, results=count, riders_new=riders_new)

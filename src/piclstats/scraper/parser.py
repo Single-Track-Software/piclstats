@@ -53,11 +53,14 @@ def parse_place_status(raw: str) -> tuple[int | None, str]:
     """Parse place field into (place, status). Returns (None, status_str) for DNF/DNS/etc."""
     raw = raw.strip()
     if not raw or raw == "*":
-        return None, raw or "NR"
+        return None, "NR"  # raceresult prints * for not-ranked; it is not a status
     try:
-        return int(raw), "OK"
+        place = int(raw)
     except ValueError:
         return None, raw.upper()
+    if place <= 0:
+        return None, "NR"  # -1 shows up for unranked rows; a place must be 1+
+    return place, "OK"
 
 
 def parse_category_key(key: str) -> tuple[int, str, str | None, str | None]:

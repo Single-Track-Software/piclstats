@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import sys
 
+from typing import Any
+
 import click
 
 from piclstats.config import settings
@@ -89,6 +91,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     if not dry_run:
         from piclstats.db.engine import get_session
         from piclstats.db.loader import load_event
+        from piclstats.quality import checks
 
         session = get_session()
 
@@ -106,10 +109,22 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
                     )
                 else:
                     assert session is not None  # opened above whenever dry_run is False
-                    load_event(session, event_results)
+                    stats = load_event(session, event_results)
                     click.echo(
                         f"  Loaded event {eid} ({event_results.config.event_name}): {n} results"
                     )
+                    run_id = checks.start_run(
+                        session,
+                        raceresult_id=eid,
+                        season=s,
+                        event_id=stats.event_id,
+                        rows_parsed=n,
+                        rows_loaded=stats.results,
+                        riders_new=stats.riders_new,
+                        detail={"source": "scrape"},
+                    )
+                    summary = checks.run_checks(session, run_id, stats.event_id)
+                    click.echo(_summary_line(summary))
             except Exception as exc:
                 errors += 1
                 click.echo(f"  ERROR event {eid}: {exc}", err=True)
@@ -275,6 +290,83 @@ def serve(host: str, port: int, do_reload: bool) -> None:
         port=port,
         reload=do_reload,
     )
+
+
+def _summary_line(summary: Any) -> str:
+    parts = ", ".join(f"{k} {v}" for k, v in sorted(summary.findings.items())) or "clean"
+    return (
+        f"    DQ run {summary.run_id}: {summary.excluded} excluded, {summary.warned} flagged"
+        f" ({parts})"
+    )
+
+
+@main.group()
+def dq() -> None:
+    """Data-quality checks (ADR 002)."""
+
+
+@dq.command("check")
+@click.option("--event-id", "event_ids", multiple=True, type=int, help="events.id to check")
+@click.option("--all", "check_all", is_flag=True, help="Check every loaded event.")
+def dq_check(event_ids: tuple[int, ...], check_all: bool) -> None:
+    """Run the row checks over loaded events and roll up results.dq_status."""
+    from sqlalchemy import text
+
+    from piclstats.db.engine import get_session
+    from piclstats.quality import checks
+
+    session = get_session()
+    try:
+        if check_all:
+            ids = [
+                r[0]
+                for r in session.execute(
+                    text("SELECT id FROM events ORDER BY season, event_order")
+                ).all()
+            ]
+        else:
+            ids = list(event_ids)
+        if not ids:
+            raise click.ClickException("give --event-id N (repeatable) or --all")
+        totals: dict[str, int] = {}
+        excluded = warned = 0
+        for eid in ids:
+            summary = checks.check_event(session, eid)
+            excluded += summary.excluded
+            warned += summary.warned
+            for k, v in summary.findings.items():
+                totals[k] = totals.get(k, 0) + v
+            click.echo(f"event {eid}: {_summary_line(summary).strip()}")
+        click.echo(f"{len(ids)} events: {excluded} excluded, {warned} flagged")
+        for k, v in sorted(totals.items()):
+            click.echo(f"  {k}: {v}")
+    finally:
+        session.close()
+
+
+@dq.command("status")
+def dq_status() -> None:
+    """Counts of results by dq_status and the last few scrape runs."""
+    from sqlalchemy import text
+
+    from piclstats.db.engine import get_session
+
+    session = get_session()
+    try:
+        for status, n in session.execute(
+            text("SELECT dq_status, count(*) FROM results GROUP BY 1 ORDER BY 1")
+        ).all():
+            click.echo(f"{status:9} {n}")
+        click.echo("recent runs:")
+        for row in session.execute(
+            text("""
+            SELECT r.id, r.raceresult_id, r.season, r.status, r.rows_loaded, r.started_at
+            FROM scrape_runs r ORDER BY r.id DESC LIMIT 10
+            """)
+        ).all():
+            click.echo("  " + " ".join(str(x) for x in row))
+    finally:
+        session.close()
 
 
 @main.group()

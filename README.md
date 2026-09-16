@@ -47,7 +47,21 @@ piclstats scrape         # all seasons (or --season 2025, --event-id N, --dry-ru
 piclstats merge auto     # dedupe riders by name (merge status / conflicts / link / unlink)
 piclstats serve --reload # dashboard at http://localhost:8000
 piclstats query stats    # quick sanity check (also: rider/team/event)
+piclstats dq check --all # data-quality checks over every event (scrape runs them per event)
+piclstats dq status      # results by dq_status + recent scrape runs
 ```
+
+### Data quality
+
+Every scrape records a `scrape_runs` row and runs the checks in
+`quality/checks.py` over that event: a clock time parsed as an elapsed time,
+a total over the cutoff, a non-positive place, an unknown status, an OK finish
+with no time, splits that do not add up (penalty-aware), bib 0, laps that
+disagree with the division profile, place gaps. Findings land in `dq_checks`
+and roll up into `results.dq_status`: `excluded` rows (any error) leave every
+statistic, `warn` rows stay but show a badge on the rider page. Raw columns are
+never rewritten. After a deploy that adds new checks, run
+`piclstats dq check --all` once against production. Design: ADR 002.
 
 ## Web app
 
