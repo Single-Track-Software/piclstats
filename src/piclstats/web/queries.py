@@ -408,7 +408,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                              / EXTRACT(EPOCH FROM r.lap1) * 100)::numeric, 1)
             END AS lap_fade,
             CASE WHEN r.total_time IS NOT NULL
-                      AND r.total_time < interval '2 hours'
+                      AND r.dq_status <> 'excluded'
                       AND cl.distance_miles > 0
                       AND {_LAPS_CONSISTENT}
                  THEN round((
@@ -959,7 +959,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
         {_LAP_JOINS}
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.total_time IS NOT NULL
-          AND r.total_time < interval '2 hours'
+          AND r.dq_status <> 'excluded'
           {season_filter}
         GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
@@ -1066,7 +1066,7 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
             dl.lap_count,
             cl.distance_miles AS loop_distance,
             CASE WHEN r.total_time IS NOT NULL
-                      AND r.total_time < interval '2 hours'
+                      AND r.dq_status <> 'excluded'
                       AND cl.distance_miles > 0
                       AND {_LAPS_CONSISTENT}
                  THEN round((
@@ -1154,12 +1154,12 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
                 dl.loop_type AS age_group, r.gender, r.division,
                 COALESCE(ra.canonical_id, ri.id) AS canonical_id,
                 CASE WHEN r.total_time IS NOT NULL
-                          AND r.total_time < interval '2 hours'
+                          AND r.dq_status <> 'excluded'
                           AND {_LAPS_CONSISTENT}
                      THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
                 END AS lap_secs,
                 CASE WHEN r.total_time IS NOT NULL
-                          AND r.total_time < interval '2 hours'
+                          AND r.dq_status <> 'excluded'
                           AND cl.distance_miles > 0
                           AND {_LAPS_CONSISTENT}
                      THEN ({_RIDE_SECS} / 60.0)
@@ -1225,12 +1225,12 @@ def staging_rows(
                 r.division,
                 tc.conference, tc.conference_group,
                 CASE WHEN r.total_time IS NOT NULL
-                          AND r.total_time < interval '2 hours'
+                          AND r.dq_status <> 'excluded'
                           AND {_LAPS_CONSISTENT}
                      THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
                 END AS lap_secs,
                 CASE WHEN r.total_time IS NOT NULL
-                          AND r.total_time < interval '2 hours'
+                          AND r.dq_status <> 'excluded'
                           AND cl.distance_miles > 0
                           AND {_LAPS_CONSISTENT}
                      THEN ({_RIDE_SECS} / 60.0)
@@ -1310,7 +1310,7 @@ def division_pace_distribution(
           AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND r.status = 'OK'
           AND r.total_time IS NOT NULL
-          AND r.total_time < interval '2 hours'
+          AND r.dq_status <> 'excluded'
           AND cl.distance_miles > 0
           AND {_LAPS_CONSISTENT}
           {season_filter}
@@ -1566,7 +1566,7 @@ _VENUE_ROW_SQL = f"""
           WHERE x.event_id = r.event_id AND x.category = r.category AND x.place IS NOT NULL)
             AS field,
         CASE WHEN r.total_time IS NOT NULL
-                  AND r.total_time < interval '2 hours'
+                  AND r.dq_status <> 'excluded'
                   AND cl.distance_miles > 0
                   AND {_LAPS_CONSISTENT}
              THEN round((
