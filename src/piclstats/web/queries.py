@@ -8,6 +8,8 @@ from decimal import Decimal
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from piclstats.web.riderstats import season_summary
+
 
 def _serialize(row) -> dict:
     """Convert a RowMapping to a plain dict with JSON-safe values."""
@@ -57,6 +59,7 @@ _SUM_LAPS = """
 # and silently dropped out of pace, staging, and forecasts.
 _RIDE_TIME = "(r.total_time - COALESCE(r.penalty, '0'::interval))"
 _RIDE_SECS = f"EXTRACT(EPOCH FROM {_RIDE_TIME})"
+_ACTUAL_LAPS_R2 = _ACTUAL_LAPS.replace("r.", "r2.")  # same count over alias r2
 _LAPS_CONSISTENT = f"""
     ({_ACTUAL_LAPS} > 0
      AND abs(EXTRACT(EPOCH FROM ({_RIDE_TIME} - {_SUM_LAPS}))) < 10)
@@ -270,8 +273,23 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         {"ids": all_ids},
     ).all()
 
+    # Per race: the field it was raced in (placed, clean rows) gives the
+    # percentile and the gap to the winner in percent, which compares across
+    # courses and years without needing loop distances. Lap fade is the last
+    # lap against the first.
     races = session.execute(
         text(f"""
+        WITH field AS (
+            SELECT r2.event_id, r2.category,
+                   count(*) FILTER (WHERE r2.place IS NOT NULL AND r2.dq_status <> 'excluded')
+                       AS field_size,
+                   min(r2.total_time) FILTER (WHERE r2.place = 1 AND r2.dq_status <> 'excluded')
+                       AS winner_time,
+                   max({_ACTUAL_LAPS_R2}) FILTER (WHERE r2.place = 1) AS winner_laps
+            FROM results r2
+            WHERE r2.event_id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
+            GROUP BY r2.event_id, r2.category
+        )
         SELECT
             e.id AS event_id,
             e.season,
@@ -294,6 +312,28 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             dl.loop_type,
             dl.lap_count AS expected_laps,
             cl.distance_miles AS loop_distance,
+            f.field_size,
+            CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded' AND f.field_size > 0
+                 THEN round(((1 - r.place::numeric / f.field_size) * 100)::numeric, 1)
+            END AS percentile,
+            -- Only on the winner's lap count: a rider pulled after fewer laps
+            -- still gets a place, but their time is not comparable.
+            CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded'
+                      AND r.total_time IS NOT NULL AND f.winner_time > interval '0'
+                      AND {_ACTUAL_LAPS} = COALESCE(f.winner_laps, 0)
+                 THEN round((EXTRACT(EPOCH FROM (r.total_time - f.winner_time))
+                             / EXTRACT(EPOCH FROM f.winner_time) * 100)::numeric, 1)
+            END AS pct_behind,
+            -- Fade: last lap against the second (lap 1 often includes a start
+            -- loop of a different length), or against the first on 2-lap races.
+            CASE WHEN {_LAPS_CONSISTENT} AND r.lap3 IS NOT NULL AND r.lap2 > interval '0'
+                 THEN round((EXTRACT(EPOCH FROM (
+                                 COALESCE(r.lap6, r.lap5, r.lap4, r.lap3) - r.lap2))
+                             / EXTRACT(EPOCH FROM r.lap2) * 100)::numeric, 1)
+                 WHEN {_LAPS_CONSISTENT} AND r.lap2 IS NOT NULL AND r.lap1 > interval '0'
+                 THEN round((EXTRACT(EPOCH FROM (r.lap2 - r.lap1))
+                             / EXTRACT(EPOCH FROM r.lap1) * 100)::numeric, 1)
+            END AS lap_fade,
             CASE WHEN r.total_time IS NOT NULL
                       AND r.total_time < interval '2 hours'
                       AND cl.distance_miles > 0
@@ -306,6 +346,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         FROM results r
         JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN riders ri ON r.rider_id = ri.id
+        LEFT JOIN field f ON f.event_id = r.event_id AND f.category = r.category
         {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
         ORDER BY e.season, e.event_order
@@ -313,64 +354,14 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         {"ids": all_ids},
     ).all()
 
-    season_stats = session.execute(
-        text("""
-        SELECT
-            e.season,
-            count(*) AS races,
-            round(avg(r.points)::numeric, 1) AS avg_points,
-            round(avg(r.place)::numeric, 1) AS avg_place,
-            min(r.place) AS best_place,
-            max(r.points) AS best_points,
-            sum(r.points) AS total_points,
-            r.division AS primary_division
-        FROM results r
-        JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
-          AND e.event_type = 'points'
-        GROUP BY e.season, r.division
-        ORDER BY e.season
-    """),
-        {"ids": all_ids},
-    ).all()
-
-    percentiles = session.execute(
-        text("""
-        WITH ranked AS (
-            SELECT
-                r.event_id,
-                r.rider_id,
-                r.category,
-                r.place,
-                count(*) OVER (PARTITION BY r.event_id, r.category) AS field_size,
-                r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0) AS pct_rank
-            FROM results r
-            WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded'
-              AND r.event_id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
-        )
-        SELECT
-            e.season,
-            e.event_name,
-            e.event_order,
-            ranked.category,
-            ranked.place,
-            ranked.field_size,
-            round(((1.0 - ranked.pct_rank) * 100)::numeric, 1) AS percentile
-        FROM ranked
-        JOIN events e ON ranked.event_id = e.id AND e.is_published
-        WHERE ranked.rider_id = ANY(:ids)
-        ORDER BY e.season, e.event_order
-    """),
-        {"ids": all_ids},
-    ).all()
+    serialized_races = [_serialize(r._mapping) for r in races]
 
     return {
         "info": _serialize(info._mapping),
         "team_history": [_serialize(r._mapping) for r in team_history],
         "venues": rider_venue_history(session, canonical_id) if canonical_id is not None else [],
-        "races": [_serialize(r._mapping) for r in races],
-        "season_stats": [_serialize(r._mapping) for r in season_stats],
-        "percentiles": [_serialize(r._mapping) for r in percentiles],
+        "races": serialized_races,
+        "season_stats": season_summary(serialized_races),
     }
 
 

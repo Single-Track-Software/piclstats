@@ -39,26 +39,34 @@
 <div class="grid md:grid-cols-{{ season_stats|length if season_stats|length <= 4 else 4 }} gap-4 mb-8">
     {% for ss in season_stats %}
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div class="flex items-center justify-between mb-2">
+        <div class="flex items-center justify-between mb-3">
             <span class="text-lg font-bold text-picl-700">{{ ss.season }}</span>
-            <span class="text-xs bg-picl-100 text-picl-700 px-2 py-0.5 rounded-full">{{ ss.primary_division }}</span>
+            <span class="text-xs bg-picl-100 text-picl-700 px-2 py-0.5 rounded-full" {% if ss.division_changed %}title="Moved division during the season"{% endif %}>{{ ss.primary_division or '—' }}{% if ss.division_changed %} ↑{% endif %}</span>
         </div>
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
+            <div>
+                <div class="text-gray-400 text-xs">Avg percentile</div>
+                <div class="font-mono font-medium {{ 'text-green-600' if ss.avg_percentile and ss.avg_percentile >= 50 else '' }}">{% if ss.avg_percentile is not none %}{{ "%.0f"|format(ss.avg_percentile) }}%{% else %}—{% endif %}</div>
+            </div>
+            <div>
+                <div class="text-gray-400 text-xs" title="Finish time behind the category winner, averaged">Behind winner</div>
+                <div class="font-mono font-medium">{% if ss.avg_pct_behind is not none %}{{ "%.1f"|format(ss.avg_pct_behind) }}%{% else %}—{% endif %}</div>
+            </div>
+            <div>
+                <div class="text-gray-400 text-xs">Best pace</div>
+                <div class="font-mono font-medium">{% if ss.best_pace %}{{ "%.1f"|format(ss.best_pace) }} <span class="text-[10px] text-gray-400">min/mi</span>{% else %}—{% endif %}</div>
+            </div>
             <div>
                 <div class="text-gray-400 text-xs">Races</div>
-                <div class="font-mono font-medium">{{ ss.races }}</div>
+                <div class="font-mono font-medium">{{ ss.races }}{% if ss.dnfs %} <span class="text-xs text-red-400" title="Did not finish">+{{ ss.dnfs }} DNF</span>{% endif %}</div>
             </div>
             <div>
-                <div class="text-gray-400 text-xs">Avg Points</div>
-                <div class="font-mono font-medium">{{ ss.avg_points or '—' }}</div>
-            </div>
-            <div>
-                <div class="text-gray-400 text-xs">Best Place</div>
+                <div class="text-gray-400 text-xs">Best place</div>
                 <div class="font-mono font-medium">{{ ss.best_place or '—' }}</div>
             </div>
             <div>
-                <div class="text-gray-400 text-xs">Total Points</div>
-                <div class="font-mono font-medium">{{ ss.total_points or '—' }}</div>
+                <div class="text-gray-400 text-xs">Points</div>
+                <div class="font-mono font-medium">{{ ss.total_points or '—' }}{% if ss.avg_points %} <span class="text-[10px] text-gray-400">avg {{ "%.0f"|format(ss.avg_points) }}</span>{% endif %}</div>
             </div>
         </div>
     </div>
@@ -68,20 +76,15 @@
 <!-- Charts row -->
 <div class="grid lg:grid-cols-2 gap-8 mb-8">
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">Points Trend</h2>
-        <canvas id="pointsChart" height="200"></canvas>
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Field Percentile</h2>
+        <p class="text-xs text-gray-400 mb-4">Share of the category beaten in each race (higher = better)</p>
+        <canvas id="percentileChart" height="200"></canvas>
     </div>
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">Placement Trend</h2>
-        <canvas id="placeChart" height="200"></canvas>
+        <h2 class="text-lg font-semibold text-gray-900 mb-1">Behind the Winner</h2>
+        <p class="text-xs text-gray-400 mb-4">Finish time behind the category winner, in percent — comparable across courses and years (lower = better)</p>
+        <canvas id="behindChart" height="200"></canvas>
     </div>
-</div>
-
-<!-- Percentile chart -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-    <h2 class="text-lg font-semibold text-gray-900 mb-1">Field Percentile</h2>
-    <p class="text-xs text-gray-400 mb-4">How this rider ranks relative to others in the same category per race (higher = better)</p>
-    <canvas id="percentileChart" height="120"></canvas>
 </div>
 
 <!-- Race history table -->
@@ -102,9 +105,12 @@
                     <th class="px-4 py-3">Category</th>
                     <th class="px-4 py-3">Conference</th>
                     <th class="px-4 py-3 text-right">Place</th>
+                    <th class="px-4 py-3 text-right" title="Share of the category beaten">Pctl</th>
                     <th class="px-4 py-3 text-right">Points</th>
                     <th class="px-4 py-3 text-right">Time</th>
+                    <th class="px-4 py-3 text-right" title="Behind the category winner">Behind</th>
                     <th class="px-4 py-3 text-right">Min/Mi</th>
+                    <th class="px-4 py-3 text-right" title="Last lap vs second lap (vs first on 2-lap races); positive = slowed">Fade</th>
                     {% for i in range(1, race_laps + 1) %}<th class="px-4 py-3 text-right">Lap {{ i }}</th>{% endfor %}
                 </tr>
             </thead>
@@ -119,14 +125,17 @@
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ r.team or '' }}</td>
                     <td class="px-4 py-2 text-gray-600">{{ r.category }}</td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ r.conference or '' }}</td>
-                    <td class="px-4 py-2 text-right font-mono font-medium">
-                        {% if r.place %}{{ r.place }}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}
+                    <td class="px-4 py-2 text-right font-mono font-medium whitespace-nowrap">
+                        {% if r.place %}{{ r.place }}{% if r.field_size %}<span class="text-gray-400 font-normal">/{{ r.field_size }}</span>{% endif %}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}
                     </td>
+                    <td class="px-4 py-2 text-right font-mono {% if r.percentile is not none %}{{ 'text-green-600' if r.percentile >= 50 else ('text-amber-600' if r.percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.percentile is not none %}{{ "%.0f"|format(r.percentile) }}%{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.points or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r.total_time_raw or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs">{% if r.pct_behind is not none %}{% if r.pct_behind == 0 %}<span class="text-green-600">won</span>{% else %}+{{ "%.1f"|format(r.pct_behind) }}%{% endif %}{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono font-medium text-picl-700">
                         {% if r.min_per_mile %}{{ "%.1f"|format(r.min_per_mile) }}{% else %}—{% endif %}
                     </td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if r.lap_fade is not none %}{{ 'text-red-500' if r.lap_fade > 5 else ('text-green-600' if r.lap_fade < 0 else 'text-gray-500') }}{% endif %}">{% if r.lap_fade is not none %}{{ '+' if r.lap_fade > 0 else '' }}{{ "%.1f"|format(r.lap_fade) }}%{% else %}—{% endif %}</td>
                     {% for i in range(1, race_laps + 1) %}
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r['lap' ~ i] or '' }}</td>
                     {% endfor %}
@@ -206,7 +215,6 @@
 {% block scripts %}
 <script>
 const races = {{ races | tojson }};
-const percentiles = {{ percentiles | tojson }};
 
 // One colour per season the rider raced, assigned in order, so a new
 // season never falls back to grey.
@@ -221,103 +229,41 @@ const seasonColors = {};
 });
 const defaultColor = {bg: 'rgba(107,114,128,0.15)', border: 'rgb(107,114,128)'};
 
-// Build labels + data
-const labels = races.map((r, i) => {
-    const name = r.event_name.length > 20 ? r.event_name.substring(0, 20) + '…' : r.event_name;
-    return `${r.season} #${r.event_order || i+1}`;
-});
-const pointsData = races.map(r => r.points);
-const placeData = races.map(r => r.place);
-const bgColors = races.map(r => (seasonColors[r.season] || defaultColor).bg);
-const borderColors = races.map(r => (seasonColors[r.season] || defaultColor).border);
-
-// Points chart
-new Chart(document.getElementById('pointsChart'), {
-    type: 'bar',
-    data: {
-        labels: labels,
-        datasets: [{
-            label: 'Points',
-            data: pointsData,
-            backgroundColor: bgColors,
-            borderColor: borderColors,
-            borderWidth: 1.5,
-            borderRadius: 4,
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {legend: {display: false}},
-        scales: {
-            y: {beginAtZero: true, title: {display: true, text: 'Points'}},
-            x: {ticks: {maxRotation: 45, font: {size: 10}}}
-        }
-    }
-});
-
-// Place chart (inverted — lower is better)
-new Chart(document.getElementById('placeChart'), {
-    type: 'line',
-    data: {
-        labels: labels,
-        datasets: [{
-            label: 'Place',
-            data: placeData,
-            borderColor: 'rgb(16,32,232)',
-            backgroundColor: 'rgba(16,32,232,0.1)',
-            fill: true,
-            tension: 0.3,
-            pointRadius: 5,
-            pointBackgroundColor: borderColors,
-        }]
-    },
-    options: {
-        responsive: true,
-        plugins: {legend: {display: false}},
-        scales: {
-            y: {reverse: true, beginAtZero: false, title: {display: true, text: 'Place (lower = better)'},
-                ticks: {stepSize: 1}},
-            x: {ticks: {maxRotation: 45, font: {size: 10}}}
-        }
-    }
-});
-
-// Percentile chart
-const pctLabels = percentiles.map((p, i) => `${p.season} #${p.event_order || i+1}`);
-const pctData = percentiles.map(p => p.percentile);
-const pctBg = percentiles.map(p => (seasonColors[p.season] || defaultColor).bg);
-const pctBorder = percentiles.map(p => (seasonColors[p.season] || defaultColor).border);
+// Placed, clean, scoring races only — the same rows the season cards use.
+const scored = races.filter(r => r.percentile !== null && r.event_type === 'points');
+const labels = scored.map((r, i) => `${r.season} #${r.event_order || i+1}`);
+const bg = scored.map(r => (seasonColors[r.season] || defaultColor).bg);
+const border = scored.map(r => (seasonColors[r.season] || defaultColor).border);
+const xTicks = {ticks: {maxRotation: 45, font: {size: 10}}};
+const detail = (r) => `Place ${r.place} of ${r.field_size} in ${r.category}`;
 
 new Chart(document.getElementById('percentileChart'), {
     type: 'bar',
-    data: {
-        labels: pctLabels,
-        datasets: [{
-            label: 'Percentile',
-            data: pctData,
-            backgroundColor: pctBg,
-            borderColor: pctBorder,
-            borderWidth: 1.5,
-            borderRadius: 4,
-        }]
-    },
+    data: {labels, datasets: [{label: 'Percentile', data: scored.map(r => r.percentile),
+        backgroundColor: bg, borderColor: border, borderWidth: 1.5, borderRadius: 4}]},
     options: {
         responsive: true,
-        plugins: {
-            legend: {display: false},
-            tooltip: {
-                callbacks: {
-                    afterLabel: (ctx) => {
-                        const p = percentiles[ctx.dataIndex];
-                        return `Place ${p.place} of ${p.field_size} in ${p.category}`;
-                    }
-                }
-            }
-        },
-        scales: {
-            y: {min: 0, max: 100, title: {display: true, text: 'Percentile'}},
-            x: {ticks: {maxRotation: 45, font: {size: 10}}}
-        }
+        plugins: {legend: {display: false},
+            tooltip: {callbacks: {afterLabel: (ctx) => detail(scored[ctx.dataIndex])}}},
+        scales: {y: {min: 0, max: 100, title: {display: true, text: 'Percentile'}}, x: xTicks}
+    }
+});
+
+const behind = scored.filter(r => r.pct_behind !== null);
+new Chart(document.getElementById('behindChart'), {
+    type: 'line',
+    data: {labels: behind.map((r, i) => `${r.season} #${r.event_order || i+1}`),
+        datasets: [{label: '% behind winner', data: behind.map(r => r.pct_behind),
+            borderColor: 'rgb(16,32,232)', backgroundColor: 'rgba(16,32,232,0.08)', fill: true,
+            tension: 0.3, pointRadius: 5,
+            pointBackgroundColor: behind.map(r => (seasonColors[r.season] || defaultColor).border)}]},
+    options: {
+        responsive: true,
+        plugins: {legend: {display: false},
+            tooltip: {callbacks: {
+                label: (ctx) => ctx.parsed.y === 0 ? 'Won the category' : `+${ctx.parsed.y}% behind the winner`,
+                afterLabel: (ctx) => detail(behind[ctx.dataIndex])}}},
+        scales: {y: {reverse: true, beginAtZero: true, title: {display: true, text: '% behind winner (lower = better)'}}, x: xTicks}
     }
 });
 </script>
