@@ -50,6 +50,7 @@ piclstats query stats    # quick sanity check (also: rider/team/event)
 piclstats dq check --all # data-quality checks over every event (scrape runs them per event)
 piclstats dq status      # results by dq_status + recent scrape runs
 piclstats dq lineage     # rebuild the lineage log (merges and folds); seed and merge auto do this too
+piclstats dq scorecard   # metrics + golden fixtures + publish gate vs the previous run
 ```
 
 ### Data quality
