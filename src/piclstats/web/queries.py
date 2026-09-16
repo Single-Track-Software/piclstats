@@ -287,6 +287,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             r.total_time_raw,
             r.lap1, r.lap2, r.lap3, r.lap4, r.lap5, r.lap6,
             r.penalty,
+            r.dq_status,
             ri.team,
             dl.loop_type,
             dl.lap_count AS expected_laps,
@@ -323,7 +324,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             r.division AS primary_division
         FROM results r
         JOIN events e ON r.event_id = e.id
-        WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL
+        WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND e.event_type = 'points'
         GROUP BY e.season, r.division
         ORDER BY e.season
@@ -342,7 +343,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                 count(*) OVER (PARTITION BY r.event_id, r.category) AS field_size,
                 r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0) AS pct_rank
             FROM results r
-            WHERE r.place IS NOT NULL
+            WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND r.event_id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
         )
         SELECT
@@ -426,7 +427,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         JOIN results r ON r.rider_id = c.rider_id
         JOIN events e ON r.event_id = e.id
         WHERE c.team = :team {season_filter}
-          AND r.place IS NOT NULL
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND {_POINTS_ONLY}
         GROUP BY c.cid, c.name, r.division, r.gender
         ORDER BY r.division, avg_points DESC NULLS LAST
@@ -446,7 +447,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
         WHERE ri.team = :team {season_filter}
-          AND r.place IS NOT NULL
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND {_POINTS_ONLY}
         GROUP BY r.division, r.gender
         ORDER BY r.division, r.gender
@@ -552,7 +553,7 @@ def leaderboard(
     otherwise the season leaderboard is empty until race two.
     """
     params: dict = {}
-    filters: list[str] = ["r.place IS NOT NULL", _POINTS_ONLY]
+    filters: list[str] = ["r.place IS NOT NULL AND r.dq_status <> 'excluded'", _POINTS_ONLY]
     scope_season = ""
     if season:
         filters.append("e.season = :season")
@@ -636,7 +637,7 @@ def team_leaderboard(
         FROM results r
         JOIN riders ri ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
-        WHERE r.place IS NOT NULL AND ri.team IS NOT NULL
+        WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND ri.team IS NOT NULL
           AND {_POINTS_ONLY}
           {season_filter}
         GROUP BY ri.team
@@ -759,7 +760,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         JOIN riders ri ON r.rider_id = ri.id
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
         {_LAP_JOINS}
-        WHERE r.place IS NOT NULL AND r.total_time IS NOT NULL
+        WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
           {season_filter}
         GROUP BY r.division, r.gender
@@ -783,7 +784,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         FROM {_COURSE_RESULTS}
         JOIN events e ON r.event_id = e.id
         JOIN canonical c ON c.rider_id = r.rider_id
-        WHERE r.place IS NOT NULL
+        WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded'
           {season_filter}
         GROUP BY c.cid, c.name, r.division
         HAVING count(DISTINCT e.id) >= 2
@@ -882,7 +883,7 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
         JOIN events e ON r.event_id = e.id
         {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
-          AND r.place IS NOT NULL
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND r.status = 'OK'
         ORDER BY e.season, e.event_order
     """),
@@ -971,7 +972,7 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
             JOIN riders ri ON r.rider_id = ri.id
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
             {_LAP_JOINS_INNER}
-            WHERE r.status = 'OK' AND r.place IS NOT NULL
+            WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND e.id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
         ),
         clean AS (
@@ -1045,7 +1046,7 @@ def staging_rows(
             JOIN riders cri ON cri.id = COALESCE(ra.canonical_id, ri.id)
             LEFT JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
             {_LAP_JOINS_AGE_GROUP}
-            WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.gender = :gender
+            WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.gender = :gender
         ),
         clean AS (
             SELECT *,
@@ -1108,7 +1109,7 @@ def division_pace_distribution(
         {_LAP_JOINS}
         WHERE {div_filter}
           AND r.gender = :gender
-          AND r.place IS NOT NULL
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND r.status = 'OK'
           AND r.total_time IS NOT NULL
           AND r.total_time < interval '2 hours'
@@ -1211,7 +1212,7 @@ def available_target_divisions(session: Session, source_division: str, gender: s
           AND r.division != :source
           AND r.division NOT LIKE 'Single Lap%%'
           AND r.division != '9th Grade'
-          AND r.place IS NOT NULL
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
         ORDER BY r.division
     """),
         {"gender": gender, "source": source_division},
