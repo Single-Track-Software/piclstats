@@ -56,6 +56,7 @@
         <div class="px-4 py-2 bg-gray-50 border-b border-gray-200">
             <h2 class="font-semibold text-picl-800 text-sm">Pending invites</h2>
         </div>
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <tbody class="divide-y divide-gray-100">
                 {% for i in invites %}
@@ -72,11 +73,13 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
     {% endif %}
 
     <!-- Existing users -->
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-gray-700">
                 <tr>
@@ -133,6 +136,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 </div>
 {% endblock %}

@@ -59,6 +59,7 @@
             <h2 class="text-lg font-semibold text-gray-900">Top Riders (by Avg Points)</h2>
             <a href="/leaderboard" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
         </div>
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
                 <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
@@ -84,6 +85,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 
     <!-- Top Teams -->
@@ -92,6 +94,7 @@
             <h2 class="text-lg font-semibold text-gray-900">Top Teams (by Avg Points)</h2>
             <a href="/leaderboard?view=teams" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
         </div>
+        <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
                 <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
@@ -116,6 +119,7 @@
                 {% endfor %}
             </tbody>
         </table>
+        </div>
     </div>
 </div>
 {% endblock %}
