@@ -65,8 +65,18 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     from piclstats.scraper.registry import get_events
 
     if event_id:
-        # Build (season, order, id) for explicit event IDs — season/order unknown
-        targets = [(0, 0, eid) for eid in event_id]
+        # Explicit ids must be registered so a re-scrape keeps the event's
+        # season and order; loading with (0, 0) used to overwrite both.
+        from piclstats.scraper.registry import lookup_event
+
+        targets = []
+        for eid in event_id:
+            found = lookup_event(eid)
+            if found is None:
+                raise click.ClickException(
+                    f"event {eid} is not in scraper/registry.py SEASONS; add it there first"
+                )
+            targets.append((found[0], found[1], eid))
     else:
         targets = get_events(season if season else None)
 

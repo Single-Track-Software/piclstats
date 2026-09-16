@@ -6,6 +6,7 @@ import json
 import logging
 from datetime import timedelta
 
+from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -38,9 +39,12 @@ def load_event(session: Session, event_results: EventResults) -> int:
         .on_conflict_do_update(
             index_elements=["raceresult_id"],
             set_={
-                "season": event_results.season,
+                # Keep the stored season/order if the caller has none (0).
+                "season": func.coalesce(func.nullif(event_results.season, 0), events.c.season),
                 "event_name": config.event_name,
-                "event_order": event_results.event_order,
+                "event_order": func.coalesce(
+                    func.nullif(event_results.event_order, 0), events.c.event_order
+                ),
             },
         )
         .returning(events.c.id)
