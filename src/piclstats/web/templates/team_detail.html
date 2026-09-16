@@ -35,8 +35,8 @@
                 <div class="font-mono font-medium text-sm">{{ d.riders }}</div>
             </div>
             <div>
-                <div class="text-gray-400">Avg Pts</div>
-                <div class="font-mono font-medium text-sm">{{ d.avg_points or '—' }}</div>
+                <div class="text-gray-400" title="Average share of the field beaten">Avg Pctl</div>
+                <div class="font-mono font-medium text-sm {{ 'text-green-600' if d.avg_percentile and d.avg_percentile >= 50 else '' }}">{% if d.avg_percentile is not none %}{{ "%.0f"|format(d.avg_percentile) }}%{% else %}—{% endif %}</div>
             </div>
             <div>
                 <div class="text-gray-400">Avg Place</div>
@@ -46,6 +46,56 @@
     </div>
     {% endfor %}
 </div>
+
+{% if season %}
+<!-- Movers: this season against last, per rider -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Riders in {{ season }} <span class="text-sm font-normal text-gray-400">vs {{ season - 1 }}</span></h2>
+        <span class="text-xs text-gray-400">Percentile = share of the category beaten · Behind = finish time behind the winner · Δ vs the rider's {{ season - 1 }} average, any team</span>
+    </div>
+    {% if movers %}
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Rider</th>
+                    <th class="px-4 py-3">Category</th>
+                    <th class="px-4 py-3 text-right">Races</th>
+                    <th class="px-4 py-3 text-right">Pctl</th>
+                    <th class="px-4 py-3 text-right">Δ Pctl</th>
+                    <th class="px-4 py-3 text-right">Behind</th>
+                    <th class="px-4 py-3 text-right">Δ Behind</th>
+                    <th class="px-4 py-3 text-right">Best</th>
+                    <th class="px-4 py-3 text-right">Pts</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% set ns = namespace(div=None) %}
+                {% for m in movers %}
+                {% if m.division != ns.div %}{% set ns.div = m.division %}
+                <tr class="bg-gray-50"><td colspan="9" class="px-4 py-1 text-xs font-semibold uppercase tracking-wider text-gray-500">{{ m.division or 'Unknown' }}</td></tr>
+                {% endif %}
+                <tr class="hover:bg-picl-50 transition-colors">
+                    <td class="px-4 py-2"><a href="/rider/{{ m.id }}" class="text-picl-700 font-medium hover:underline">{{ m.name }}</a></td>
+                    <td class="px-4 py-2 text-gray-600 text-xs">{{ m.division or '—' }} {{ m.gender or '' }}{% if m.moved_up %} <span class="text-gray-400" title="Raced {{ m.prev.division }} in {{ season - 1 }}">↑ from {{ m.prev.division }}</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ m.now.races }}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium {% if m.now.avg_percentile is not none %}{{ 'text-green-600' if m.now.avg_percentile >= 50 else ('text-amber-600' if m.now.avg_percentile >= 25 else 'text-red-500') }}{% endif %}">{% if m.now.avg_percentile is not none %}{{ "%.0f"|format(m.now.avg_percentile) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if m.delta_percentile is not none %}{{ 'text-green-600' if m.delta_percentile > 0 else ('text-red-500' if m.delta_percentile < 0 else 'text-gray-400') }}{% endif %}">{% if m.delta_percentile is not none %}{{ '+' if m.delta_percentile > 0 else '' }}{{ "%.0f"|format(m.delta_percentile) }}{% elif m.prev %}—{% else %}<span class="text-gray-400" title="No {{ season - 1 }} results">new</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs">{% if m.now.avg_pct_behind is not none %}+{{ "%.1f"|format(m.now.avg_pct_behind) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if m.delta_behind is not none %}{{ 'text-green-600' if m.delta_behind < 0 else ('text-red-500' if m.delta_behind > 0 else 'text-gray-400') }}{% endif %}">{% if m.delta_behind is not none %}{{ '+' if m.delta_behind > 0 else '' }}{{ "%.1f"|format(m.delta_behind) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ m.now.best_place or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ m.now.total_points or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-8 text-center text-gray-400 text-sm">No placed scoring results for {{ season }} yet.</div>
+    {% endif %}
+</div>
+{% endif %}
 
 <!-- Charts -->
 <div class="grid lg:grid-cols-2 gap-8 mb-8">
@@ -115,7 +165,7 @@
     <div class="px-6 py-3 border-b bg-gray-50">
         <h2 class="text-lg font-semibold text-gray-900">
             Roster
-            <span class="text-sm font-normal text-gray-400">({{ roster|length }} riders)</span>
+            <span class="text-sm font-normal text-gray-400">({{ roster|length }} riders{% if season %} in {{ season }}{% endif %}, by current category)</span>
         </h2>
     </div>
     <div class="overflow-x-auto">
@@ -123,9 +173,10 @@
             <thead>
                 <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
                     <th class="px-4 py-3">Rider</th>
-                    <th class="px-4 py-3">Division</th>
+                    <th class="px-4 py-3" title="From the rider's latest race">Division</th>
                     <th class="px-4 py-3">Gender</th>
                     <th class="px-4 py-3 text-right">Races</th>
+                    <th class="px-4 py-3 text-right" title="Average share of the field beaten">Pctl</th>
                     <th class="px-4 py-3 text-right">Avg Pts</th>
                     <th class="px-4 py-3 text-right">Avg Place</th>
                     <th class="px-4 py-3 text-right">Best Place</th>
@@ -141,6 +192,7 @@
                     <td class="px-4 py-2 text-gray-600">{{ r.division or '—' }}</td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ r.gender or '' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.races }}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium {% if r.avg_percentile is not none %}{{ 'text-green-600' if r.avg_percentile >= 50 else ('text-amber-600' if r.avg_percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.avg_percentile is not none %}{{ "%.0f"|format(r.avg_percentile) }}%{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono font-medium">{{ r.avg_points or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.avg_place or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.best_place or '—' }}</td>
