@@ -8,6 +8,7 @@ import logging
 import secrets
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -289,8 +290,15 @@ def results_page(
     request: Request,
     event_id: int | None = Query(None),
     category: str = Query(""),
+    tab: str = Query("results"),
+    top: int = Query(0, description="Race Position tab: show only the top N finishers; 0 = all"),
 ):
-    """Published finish list for one event + category (place, points, time, laps)."""
+    """One event + category: the published finish list, or (tab=position) the
+    lap-by-lap position and stacked-lap charts, sharing the same pickers."""
+    from piclstats.web import racechart as racechart_mod
+
+    if tab != "position":
+        tab = "results"
     with get_session() as session:
         events = queries.all_events(session)
         event = next((e for e in events if e["id"] == event_id), None)
@@ -300,10 +308,17 @@ def results_page(
         cat_names = [c["category"] for c in categories]
         if category not in cat_names:
             category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
-        results = (
-            queries.event_results(session, event["id"], category) if event and category else []
-        )
-    selected_cat = next((c for c in categories if c["category"] == category), None)
+        selected_cat = next((c for c in categories if c["category"] == category), None)
+        has_laps = bool(selected_cat and selected_cat["has_laps"])
+        results: list[dict] = []
+        chart = lap_chart = None
+        if event and category and tab == "results":
+            results = queries.event_results(session, event["id"], category)
+        elif event and category and has_laps:
+            rows = queries.event_lap_rows(session, event["id"], category)
+            top_n = top if top > 0 else None
+            chart = racechart_mod.build_position_chart(rows, top=top_n)
+            lap_chart = racechart_mod.build_lap_chart(rows, top=top_n)
     return templates.TemplateResponse(
         "results.html",
         _ctx(
@@ -312,9 +327,13 @@ def results_page(
             event=event,
             categories=categories,
             category=category,
-            has_laps=bool(selected_cat and selected_cat["has_laps"]),
+            has_laps=has_laps,
+            tab=tab,
+            top=top,
             results=results,
             finishers=sum(1 for r in results if r["place"] is not None),
+            chart=chart,
+            lap_chart=lap_chart,
         ),
     )
 
@@ -533,66 +552,21 @@ def staging_page(
     )
 
 
-@app.get("/racechart", response_class=HTMLResponse)
-def racechart_page(
-    request: Request,
+@app.get("/racechart")
+def racechart_redirect(
     event_id: int | None = Query(None),
     category: str = Query(""),
-    top: int = Query(0, description="Show only the top N finishers; 0 = all"),
+    top: int = Query(0),
 ):
-    from piclstats.web import racechart as racechart_mod
-
-    with get_session() as session:
-        events = queries.events_list(session)
-        if not events:
-            return templates.TemplateResponse(
-                "racechart.html",
-                _ctx(
-                    request,
-                    events=[],
-                    event=None,
-                    categories=[],
-                    category="",
-                    chart=None,
-                    lap_chart=None,
-                    top=top,
-                ),
-            )
-
-        # Default to the most recent event with timing.
-        if event_id is None or not any(e["id"] == event_id for e in events):
-            selected_id: int = events[0]["id"]
-        else:
-            selected_id = event_id
-        event = next(e for e in events if e["id"] == selected_id)
-
-        categories = queries.event_categories(session, selected_id)
-        cat_names = [c["category"] for c in categories]
-        # Default to the largest field in the event (the marquee race).
-        if category not in cat_names:
-            category = max(categories, key=lambda c: c["field"])["category"] if categories else ""
-
-        top_n = top if top > 0 else None
-        chart = None
-        lap_chart = None
-        if category:
-            rows = queries.event_lap_rows(session, selected_id, category)
-            chart = racechart_mod.build_position_chart(rows, top=top_n)
-            lap_chart = racechart_mod.build_lap_chart(rows, top=top_n)
-
-    return templates.TemplateResponse(
-        "racechart.html",
-        _ctx(
-            request,
-            events=events,
-            event=event,
-            categories=categories,
-            category=category,
-            chart=chart,
-            lap_chart=lap_chart,
-            top=top,
-        ),
-    )
+    """The race-position charts now live on the Results page as a tab; keep old links working."""
+    params = {"tab": "position"}
+    if event_id is not None:
+        params["event_id"] = str(event_id)
+    if category:
+        params["category"] = category
+    if top:
+        params["top"] = str(top)
+    return RedirectResponse(f"/results?{urlencode(params)}", status_code=301)
 
 
 @app.get("/staging.csv")

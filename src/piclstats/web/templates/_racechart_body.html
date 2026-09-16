@@ -1,0 +1,68 @@
+{#- Race-position and stacked-lap charts for one event + category. Expects: event, category, chart, lap_chart. -#}
+{% if chart and chart.tracks %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
+        <span class="text-xs text-gray-400">
+            {% if chart.shown < chart.field %}showing top {{ chart.shown }} of {% endif %}{{ chart.field }} riders timed · {{ chart.finishers }} completed all {{ chart.n_laps }} laps
+        </span>
+    </div>
+    <div class="px-4 py-4">
+        <canvas id="positionChart" height="{{ [chart.shown * 14, 320] | max }}"></canvas>
+    </div>
+    <p class="px-6 pb-2 text-[11px] text-gray-400">
+        Hover a line to identify the rider. Dashed lines were pulled/lapped before the finish.
+        The table below is the authoritative key.
+    </p>
+
+    <!-- Results table doubles as the color key -->
+    <div class="overflow-x-auto border-t">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Finish</th>
+                    <th class="px-4 py-3">Rider</th>
+                    <th class="px-4 py-3">Team</th>
+                    {% for lbl in chart.lap_labels %}<th class="px-3 py-3 text-right">{{ lbl }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for t in chart.tracks %}
+                <tr class="hover:bg-picl-50" data-track="{{ loop.index0 }}">
+                    <td class="px-4 py-2 font-semibold text-gray-700">
+                        {% if t.complete %}{{ t.finish_place or loop.index }}{% else %}<span class="text-gray-400" title="{{ t.status }} — did not finish full distance">DNF</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-2">
+                        <span class="inline-block w-3 h-3 rounded-sm mr-2 align-middle" style="background: {{ t.color }}"></span>
+                        <span class="align-middle">{{ t.name }}</span>
+                    </td>
+                    <td class="px-4 py-2 text-gray-500 text-xs max-w-xs truncate" title="{{ t.team or '' }}">{{ t.team or '—' }}</td>
+                    {% for p in t.positions %}
+                    <td class="px-3 py-2 text-right font-mono text-gray-600">{{ p if p is not none else '—' }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% if lap_chart and lap_chart.tracks %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mt-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Stacked Lap Times</h2>
+        <span class="text-xs text-gray-400">Each bar is a rider; each block is a lap — wider = slower. A short bar means pulled/lapped.</span>
+    </div>
+    <div class="px-4 py-4">
+        <canvas id="lapChart" height="{{ [lap_chart.shown * 16, 320] | max }}"></canvas>
+    </div>
+    <p class="px-6 pb-3 text-[11px] text-gray-400">
+        Even blocks = metronomic pacing; a widening block = fade. Hover a block for the exact lap split.
+    </p>
+</div>
+{% endif %}
+
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-8 text-center text-gray-500">
+    No lap timing for this category{% if event.season < 2024 %} — split times were not published before 2024{% endif %}.
+</div>
+{% endif %}
