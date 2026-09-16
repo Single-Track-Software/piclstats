@@ -161,8 +161,18 @@ def _ctx(request: Request, **kwargs) -> dict:
     return {"request": request, **kwargs}
 
 
+def parse_season(raw: str | None) -> int | None:
+    """Season from a query string: a 4-digit year or nothing.
+
+    Anything else (``abc``, ``2025-26``, ``2025.0``) is treated as "all
+    seasons" rather than raising, so a mangled link renders the page.
+    """
+    value = (raw or "").strip()
+    return int(value) if value.isdigit() and len(value) == 4 else None
+
+
 def optional_season(season: str = Query("")) -> int | None:
-    return int(season) if season else None
+    return parse_season(season)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -239,7 +249,7 @@ def team_search(
     )
 
 
-@app.get("/team/{team_name}", response_class=HTMLResponse)
+@app.get("/team/{team_name:path}", response_class=HTMLResponse)
 def team_profile(
     request: Request,
     team_name: str,
