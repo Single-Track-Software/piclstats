@@ -150,6 +150,25 @@ def overview_stats(session: Session) -> dict:
     return _serialize(row._mapping)
 
 
+def current_season(session: Session) -> int | None:
+    """The newest season with a published race: what every page defaults to."""
+    return session.execute(text("SELECT max(season) FROM events WHERE is_published")).scalar()
+
+
+def latest_event(session: Session) -> dict | None:
+    """The most recently raced event (highest order in the newest season)."""
+    row = session.execute(
+        text("""
+        SELECT e.id, e.season, e.event_name, e.event_order, e.event_type, c.name AS course_name,
+               (SELECT count(*) FROM results r WHERE r.event_id = e.id AND r.place IS NOT NULL) AS finishers
+        FROM events e LEFT JOIN courses c ON c.id = e.course_id
+        WHERE e.is_published
+        ORDER BY e.season DESC, e.event_order DESC LIMIT 1
+        """)
+    ).one_or_none()
+    return _serialize(row._mapping) if row else None
+
+
 def seasons_list(session: Session) -> list[int]:
     rows = session.execute(
         text("SELECT DISTINCT season FROM events WHERE is_published ORDER BY season")
@@ -375,9 +394,17 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
 
 
 def search_teams(session: Session, q: str, season: int | None = None) -> list[dict]:
+    """Teams matching `q` (empty = every team), with their conference for the season.
+
+    Without a season, conference is the most recent one on record for the team.
+    """
     sql = """
         SELECT
             ri.team,
+            (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+              WHERE tc.team = ri.team
+                AND (CAST(:season AS int) IS NULL OR tc.season = CAST(:season AS int))
+              ORDER BY tc.season DESC LIMIT 1) AS conference,
             count(DISTINCT ri.id) AS rider_count,
             count(DISTINCT r.event_id) AS race_count,
             count(DISTINCT e.season) AS seasons_active,
@@ -386,17 +413,16 @@ def search_teams(session: Session, q: str, season: int | None = None) -> list[di
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE ri.team ILIKE :q
+        WHERE ri.team IS NOT NULL AND ri.team ILIKE :q
           AND e.event_type = 'points'
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
     """
-    params: dict = {"q": f"%{q}%"}
+    params: dict = {"q": f"%{q}%", "season": season}
     if season:
         sql += " AND e.season = :season"
-        params["season"] = season
     sql += """
         GROUP BY ri.team
-        ORDER BY avg_points DESC NULLS LAST
-        LIMIT 50
+        ORDER BY conference NULLS LAST, ri.team
     """
     rows = session.execute(text(sql), params).all()
     return [_serialize(r._mapping) for r in rows]
