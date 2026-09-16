@@ -141,7 +141,7 @@
 <div class="mt-8">
     <div class="flex items-baseline justify-between mb-3">
         <h2 class="text-lg font-semibold text-gray-900">By Venue</h2>
-        <span class="text-xs text-gray-400">Δ columns compare with the previous scoring visit to the same course · negative pace Δ = faster</span>
+        <span class="text-xs text-gray-400">Pctl = share of the field beaten · Δ columns compare with the previous scoring visit to the same course (negative pace Δ = faster, positive pctl Δ = better)</span>
     </div>
     <div class="space-y-4">
     {% for v in venues %}
@@ -160,11 +160,12 @@
                     <th class="px-4 py-2 text-right">Laps</th>
                     <th class="px-4 py-2 text-right">Time</th>
                     <th class="px-4 py-2 text-right">Place</th>
+                    <th class="px-4 py-2 text-right">Pctl</th>
                     <th class="px-4 py-2 text-right">Points</th>
                     <th class="px-4 py-2 text-right">Min/Mi</th>
                     <th class="px-4 py-2 text-right">MPH</th>
                     <th class="px-4 py-2 text-right">Δ Pace</th>
-                    <th class="px-4 py-2 text-right">Δ Place</th>
+                    <th class="px-4 py-2 text-right">Δ Pctl</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -179,14 +180,15 @@
                     <td class="px-4 py-2 text-right font-mono">{{ x.laps or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ x.total_time_raw or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono font-medium">{% if x.place %}{{ x.place }}<span class="text-gray-400 font-normal">/{{ x.field }}</span>{% else %}<span class="text-red-400">{{ x.status }}</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium {% if x.percentile is not none %}{{ 'text-green-600' if x.percentile >= 50 else ('text-amber-600' if x.percentile >= 25 else 'text-red-500') }}{% endif %}">{{ "%.0f"|format(x.percentile) ~ '%' if x.percentile is not none else '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ x.points if x.points is not none else '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-picl-700">{{ "%.1f"|format(x.min_per_mile) if x.min_per_mile else '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ x.mph if x.mph else '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs {% if x.d_pace is not none %}{{ 'text-green-600' if x.d_pace < 0 else ('text-red-500' if x.d_pace > 0 else 'text-gray-400') }}{% endif %}">
                         {% if x.d_pace is not none %}{{ '%+.1f'|format(x.d_pace) }}{% else %}—{% endif %}
                     </td>
-                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.d_place is not none %}{{ 'text-green-600' if x.d_place < 0 else ('text-red-500' if x.d_place > 0 else 'text-gray-400') }}{% endif %}">
-                        {% if x.d_place is not none %}{{ '%+d'|format(x.d_place) }}{% else %}—{% endif %}
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.d_percentile is not none %}{{ 'text-green-600' if x.d_percentile > 0 else ('text-red-500' if x.d_percentile < 0 else 'text-gray-400') }}{% endif %}">
+                        {% if x.d_percentile is not none %}{{ '%+.0f'|format(x.d_percentile) }} pts{% else %}—{% endif %}
                     </td>
                 </tr>
                 {% endfor %}

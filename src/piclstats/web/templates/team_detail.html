@@ -75,7 +75,7 @@
         </form>
     </div>
     {% if course_history and course_history.riders %}
-    <div class="px-6 py-2 text-xs text-gray-400 border-b">Each cell: place/field · points · min/mile. Riders who rode for {{ team_name }} at <a href="/course/{{ course.id }}" class="hover:underline">{{ course.name }}</a>, newest first.</div>
+    <div class="px-6 py-2 text-xs text-gray-400 border-b">Each cell: place/field (percentile of field beaten) · points · min/mile. Riders who rode for {{ team_name }} at <a href="/course/{{ course.id }}" class="hover:underline">{{ course.name }}</a>, newest first.</div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
@@ -93,7 +93,7 @@
                     <td class="px-3 py-2 text-center font-mono text-xs {% if c and c.status != 'OK' %}text-gray-400{% endif %}">
                         {% if c %}
                         <div class="text-[10px] text-gray-400 font-sans">{{ c.division }}{% if c.event_type != 'points' %} · non-scoring{% endif %}</div>
-                        <div>{% if c.place %}<span class="font-semibold text-gray-800">{{ c.place }}</span><span class="text-gray-400">/{{ c.field }}</span>{% else %}<span class="text-red-400">{{ c.status }}</span>{% endif %}
+                        <div>{% if c.place %}<span class="font-semibold text-gray-800">{{ c.place }}</span><span class="text-gray-400">/{{ c.field }}</span> <span class="{{ 'text-green-600' if c.percentile >= 50 else ('text-amber-600' if c.percentile >= 25 else 'text-red-500') }}">({{ "%.0f"|format(c.percentile) }}%)</span>{% else %}<span class="text-red-400">{{ c.status }}</span>{% endif %}
                              · {{ c.points if c.points is not none else '—' }}
                              · <span class="text-picl-700">{{ "%.1f"|format(c.min_per_mile) if c.min_per_mile else '—' }}</span></div>
                         {% else %}<span class="text-gray-200">—</span>{% endif %}

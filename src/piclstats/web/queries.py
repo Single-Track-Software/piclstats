@@ -1374,12 +1374,17 @@ _VENUE_ROW_SQL = f"""
 
 
 def _with_speed(row: dict) -> dict:
-    """Add mph (from min/mile) and blank out implausible pace."""
+    """Add mph (from min/mile), blank out implausible pace, and add the field
+    percentile — same formula as the rider page's Field Percentile chart
+    (100 × (1 − place/field)), so 24th of 85 is 71.8 and 28th of 66 is 57.6:
+    comparable across years even as the field grows."""
     mpm = row.get("min_per_mile")
     if mpm is not None and not (_PACE_MIN <= float(mpm) <= _PACE_MAX):
         mpm = None
         row["min_per_mile"] = None
     row["mph"] = round(60.0 / float(mpm), 1) if mpm else None
+    place, field = row.get("place"), row.get("field")
+    row["percentile"] = round((1 - place / field) * 100, 1) if place and field else None
     return row
 
 
@@ -1422,12 +1427,12 @@ def rider_venue_history(session: Session, rider_id: int) -> list[dict]:
             {"course_id": row["course_id"], "course_name": row["course_name"], "visits": []},
         )
         prev = next((v for v in reversed(block["visits"]) if v["event_type"] == "points"), None)
-        row["d_pace"] = row["d_place"] = None
+        row["d_pace"] = row["d_percentile"] = None
         if prev and row["event_type"] == "points":
             if row["min_per_mile"] is not None and prev["min_per_mile"] is not None:
                 row["d_pace"] = round(float(row["min_per_mile"]) - float(prev["min_per_mile"]), 2)
-            if row["place"] is not None and prev["place"] is not None:
-                row["d_place"] = row["place"] - prev["place"]
+            if row["percentile"] is not None and prev["percentile"] is not None:
+                row["d_percentile"] = round(row["percentile"] - prev["percentile"], 1)
         block["visits"].append(row)
     return sorted(by_course.values(), key=lambda b: (-len(b["visits"]), b["course_name"]))
 
