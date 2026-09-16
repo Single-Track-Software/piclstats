@@ -91,7 +91,7 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     if not dry_run:
         from piclstats.db.engine import get_session
         from piclstats.db.loader import load_event
-        from piclstats.quality import checks
+        from piclstats.quality import checks, scorecard
 
         session = get_session()
 
@@ -125,6 +125,13 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
                     )
                     summary = checks.run_checks(session, run_id, stats.event_id)
                     click.echo(_summary_line(summary))
+                    _, passed, reasons = scorecard.run_scorecard(
+                        session, run_id=run_id, event_id=stats.event_id
+                    )
+                    click.echo(
+                        "    gate: "
+                        + ("PASS, published" if passed else "BLOCKED: " + "; ".join(reasons))
+                    )
             except Exception as exc:
                 errors += 1
                 click.echo(f"  ERROR event {eid}: {exc}", err=True)
@@ -340,6 +347,25 @@ def dq_check(event_ids: tuple[int, ...], check_all: bool) -> None:
         click.echo(f"{len(ids)} events: {excluded} excluded, {warned} flagged")
         for k, v in sorted(totals.items()):
             click.echo(f"  {k}: {v}")
+    finally:
+        session.close()
+
+
+@dq.command("scorecard")
+def dq_scorecard() -> None:
+    """Compute the scorecard, evaluate the gate against the previous run, record both."""
+    from piclstats.db.engine import get_session
+    from piclstats.quality import scorecard
+
+    session = get_session()
+    try:
+        run_id, passed, reasons = scorecard.run_scorecard(session)
+        for m in scorecard.compute_metrics(session):
+            frac = f" ({m.numerator}/{m.denominator})" if m.denominator else ""
+            click.echo(f"  {m.metric:34} {m.value if m.value is not None else '—'}{frac}")
+        click.echo(
+            f"run {run_id}: gate " + ("PASS" if passed else "BLOCKED: " + "; ".join(reasons))
+        )
     finally:
         session.close()
 
