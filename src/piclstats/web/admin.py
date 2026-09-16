@@ -10,6 +10,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -557,6 +558,7 @@ def dq_page(
     request: Request,
     q: str = "",
     check: str = "",
+    error: str = "",
     _: dict = Depends(require_admin),
 ):
     """Data-quality control tower: pipeline flow, scorecard, findings, lineage."""
@@ -564,7 +566,7 @@ def dq_page(
 
     with get_session() as s:
         data = dqpage.page(s, q=q, check=check or None)
-    return templates.TemplateResponse("admin/dq.html", {"request": request, **data})
+    return templates.TemplateResponse("admin/dq.html", {"request": request, "error": error, **data})
 
 
 @router.post("/dq/publish")
@@ -591,6 +593,55 @@ async def dq_publish(
         )
         s.commit()
     return RedirectResponse("/admin/dq", status_code=303)
+
+
+@router.post("/dq/golden")
+async def dq_golden_add(
+    request: Request,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Pin a fact the scorecard must keep true (ADR 002 golden fixtures)."""
+    from piclstats.quality.scorecard import add_golden
+
+    form = await request.form()
+    kind = _form_str(form, "kind")
+    note = _form_str(form, "note") or None
+    subject: dict[str, Any]
+    expected: dict[str, Any]
+    try:
+        if kind == "rider_canonical":
+            subject = {"rider_id": int(_form_str(form, "rider_id"))}
+            expected = {"canonical_id": int(_form_str(form, "canonical_id"))}
+        elif kind == "event_type":
+            subject = {"raceresult_id": int(_form_str(form, "raceresult_id"))}
+            expected = {"type": _form_str(form, "value").strip()}
+        elif kind == "event_course":
+            subject = {"raceresult_id": int(_form_str(form, "raceresult_id"))}
+            expected = {"course": _form_str(form, "value").strip()}
+        else:
+            raise ValueError("unknown kind")
+        if not all(expected.values()):
+            raise ValueError("missing expected value")
+    except ValueError:
+        return RedirectResponse(
+            "/admin/dq?error=Could+not+read+that+fixture#golden", status_code=303
+        )
+    with get_session() as s:
+        add_golden(s, kind, subject, expected, note)
+    return RedirectResponse("/admin/dq#golden", status_code=303)
+
+
+@router.post("/dq/golden/{golden_id}/delete")
+async def dq_golden_delete(
+    golden_id: int,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    with get_session() as s:
+        s.execute(text("DELETE FROM picl_golden WHERE id = :id"), {"id": golden_id})
+        s.commit()
+    return RedirectResponse("/admin/dq#golden", status_code=303)
 
 
 @router.get("/users", response_class=HTMLResponse)

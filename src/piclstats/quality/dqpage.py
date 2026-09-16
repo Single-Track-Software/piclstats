@@ -305,8 +305,50 @@ def unpublished(session: Session) -> list[dict[str, Any]]:
     ]
 
 
+def golden(session: Session) -> dict[str, Any]:
+    from piclstats.quality.scorecard import GOLDEN_KINDS, evaluate_golden
+
+    rows = evaluate_golden(session)
+    # Names make the fixture list readable.
+    rider_ids = {
+        v
+        for r in rows
+        if r["kind"] == "rider_canonical"
+        for v in (r["subject"].get("rider_id"), r["want"], r["got"])
+        if v
+    }
+    names: dict[int, str] = {}
+    if rider_ids:
+        names = {
+            i: f"{n} ({t or 'no team'})"
+            for i, n, t in session.execute(
+                text("SELECT id, name, team FROM riders WHERE id = ANY(:ids)"),
+                {"ids": list(rider_ids)},
+            ).all()
+        }
+    for r in rows:
+        r["names"] = names
+    pairs = [
+        dict(x._mapping)
+        for x in session.execute(
+            text("""
+            SELECT p.id, p.rider_id_a, p.rider_id_b, p.should_merge, p.note,
+                   ra.name AS name_a, ra.team AS team_a, rb.name AS name_b, rb.team AS team_b,
+                   COALESCE(aa.canonical_id, p.rider_id_a) = COALESCE(ab.canonical_id, p.rider_id_b) AS merged
+            FROM picl_golden_pairs p
+            JOIN riders ra ON ra.id = p.rider_id_a JOIN riders rb ON rb.id = p.rider_id_b
+            LEFT JOIN rider_aliases aa ON aa.rider_id = p.rider_id_a
+            LEFT JOIN rider_aliases ab ON ab.rider_id = p.rider_id_b
+            ORDER BY p.id
+            """)
+        ).all()
+    ]
+    return {"rows": rows, "pairs": pairs, "kinds": GOLDEN_KINDS}
+
+
 def page(session: Session, q: str = "", check: str | None = None) -> dict[str, Any]:
     return {
+        "golden": golden(session),
         "discovered": discovered(session),
         "unpublished": unpublished(session),
         "flow": flow(session),

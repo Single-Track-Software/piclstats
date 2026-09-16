@@ -88,46 +88,96 @@ def seed_golden_pairs_from_conflicts(session: Session) -> int:
     return added
 
 
-def _golden_metrics(session: Session) -> list[Metric]:
-    out: list[Metric] = []
-    failures: list[str] = []
-    passed = total = 0
-    for kind, subject, expected, note in session.execute(
-        text("SELECT kind, subject, expected, note FROM picl_golden")
+GOLDEN_KINDS = {
+    "rider_canonical": "rider id resolves to this canonical rider id",
+    "event_type": "raceresult id is classified as this event type",
+    "event_course": "raceresult id is mapped to this course",
+}
+
+
+def evaluate_golden(session: Session) -> list[dict[str, Any]]:
+    """Every positive fixture with what the data says now and whether it holds."""
+    out: list[dict[str, Any]] = []
+    for gid, kind, subject, expected, note in session.execute(
+        text("SELECT id, kind, subject, expected, note FROM picl_golden ORDER BY id")
     ).all():
-        total += 1
-        ok = False
+        got: Any = None
+        want: Any = None
         if kind == "rider_canonical":
+            want = expected.get("canonical_id")
             got = session.execute(
                 text(
-                    "SELECT COALESCE(canonical_id, :id) FROM (SELECT :id AS id) x "
+                    "SELECT COALESCE(a.canonical_id, :id) FROM (SELECT 1) x "
                     "LEFT JOIN rider_aliases a ON a.rider_id = :id"
                 ),
-                {"id": subject["rider_id"]},
+                {"id": subject.get("rider_id")},
             ).scalar()
-            ok = got == expected["canonical_id"]
         elif kind in ("event_type", "event_course"):
+            want = expected.get("type") if kind == "event_type" else expected.get("course")
             col = "e.event_type" if kind == "event_type" else "c.name"
             got = session.execute(
                 text(
                     f"SELECT {col} FROM events e LEFT JOIN courses c ON c.id = e.course_id "
                     "WHERE e.raceresult_id = :rr"
                 ),
-                {"rr": subject["raceresult_id"]},
+                {"rr": subject.get("raceresult_id")},
             ).scalar()
-            ok = got == expected.get(kind.split("_")[1])
-        if ok:
-            passed += 1
-        else:
-            failures.append(
-                f"{kind} {json.dumps(subject)} expected {json.dumps(expected)} ({note or ''})"
-            )
+        out.append(
+            {
+                "id": gid,
+                "kind": kind,
+                "subject": subject,
+                "expected": expected,
+                "note": note,
+                "want": want,
+                "got": got,
+                "ok": got is not None and got == want,
+            }
+        )
+    return out
+
+
+def add_golden(
+    session: Session,
+    kind: str,
+    subject: dict[str, Any],
+    expected: dict[str, Any],
+    note: str | None = None,
+) -> int:
+    if kind not in GOLDEN_KINDS:
+        raise ValueError(f"unknown golden kind {kind!r}")
+    gid = session.execute(
+        text("""
+        INSERT INTO picl_golden (kind, subject, expected, note)
+        VALUES (:kind, CAST(:subject AS jsonb), CAST(:expected AS jsonb), :note) RETURNING id
+        """),
+        {
+            "kind": kind,
+            "subject": json.dumps(subject),
+            "expected": json.dumps(expected),
+            "note": note,
+        },
+    ).scalar_one()
+    session.commit()
+    return gid
+
+
+def _golden_metrics(session: Session) -> list[Metric]:
+    out: list[Metric] = []
+    rows = evaluate_golden(session)
+    passed = sum(1 for r in rows if r["ok"])
+    failures = [
+        f"{r['kind']} {json.dumps(r['subject'])} expected {r['want']!r}, got {r['got']!r}"
+        f" ({r['note'] or ''})"
+        for r in rows
+        if not r["ok"]
+    ]
     out.append(
         Metric(
             "golden_overall_pass_pct",
-            _pct(passed, total),
+            _pct(passed, len(rows)),
             passed,
-            total,
+            len(rows),
             {"failures": failures[:50]},
         )
     )

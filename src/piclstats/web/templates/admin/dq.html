@@ -150,6 +150,59 @@
 </div>
 {% endif %}
 
+<div id="golden" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-sm font-semibold text-gray-700">Golden fixtures <span class="font-normal text-gray-500">— facts every scorecard run must keep true; a failure blocks the publish gate</span></h2>
+        <span class="text-xs text-gray-400">{{ golden.rows | selectattr('ok') | list | length }}/{{ golden.rows | length }} holding · {{ golden.pairs | length }} never-merge pairs</span>
+    </div>
+    {% if error %}<div class="px-4 py-2 bg-red-50 text-red-700 text-sm">{{ error }}</div>{% endif %}
+    <div class="grid md:grid-cols-2 gap-0 divide-y md:divide-y-0 md:divide-x divide-gray-100">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Must stay true</th><th class="px-2 py-2">Now</th><th class="px-2 py-2"></th></tr></thead>
+                <tbody class="divide-y divide-gray-100">
+                {% for g in golden.rows %}
+                <tr>
+                    <td class="px-4 py-1.5">
+                        {% if g.kind == 'rider_canonical' %}<span class="font-mono text-xs">{{ g.names.get(g.subject.rider_id, '#' ~ g.subject.rider_id) }}</span> <span class="text-gray-400">→</span> <span class="font-mono text-xs">{{ g.names.get(g.want, '#' ~ g.want) }}</span>
+                        {% else %}<span class="font-mono text-xs">raceresult {{ g.subject.raceresult_id }}</span> <span class="text-gray-400">{{ 'type' if g.kind == 'event_type' else 'course' }} =</span> <span class="font-mono text-xs">{{ g.want }}</span>{% endif %}
+                        {% if g.note %}<div class="text-[11px] text-gray-400">{{ g.note }}</div>{% endif %}
+                    </td>
+                    <td class="px-2 py-1.5 text-center">{% if g.ok %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700">holds</span>{% else %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600" title="now: {{ g.got }}">broken</span>{% endif %}</td>
+                    <td class="px-2 py-1.5 text-right"><form method="post" action="/admin/dq/golden/{{ g.id }}/delete" class="inline"><button class="text-[10px] text-gray-400 hover:text-red-600">remove</button></form></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="px-4 py-4 text-center text-gray-400 text-sm">No fixtures yet. Pin a rider merge from the inspector below, or add one here.</td></tr>
+                {% endfor %}
+                {% for pr in golden.pairs %}
+                <tr>
+                    <td class="px-4 py-1.5"><span class="font-mono text-xs">{{ pr.name_a }} ({{ pr.team_a or 'no team' }})</span> <span class="text-gray-400">≠</span> <span class="font-mono text-xs">{{ pr.name_b }} ({{ pr.team_b or 'no team' }})</span>{% if pr.note %}<div class="text-[11px] text-gray-400">{{ pr.note }}</div>{% endif %}</td>
+                    <td class="px-2 py-1.5 text-center">{% if pr.merged == pr.should_merge %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700">holds</span>{% else %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600">broken</span>{% endif %}</td>
+                    <td></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        <form method="post" action="/admin/dq/golden" class="p-4 text-sm space-y-2">
+            <div class="text-xs text-gray-500">Add a fixture</div>
+            <label class="block"><span class="text-xs text-gray-500">Kind</span>
+                <select name="kind" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm">
+                    {% for k, help in golden.kinds.items() %}<option value="{{ k }}">{{ k }} — {{ help }}</option>{% endfor %}
+                </select></label>
+            <div class="grid grid-cols-2 gap-2">
+                <label class="block"><span class="text-xs text-gray-500">rider id</span><input name="rider_id" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm font-mono" placeholder="riders.id"></label>
+                <label class="block"><span class="text-xs text-gray-500">canonical id</span><input name="canonical_id" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm font-mono" placeholder="riders.id"></label>
+                <label class="block"><span class="text-xs text-gray-500">raceresult id</span><input name="raceresult_id" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm font-mono" placeholder="e.g. 410562"></label>
+                <label class="block"><span class="text-xs text-gray-500">type / course</span><input name="value" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm" placeholder="rally · Penn College"></label>
+            </div>
+            <label class="block"><span class="text-xs text-gray-500">note</span><input name="note" class="w-full border border-gray-300 rounded-md px-2 py-1 text-sm" placeholder="why this is known"></label>
+            <button class="bg-picl-700 text-white text-sm px-3 py-1.5 rounded-md hover:bg-picl-800">Pin it</button>
+            <p class="text-[11px] text-gray-400">Fill the two fields the kind needs; the rest are ignored.</p>
+        </form>
+    </div>
+</div>
+
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
         <h2 class="text-sm font-semibold text-gray-700">Lineage inspector <span class="font-normal text-gray-500">— every raw value that fed a canonical one, and why</span></h2>
@@ -171,7 +224,7 @@
         <tbody class="divide-y divide-gray-100">
         {% for e in lineage.edges %}
         <tr>
-            <td class="px-4 py-1.5 font-mono text-xs">{{ e.raw_value }}{% if lineage.level == 'rider' and e.raw_id %} <a href="/rider/{{ e.raw_id }}" class="text-picl-700 hover:underline">#{{ e.raw_id }}</a>{% endif %}</td>
+            <td class="px-4 py-1.5 font-mono text-xs">{{ e.raw_value }}{% if lineage.level == 'rider' and e.raw_id %} <a href="/rider/{{ e.raw_id }}" class="text-picl-700 hover:underline">#{{ e.raw_id }}</a>{% if e.raw_id|string != lineage.key %} <form method="post" action="/admin/dq/golden" class="inline"><input type="hidden" name="kind" value="rider_canonical"><input type="hidden" name="rider_id" value="{{ e.raw_id }}"><input type="hidden" name="canonical_id" value="{{ lineage.key }}"><input type="hidden" name="note" value="{{ e.raw_value }} is {{ lineage.canonical }}"><button class="text-[10px] text-gray-400 hover:text-picl-700" title="Pin: the scorecard must keep this merge">pin</button></form>{% endif %}{% endif %}</td>
             <td class="px-2 py-1.5 text-gray-600">{{ e.stage }}</td>
             <td class="px-2 py-1.5 text-gray-400 font-mono text-[11px]">{{ e.origin or '' }}</td>
             <td class="px-2 py-1.5 text-right font-mono">{{ "{:,}".format(e.volume or 0) }}</td>
