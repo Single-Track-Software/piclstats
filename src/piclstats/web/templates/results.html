@@ -73,7 +73,7 @@
             </div>
         </div>
         <div class="text-xs text-gray-400 flex items-center gap-3">
-            <span>{{ finishers }} placed of {{ results | length }} · {{ n_laps }} lap{{ 's' if n_laps != 1 }}</span>
+            <span>{{ finishers }} placed of {{ results | length }}{% if n_laps > 0 %} · {{ n_laps }} lap{{ 's' if n_laps != 1 }}{% endif %}</span>
             <a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="text-picl-700 hover:underline" title="Official timing page">raceresult.com &nearr;</a>
         </div>
     </div>

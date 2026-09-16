@@ -18,12 +18,12 @@
                 <div class="text-gray-400">Results</div>
                 <div class="font-mono font-medium text-sm">{{ "{:,}".format(c.result_count or 0) }}</div>
             </div>
-            <div>
+            {% if c.difficulty_score %}<div>
                 <div class="text-gray-400">Difficulty</div>
                 <div class="font-mono font-medium text-sm">
-                    {% if c.difficulty_score %}{{ "%.1f"|format(c.difficulty_score) }}{% else %}<span class="text-gray-300">TBD</span>{% endif %}
+                    {{ "%.1f"|format(c.difficulty_score) }}
                 </div>
-            </div>
+            </div>{% endif %}
         </div>
         {% if c.ms_distance_miles or c.hs_distance_miles %}
         <div class="mt-2 flex gap-3 text-xs text-gray-400">

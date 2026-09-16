@@ -11,6 +11,8 @@ import hashlib
 from pathlib import Path
 from urllib.parse import urlencode
 
+from collections.abc import Awaitable, Callable
+
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -168,6 +170,26 @@ app.include_router(admin_router)
 def _ctx(request: Request, **kwargs) -> dict:
     """Build base template context."""
     return {"request": request, **kwargs}
+
+
+@app.middleware("http")
+async def head_as_get(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Answer HEAD like GET without a body.
+
+    FastAPI's GET routes do not accept HEAD, so uptime monitors and link
+    checkers got a 405 from every page on the canonical host.
+    """
+    if request.method != "HEAD":
+        return await call_next(request)
+    request.scope["method"] = "GET"
+    response = await call_next(request)
+    return Response(
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        media_type=response.media_type,
+    )
 
 
 def parse_season(raw: str | None) -> int | None:
