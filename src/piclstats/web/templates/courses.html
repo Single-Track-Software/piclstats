@@ -6,7 +6,7 @@
 
 <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
     {% for c in courses %}
-    <a href="/course/{{ c.id }}" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:border-picl-300 hover:shadow-md transition-all">
+    <a href="/course/{{ c.id }}" class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 hover:border-picl-200 hover:shadow-md transition-all">
         <h2 class="text-lg font-semibold text-picl-700">{{ c.name }}</h2>
         <div class="text-sm text-gray-500 mt-1">{{ c.location or '' }}</div>
         <div class="mt-3 grid grid-cols-3 gap-3 text-xs">

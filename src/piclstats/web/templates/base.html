@@ -4,26 +4,10 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PICL Stats{% endblock %}</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <style>
-        [x-cloak] { display: none !important; }
-    </style>
-    <script>
-        tailwind.config = {
-            theme: {
-                extend: {
-                    colors: {
-                        picl: {
-                            50: '#eef0fe', 100: '#d8dbfc', 200: '#a9aff8',
-                            500: '#1020e8', 600: '#0d1bc8', 700: '#0b16a7',
-                            800: '#091285', 900: '#060d5f',
-                        }
-                    }
-                }
-            }
-        }
-    </script>
+    <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
+            integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
+            crossorigin="anonymous"></script>
 </head>
 <body class="h-full">
     <nav class="bg-picl-800 shadow-lg">

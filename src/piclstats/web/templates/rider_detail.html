@@ -17,8 +17,8 @@
                 {% for th in team_history %}
                 <a href="/team/{{ th.team | urlencode }}" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-picl-50 text-picl-700 border border-picl-200 hover:bg-picl-100">
                     {{ th.team }}
-                    <span class="text-picl-400">{{ th.from_season }}{% if th.from_season != th.to_season %}–{{ th.to_season }}{% endif %}</span>
-                    <span class="text-picl-300">({{ th.races }})</span>
+                    <span class="text-picl-500">{{ th.from_season }}{% if th.from_season != th.to_season %}–{{ th.to_season }}{% endif %}</span>
+                    <span class="text-picl-500">({{ th.races }})</span>
                 </a>
                 {% endfor %}
             </div>
