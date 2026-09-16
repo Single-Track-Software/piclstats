@@ -317,7 +317,7 @@ def _profile_block(
 def course_edit(
     request: Request,
     course_id: int,
-    saved: int = 0,
+    saved: str = "",
     add: int | None = None,
     _: str = Depends(require_admin),
 ):
@@ -570,6 +570,26 @@ def users_invite_revoke(
     return RedirectResponse("/admin/users?saved=Invite+revoked", status_code=303)
 
 
+def user_action_block(
+    action: str, role: str | None, target: Mapping, admin: Mapping, active_admins: int
+) -> str | None:
+    """Why an admin action on a user must be refused, or None if it is fine.
+
+    Two lock-out paths are closed: an admin changing their own access (the
+    form posts set_role, not "demote", so the role check has to look at the
+    requested role), and removing the last active admin, after which nobody
+    could invite or repair anything without a database edit.
+    """
+    removes_access = action == "deactivate" or (action == "set_role" and role != "admin")
+    if not removes_access:
+        return None
+    if target["id"] == admin["id"]:
+        return "You cannot change your own access"
+    if target["role"] == "admin" and target["is_active"] and active_admins <= 1:
+        return "Cannot remove the last active admin"
+    return None
+
+
 @router.post("/users/{user_id}")
 async def users_update(
     request: Request,
@@ -584,16 +604,19 @@ async def users_update(
     if not target:
         raise HTTPException(404, "User not found")
 
-    # Don't let an admin lock themselves out of the last admin path.
-    if action in ("deactivate", "demote") and target["id"] == admin["id"]:
-        return RedirectResponse(
-            "/admin/users?error=You+cannot+change+your+own+access", status_code=303
-        )
+    role = (_form_str(form, "role") or "member") if action == "set_role" else None
+    if role is not None and role not in VALID_ROLES:
+        return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
+
+    active_admins = sum(
+        1 for u in users_store.list_users() if u["role"] == "admin" and u["is_active"]
+    )
+    blocked = user_action_block(action, role, target, admin, active_admins)
+    if blocked:
+        return RedirectResponse("/admin/users?error=" + quote(blocked), status_code=303)
 
     if action == "set_role":
-        role = _form_str(form, "role") or "member"
-        if role not in VALID_ROLES:
-            return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
+        assert role is not None
         users_store.set_role(user_id, role)
         return RedirectResponse("/admin/users?saved=Role+updated", status_code=303)
     if action == "activate":
