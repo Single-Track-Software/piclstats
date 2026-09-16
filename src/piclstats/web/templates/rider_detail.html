@@ -85,6 +85,9 @@
 </div>
 
 <!-- Race history table -->
+{% set ns = namespace(laps=3) %}
+{% for r in races %}{% for i in range(4, 7) %}{% if r['lap' ~ i] and i > ns.laps %}{% set ns.laps = i %}{% endif %}{% endfor %}{% endfor %}
+{% set race_laps = ns.laps %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-6 py-3 border-b bg-gray-50">
         <h2 class="text-lg font-semibold text-gray-900">Race History</h2>
@@ -102,9 +105,7 @@
                     <th class="px-4 py-3 text-right">Points</th>
                     <th class="px-4 py-3 text-right">Time</th>
                     <th class="px-4 py-3 text-right">Min/Mi</th>
-                    <th class="px-4 py-3 text-right">Lap 1</th>
-                    <th class="px-4 py-3 text-right">Lap 2</th>
-                    <th class="px-4 py-3 text-right">Lap 3</th>
+                    {% for i in range(1, race_laps + 1) %}<th class="px-4 py-3 text-right">Lap {{ i }}</th>{% endfor %}
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
@@ -126,9 +127,9 @@
                     <td class="px-4 py-2 text-right font-mono font-medium text-picl-700">
                         {% if r.min_per_mile %}{{ "%.1f"|format(r.min_per_mile) }}{% else %}—{% endif %}
                     </td>
-                    <td class="px-4 py-2 text-right font-mono text-xs">{{ r.lap1 or '' }}</td>
-                    <td class="px-4 py-2 text-right font-mono text-xs">{{ r.lap2 or '' }}</td>
-                    <td class="px-4 py-2 text-right font-mono text-xs">{{ r.lap3 or '' }}</td>
+                    {% for i in range(1, race_laps + 1) %}
+                    <td class="px-4 py-2 text-right font-mono text-xs">{{ r['lap' ~ i] or '' }}</td>
+                    {% endfor %}
                 </tr>
                 {% endfor %}
             </tbody>
@@ -207,13 +208,17 @@
 const races = {{ races | tojson }};
 const percentiles = {{ percentiles | tojson }};
 
-// Color palette per season
-const seasonColors = {
-    2022: {bg: 'rgba(99,102,241,0.15)', border: 'rgb(99,102,241)'},
-    2023: {bg: 'rgba(234,88,12,0.15)', border: 'rgb(234,88,12)'},
-    2024: {bg: 'rgba(16,185,129,0.15)', border: 'rgb(16,185,129)'},
-    2025: {bg: 'rgba(59,130,246,0.15)', border: 'rgb(59,130,246)'},
-};
+// One colour per season the rider raced, assigned in order, so a new
+// season never falls back to grey.
+const palette = [
+    'rgb(99,102,241)', 'rgb(234,88,12)', 'rgb(16,185,129)', 'rgb(59,130,246)',
+    'rgb(217,70,239)', 'rgb(202,138,4)', 'rgb(20,184,166)', 'rgb(225,29,72)',
+];
+const seasonColors = {};
+[...new Set(races.map(r => r.season))].sort().forEach((season, i) => {
+    const rgb = palette[i % palette.length];
+    seasonColors[season] = {bg: rgb.replace('rgb(', 'rgba(').replace(')', ',0.15)'), border: rgb};
+});
 const defaultColor = {bg: 'rgba(107,114,128,0.15)', border: 'rgb(107,114,128)'};
 
 // Build labels + data
