@@ -552,6 +552,21 @@ def _users_page(
     )
 
 
+@router.get("/dq", response_class=HTMLResponse)
+def dq_page(
+    request: Request,
+    q: str = "",
+    check: str = "",
+    _: dict = Depends(require_admin),
+):
+    """Data-quality control tower: pipeline flow, scorecard, findings, lineage."""
+    from piclstats.quality import dqpage
+
+    with get_session() as s:
+        data = dqpage.page(s, q=q, check=check or None)
+    return templates.TemplateResponse("admin/dq.html", {"request": request, **data})
+
+
 @router.get("/users", response_class=HTMLResponse)
 def users_list(
     request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)
