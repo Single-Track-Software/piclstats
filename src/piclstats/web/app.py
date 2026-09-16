@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
+from piclstats.web import canonical
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
@@ -45,6 +46,22 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 # Middleware runs outermost-last, so add the user-context middleware first and
 # SessionMiddleware second — SessionMiddleware then wraps it and request.session
 # is populated before _load_user_state runs.
+@app.middleware("http")
+async def _canonical_host_redirect(request: Request, call_next):
+    # One public name: GET/HEAD on www / the fly.dev address 301 to the host in
+    # PICLSTATS_PUBLIC_BASE_URL (see web/canonical.py). No-op when unset.
+    target = canonical.redirect_target(
+        request.method,
+        request.headers.get("host", ""),
+        request.url.path,
+        request.url.query,
+        settings.public_base_url,
+    )
+    if target:
+        return RedirectResponse(target, status_code=301)
+    return await call_next(request)
+
+
 @app.middleware("http")
 async def _load_user_state(request: Request, call_next):
     # Expose the current user to every template (nav login state) via request.state.
