@@ -567,6 +567,32 @@ def dq_page(
     return templates.TemplateResponse("admin/dq.html", {"request": request, **data})
 
 
+@router.post("/dq/publish")
+async def dq_publish(
+    request: Request,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Publish or hide one event by hand (overrides the gate)."""
+    form = await request.form()
+    event_id = int(_form_str(form, "event_id") or 0)
+    publish = _form_str(form, "publish") == "1"
+    with get_session() as s:
+        s.execute(
+            text("UPDATE events SET is_published = :p WHERE id = :id"),
+            {"p": publish, "id": event_id},
+        )
+        s.execute(
+            text("""
+            UPDATE discovered_events SET status = :st, updated_at = now()
+            WHERE raceresult_id = (SELECT raceresult_id FROM events WHERE id = :id)
+            """),
+            {"st": "published" if publish else "blocked", "id": event_id},
+        )
+        s.commit()
+    return RedirectResponse("/admin/dq", status_code=303)
+
+
 @router.get("/users", response_class=HTMLResponse)
 def users_list(
     request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)

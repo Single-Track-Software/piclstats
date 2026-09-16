@@ -29,6 +29,8 @@ events = Table(
     Column("event_order", SmallInteger),
     # 'points' (counts toward standings) | 'rally' | 'exhibition' (do not)
     Column("event_type", Text, nullable=False, server_default="points"),
+    # False while the publish gate holds a newly discovered race (ADR 002).
+    Column("is_published", Boolean, nullable=False, server_default="true"),
     Column("scraped_at", DateTime(timezone=True), server_default=func.now()),
     Index("idx_events_season", "season"),
     Index("idx_events_event_type", "event_type"),
@@ -325,4 +327,20 @@ picl_golden_pairs = Table(
     Column("note", Text),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     UniqueConstraint("rider_id_a", "rider_id_b", name="uq_golden_pair"),
+)
+
+# Every raceresult id seen on the league results page and what became of it.
+discovered_events = Table(
+    "discovered_events",
+    metadata,
+    Column("raceresult_id", Integer, primary_key=True),
+    Column("season", SmallInteger, nullable=False),
+    Column("name", Text),
+    Column("source_url", Text),
+    Column("found_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column(
+        "status", Text, nullable=False, server_default="new"
+    ),  # new|published|blocked|failed|ignored
+    Column("note", Text),
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )

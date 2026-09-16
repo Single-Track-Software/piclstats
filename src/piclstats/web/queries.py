@@ -143,7 +143,7 @@ def overview_stats(session: Session) -> dict:
             count(r.id) AS results,
             count(DISTINCT e.season) AS seasons
         FROM results r
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN canonical c ON c.rider_id = r.rider_id
     """)
     ).one()
@@ -151,7 +151,9 @@ def overview_stats(session: Session) -> dict:
 
 
 def seasons_list(session: Session) -> list[int]:
-    rows = session.execute(text("SELECT DISTINCT season FROM events ORDER BY season")).all()
+    rows = session.execute(
+        text("SELECT DISTINCT season FROM events WHERE is_published ORDER BY season")
+    ).all()
     return [r[0] for r in rows]
 
 
@@ -162,7 +164,7 @@ def divisions_list(session: Session) -> list[str]:
     rows = session.execute(
         text(
             "SELECT DISTINCT r.division "
-            "FROM results r JOIN events e ON r.event_id = e.id "
+            "FROM results r JOIN events e ON r.event_id = e.id AND e.is_published "
             "WHERE r.division IS NOT NULL AND e.event_type = 'points' "
             "ORDER BY r.division"
         )
@@ -195,7 +197,7 @@ def search_riders(
             max(e.season) AS last_season
         FROM canonical c
         JOIN results r ON r.rider_id = c.rider_id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE c.name ILIKE :q
           AND {_POINTS_ONLY}
     """
@@ -260,7 +262,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                count(r.id) AS races
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE ri.id = ANY(:ids)
         GROUP BY ri.team
         ORDER BY from_season
@@ -302,7 +304,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                  )::numeric, 1)
             END AS min_per_mile
         FROM results r
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN riders ri ON r.rider_id = ri.id
         {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
@@ -323,7 +325,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             sum(r.points) AS total_points,
             r.division AS primary_division
         FROM results r
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND e.event_type = 'points'
         GROUP BY e.season, r.division
@@ -355,7 +357,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             ranked.field_size,
             round(((1.0 - ranked.pct_rank) * 100)::numeric, 1) AS percentile
         FROM ranked
-        JOIN events e ON ranked.event_id = e.id
+        JOIN events e ON ranked.event_id = e.id AND e.is_published
         WHERE ranked.rider_id = ANY(:ids)
         ORDER BY e.season, e.event_order
     """),
@@ -383,7 +385,7 @@ def search_teams(session: Session, q: str, season: int | None = None) -> list[di
             round(avg(r.place)::numeric, 1) AS avg_place
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE ri.team ILIKE :q
           AND e.event_type = 'points'
     """
@@ -425,7 +427,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
             sum(r.points) AS total_points
         FROM canonical c
         JOIN results r ON r.rider_id = c.rider_id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE c.team = :team {season_filter}
           AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND {_POINTS_ONLY}
@@ -445,7 +447,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
             round(avg(r.place)::numeric, 1) AS avg_place
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE ri.team = :team {season_filter}
           AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
           AND {_POINTS_ONLY}
@@ -467,7 +469,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
             sum(r.points) AS total_points
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE ri.team = :team {season_filter}
         GROUP BY e.season, e.event_name, e.event_order, e.id
         ORDER BY e.season, e.event_order
@@ -480,7 +482,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         SELECT DISTINCT e.season
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE ri.team = :team
         ORDER BY e.season
     """),
@@ -585,12 +587,12 @@ def leaderboard(
             sum(r.points) AS total_points
         FROM results r
         JOIN canonical c ON c.rider_id = r.rider_id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE {where}
         GROUP BY c.cid, c.name, r.division, r.gender
         HAVING count(DISTINCT r.event_id) >= LEAST(2, (
             SELECT count(*) FROM events e2
-            WHERE e2.event_type = 'points' {scope_season}
+            WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
         ))
         ORDER BY {order_col}
         {limit_sql}
@@ -636,7 +638,7 @@ def team_leaderboard(
             min(r.place) AS best_place
         FROM results r
         JOIN riders ri ON r.rider_id = ri.id
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND ri.team IS NOT NULL
           AND {_POINTS_ONLY}
           {season_filter}
@@ -665,7 +667,7 @@ def courses_list(session: Session) -> list[dict]:
             AND ms.season IS NULL
         LEFT JOIN course_loops hs ON hs.course_id = c.id AND hs.loop_type = 'HS'
             AND hs.season IS NULL
-        LEFT JOIN events e ON e.course_id = c.id
+        LEFT JOIN events e ON e.course_id = c.id AND e.is_published
         LEFT JOIN results r ON r.event_id = e.id
         GROUP BY c.id, ms.distance_miles, ms.elevation_ft, hs.distance_miles, hs.elevation_ft
         ORDER BY c.name
@@ -708,7 +710,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                count(r.id) AS results
         FROM events e
         LEFT JOIN results r ON r.event_id = e.id
-        WHERE e.course_id = :cid {season_filter}
+        WHERE e.course_id = :cid AND e.is_published {season_filter}
         GROUP BY e.id
         ORDER BY e.season, e.event_order
     """),
@@ -756,7 +758,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                    / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT} AND cl.distance_miles > 0)::numeric, 1) AS avg_min_per_mile
         FROM {_COURSE_RESULTS}
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN riders ri ON r.rider_id = ri.id
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
         {_LAP_JOINS}
@@ -782,7 +784,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
             round(avg(r.points)::numeric, 1) AS avg_points,
             min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS best_time
         FROM {_COURSE_RESULTS}
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN canonical c ON c.rider_id = r.rider_id
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded'
           {season_filter}
@@ -797,7 +799,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     seasons_available = session.execute(
         text("""
         SELECT DISTINCT e.season
-        FROM events e WHERE e.course_id = :cid
+        FROM events e WHERE e.course_id = :cid AND e.is_published
         ORDER BY e.season
     """),
         {"cid": course_id},
@@ -880,7 +882,7 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
                  THEN round((cl.elevation_ft / cl.distance_miles)::numeric, 1)
             END AS elevation_ft_per_mile
         FROM results r
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
           AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
@@ -968,7 +970,7 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
                           / ({_ACTUAL_LAPS} * cl.distance_miles)
                 END AS min_per_mile
             FROM results r
-            JOIN events e ON r.event_id = e.id AND e.event_type = 'points'
+            JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
             JOIN riders ri ON r.rider_id = ri.id
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
             {_LAP_JOINS_INNER}
@@ -1039,7 +1041,7 @@ def staging_rows(
                           / ({_ACTUAL_LAPS} * cl.distance_miles)
                 END AS min_per_mile
             FROM results r
-            JOIN events e ON r.event_id = e.id AND e.event_type = 'points'
+            JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
                 AND e.season = :season
             JOIN riders ri ON r.rider_id = ri.id
             LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
@@ -1105,7 +1107,7 @@ def division_pace_distribution(
                 / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
             )::numeric, 1) AS min_per_mile
         FROM results r
-        JOIN events e ON r.event_id = e.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
         {_LAP_JOINS}
         WHERE {div_filter}
           AND r.gender = :gender
@@ -1194,7 +1196,7 @@ def forecast_courses(session: Session) -> list[dict]:
         text("""
         SELECT c.id, c.name, max(e.season) AS last_season
         FROM courses c
-        JOIN events e ON e.course_id = c.id AND e.event_type = 'points'
+        JOIN events e ON e.course_id = c.id AND e.is_published AND e.event_type = 'points'
         GROUP BY c.id, c.name
         ORDER BY c.name
     """)
@@ -1229,7 +1231,7 @@ def events_list(session: Session) -> list[dict]:
         text("""
         SELECT e.id, e.season, e.event_name, e.event_order
         FROM events e
-        WHERE EXISTS (
+        WHERE e.is_published AND EXISTS (
             SELECT 1 FROM results r
             WHERE r.event_id = e.id AND r.lap1 IS NOT NULL
         )
@@ -1294,6 +1296,7 @@ def all_events(session: Session) -> list[dict]:
         FROM events e
         LEFT JOIN courses c ON c.id = e.course_id
         LEFT JOIN results r ON r.event_id = e.id
+        WHERE e.is_published
         GROUP BY e.id, c.name
         ORDER BY e.season DESC, e.event_order DESC
     """)
@@ -1376,7 +1379,7 @@ _VENUE_ROW_SQL = f"""
              )::numeric, 2)
         END AS min_per_mile
     FROM results r
-    JOIN events e ON r.event_id = e.id
+    JOIN events e ON r.event_id = e.id AND e.is_published
     JOIN courses co ON co.id = e.course_id
     JOIN riders ri ON ri.id = r.rider_id
     LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
@@ -1455,7 +1458,7 @@ def team_courses(session: Session, team_name: str) -> list[dict]:
         SELECT co.id, co.name, count(DISTINCT e.season) AS seasons, count(r.id) AS results
         FROM results r
         JOIN riders ri ON ri.id = r.rider_id
-        JOIN events e ON e.id = r.event_id
+        JOIN events e ON e.id = r.event_id AND e.is_published
         JOIN courses co ON co.id = e.course_id
         WHERE ri.team = :team
         GROUP BY co.id, co.name
