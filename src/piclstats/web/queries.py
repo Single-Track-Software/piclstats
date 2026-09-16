@@ -479,6 +479,9 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         {"team": team_name},
     ).all()
 
+    if not seasons_available:
+        return None  # no rider ever raced under this name -> 404, not a blank page
+
     return {
         "team_name": team_name,
         "roster": [_serialize(r._mapping) for r in roster],
