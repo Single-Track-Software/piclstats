@@ -67,3 +67,11 @@ def get_events(seasons: tuple[int, ...] | None = None) -> list[tuple[int, int, i
         for order, event_id in enumerate(ids, start=1):
             result.append((season, order, event_id))
     return result
+
+
+def lookup_event(event_id: int) -> tuple[int, int] | None:
+    """(season, event_order) for a registered raceresult event id, else None."""
+    for season, ids in SEASONS.items():
+        if event_id in ids:
+            return season, ids.index(event_id) + 1
+    return None
