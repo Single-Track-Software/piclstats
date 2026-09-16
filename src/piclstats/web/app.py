@@ -7,11 +7,13 @@ import io
 import logging
 import secrets
 from contextlib import asynccontextmanager
+import hashlib
 from pathlib import Path
 from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
@@ -39,8 +41,15 @@ async def lifespan(app: FastAPI):
     yield
 
 
+STATIC_DIR = Path(__file__).parent / "static"
+
 app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
+# Cache-buster for the built stylesheet: changes whenever app.css is rebuilt.
+templates.env.globals["static_version"] = hashlib.sha256(
+    (STATIC_DIR / "app.css").read_bytes()
+).hexdigest()[:12]
 
 
 # Middleware runs outermost-last, so add the user-context middleware first and
