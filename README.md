@@ -2,7 +2,7 @@
 
 Race-results scraper and analytics dashboard for the PA Interscholastic Cycling League (PICL / PAMTB). Scrapes results from raceresult.com into PostgreSQL and serves a FastAPI web dashboard with leaderboards, rider/team/course pages, race-position charts, staging speed-ratings, and finish-time forecasts.
 
-**Production:** https://piclstats.fly.dev (Fly.io app `piclstats`, region `ord`, scale-to-zero — first request after idle takes a few seconds).
+**Production:** https://piclstats.com (Fly.io app `piclstats`, region `ord`; `www.` and `piclstats.fly.dev` redirect there).
 
 ## Stack
 
@@ -35,7 +35,7 @@ a Homebrew upgrade removing `python@3.11` is what broke the venv before.)
 | `PICLSTATS_ADMIN_EMAIL` / `PICLSTATS_ADMIN_PASSWORD` | Bootstrap admin: created on startup if no user with that email exists. |
 | `PICLSTATS_RESEND_API_KEY` | Resend key for invite/reset emails. Blank = links are logged and shown in the admin UI instead of sent (fine for local dev). |
 | `PICLSTATS_EMAIL_FROM` | Sender, e.g. `PICL Stats <noreply@yourdomain>`. Must be on a domain verified in Resend. |
-| `PICLSTATS_PUBLIC_BASE_URL` | Absolute base for emailed links, e.g. `https://piclstats.fly.dev`. Unset, links use the requesting host. |
+| `PICLSTATS_PUBLIC_BASE_URL` | The site's one public name, e.g. `https://piclstats.com`. Emailed links use it, and GET/HEAD requests on any other host (`www.`, `piclstats.fly.dev`) 301 to it (`web/canonical.py`). Unset, links use the requesting host and nothing redirects. |
 | `PICLSTATS_SCRAPE_DELAY_SECONDS` / `PICLSTATS_LOG_LEVEL` | Scraper politeness delay; log level. |
 
 Then create/migrate the schema and load data:
