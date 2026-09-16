@@ -51,9 +51,15 @@ _SUM_LAPS = """
    + COALESCE(r.lap3,'0'::interval) + COALESCE(r.lap4,'0'::interval)
    + COALESCE(r.lap5,'0'::interval) + COALESCE(r.lap6,'0'::interval))
 """
+# Riding time: the published total includes any time penalty (a 5:00 penalty
+# shows as total = laps + 5:00 on raceresult), so pace and the split check use
+# total minus penalty. Otherwise every penalised rider failed the check below
+# and silently dropped out of pace, staging, and forecasts.
+_RIDE_TIME = "(r.total_time - COALESCE(r.penalty, '0'::interval))"
+_RIDE_SECS = f"EXTRACT(EPOCH FROM {_RIDE_TIME})"
 _LAPS_CONSISTENT = f"""
     ({_ACTUAL_LAPS} > 0
-     AND abs(EXTRACT(EPOCH FROM (r.total_time - {_SUM_LAPS}))) < 10)
+     AND abs(EXTRACT(EPOCH FROM ({_RIDE_TIME} - {_SUM_LAPS}))) < 10)
 """
 
 
@@ -290,7 +296,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                       AND cl.distance_miles > 0
                       AND {_LAPS_CONSISTENT}
                  THEN round((
-                     (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                     ({_RIDE_SECS} / 60.0)
                      / ({_ACTUAL_LAPS} * cl.distance_miles)
                  )::numeric, 1)
             END AS min_per_mile
@@ -738,10 +744,10 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                      FILTER (WHERE {_FULL_DISTANCE})::numeric, 1) AS avg_time_secs,
                min(r.total_time) FILTER (WHERE {_FULL_DISTANCE}) AS fastest_time,
                round(avg(
-                   EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
+                   {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT})::numeric, 1) AS avg_pace_per_lap_secs,
                round(avg(
-                   (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                   ({_RIDE_SECS} / 60.0)
                    / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT} AND cl.distance_miles > 0)::numeric, 1) AS avg_min_per_mile
         FROM {_COURSE_RESULTS}
@@ -861,7 +867,7 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
                       AND cl.distance_miles > 0
                       AND {_LAPS_CONSISTENT}
                  THEN round((
-                     (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                     ({_RIDE_SECS} / 60.0)
                      / ({_ACTUAL_LAPS} * cl.distance_miles)
                  )::numeric, 1)
             END AS min_per_mile,
@@ -947,13 +953,13 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.total_time < interval '2 hours'
                           AND {_LAPS_CONSISTENT}
-                     THEN EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
+                     THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
                 END AS lap_secs,
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.total_time < interval '2 hours'
                           AND cl.distance_miles > 0
                           AND {_LAPS_CONSISTENT}
-                     THEN (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                     THEN ({_RIDE_SECS} / 60.0)
                           / ({_ACTUAL_LAPS} * cl.distance_miles)
                 END AS min_per_mile
             FROM results r
@@ -1018,13 +1024,13 @@ def staging_rows(
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.total_time < interval '2 hours'
                           AND {_LAPS_CONSISTENT}
-                     THEN EXTRACT(EPOCH FROM r.total_time) / NULLIF({_ACTUAL_LAPS}, 0)
+                     THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
                 END AS lap_secs,
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.total_time < interval '2 hours'
                           AND cl.distance_miles > 0
                           AND {_LAPS_CONSISTENT}
-                     THEN (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                     THEN ({_RIDE_SECS} / 60.0)
                           / ({_ACTUAL_LAPS} * cl.distance_miles)
                 END AS min_per_mile
             FROM results r
@@ -1090,7 +1096,7 @@ def division_pace_distribution(
             r.place,
             count(*) OVER (PARTITION BY r.event_id) AS field_size,
             round((
-                (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                ({_RIDE_SECS} / 60.0)
                 / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
             )::numeric, 1) AS min_per_mile
         FROM results r
@@ -1360,7 +1366,7 @@ _VENUE_ROW_SQL = f"""
                   AND cl.distance_miles > 0
                   AND {_LAPS_CONSISTENT}
              THEN round((
-                 (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                 ({_RIDE_SECS} / 60.0)
                  / ({_ACTUAL_LAPS} * cl.distance_miles)
              )::numeric, 2)
         END AS min_per_mile

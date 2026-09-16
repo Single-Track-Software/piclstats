@@ -287,7 +287,7 @@ def seed_season_profiles(session: Session) -> tuple[int, int]:
                 WHERE e.course_id = :cid AND e.season = :season AND e.event_type = 'points'
                   AND r.status = 'OK' AND r.total_time IS NOT NULL
                   AND {RIDDEN_LAPS_SQL} > 0
-                  AND abs(EXTRACT(EPOCH FROM (r.total_time - (
+                  AND abs(EXTRACT(EPOCH FROM (r.total_time - COALESCE(r.penalty, interval '0') - (
                         COALESCE(r.lap1, interval '0') + COALESCE(r.lap2, interval '0')
                       + COALESCE(r.lap3, interval '0') + COALESCE(r.lap4, interval '0')
                       + COALESCE(r.lap5, interval '0') + COALESCE(r.lap6, interval '0'))))) < 10
