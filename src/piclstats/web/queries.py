@@ -357,6 +357,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
     return {
         "info": _serialize(info._mapping),
         "team_history": [_serialize(r._mapping) for r in team_history],
+        "venues": rider_venue_history(session, canonical_id) if canonical_id is not None else [],
         "races": [_serialize(r._mapping) for r in races],
         "season_stats": [_serialize(r._mapping) for r in season_stats],
         "percentiles": [_serialize(r._mapping) for r in percentiles],
@@ -1340,3 +1341,145 @@ def event_results(session: Session, event_id: int, category: str) -> list[dict]:
         {"eid": event_id, "cat": category},
     ).all()
     return [_serialize(r._mapping) for r in rows]
+
+
+# ── Venue history (rider page "By Venue", team page "Course History") ────
+
+_VENUE_ROW_SQL = f"""
+    SELECT
+        e.id AS event_id, e.season, e.event_order, e.event_name, e.event_type,
+        e.course_id, co.name AS course_name,
+        r.rider_id, ri.name AS rider_name, COALESCE(ra.canonical_id, ri.id) AS canonical_id,
+        r.category, r.division, r.gender, r.place, r.points, r.status, r.total_time_raw,
+        {_ACTUAL_LAPS} AS laps,
+        (SELECT count(*) FROM results x
+          WHERE x.event_id = r.event_id AND x.category = r.category AND x.place IS NOT NULL)
+            AS field,
+        CASE WHEN r.total_time IS NOT NULL
+                  AND r.total_time < interval '2 hours'
+                  AND cl.distance_miles > 0
+                  AND {_LAPS_CONSISTENT}
+             THEN round((
+                 (EXTRACT(EPOCH FROM r.total_time) / 60.0)
+                 / ({_ACTUAL_LAPS} * cl.distance_miles)
+             )::numeric, 2)
+        END AS min_per_mile
+    FROM results r
+    JOIN events e ON r.event_id = e.id
+    JOIN courses co ON co.id = e.course_id
+    JOIN riders ri ON ri.id = r.rider_id
+    LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
+    {_LAP_JOINS}
+"""
+
+
+def _with_speed(row: dict) -> dict:
+    """Add mph (from min/mile) and blank out implausible pace."""
+    mpm = row.get("min_per_mile")
+    if mpm is not None and not (_PACE_MIN <= float(mpm) <= _PACE_MAX):
+        mpm = None
+        row["min_per_mile"] = None
+    row["mph"] = round(60.0 / float(mpm), 1) if mpm else None
+    return row
+
+
+def rider_venue_history(session: Session, rider_id: int) -> list[dict]:
+    """Every visit a rider (canonical group) made to each course, oldest first,
+    with the change in pace and place versus their previous visit there.
+
+    Returns [{course_id, course_name, visits: [...]}], courses with the most
+    visits first so the year-over-year comparisons lead.
+    """
+    canonical_id = session.execute(
+        text("""
+        SELECT COALESCE((SELECT canonical_id FROM rider_aliases WHERE rider_id = :id), :id)
+    """),
+        {"id": rider_id},
+    ).scalar()
+    ids = [
+        r[0]
+        for r in session.execute(
+            text("SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid UNION SELECT :cid"),
+            {"cid": canonical_id},
+        ).all()
+    ]
+    rows = session.execute(
+        text(
+            _VENUE_ROW_SQL
+            + """
+    WHERE r.rider_id = ANY(:ids)
+    ORDER BY co.name, e.season, e.event_order
+    """
+        ),
+        {"ids": ids},
+    ).all()
+
+    by_course: dict[int, dict] = {}
+    for raw in rows:
+        row = _with_speed(_serialize(raw._mapping))
+        block = by_course.setdefault(
+            row["course_id"],
+            {"course_id": row["course_id"], "course_name": row["course_name"], "visits": []},
+        )
+        prev = next((v for v in reversed(block["visits"]) if v["event_type"] == "points"), None)
+        row["d_pace"] = row["d_place"] = None
+        if prev and row["event_type"] == "points":
+            if row["min_per_mile"] is not None and prev["min_per_mile"] is not None:
+                row["d_pace"] = round(float(row["min_per_mile"]) - float(prev["min_per_mile"]), 2)
+            if row["place"] is not None and prev["place"] is not None:
+                row["d_place"] = row["place"] - prev["place"]
+        block["visits"].append(row)
+    return sorted(by_course.values(), key=lambda b: (-len(b["visits"]), b["course_name"]))
+
+
+def team_courses(session: Session, team_name: str) -> list[dict]:
+    """Courses this team has raced at, most-visited first."""
+    rows = session.execute(
+        text("""
+        SELECT co.id, co.name, count(DISTINCT e.season) AS seasons, count(r.id) AS results
+        FROM results r
+        JOIN riders ri ON ri.id = r.rider_id
+        JOIN events e ON e.id = r.event_id
+        JOIN courses co ON co.id = e.course_id
+        WHERE ri.team = :team
+        GROUP BY co.id, co.name
+        ORDER BY seasons DESC, results DESC, co.name
+    """),
+        {"team": team_name},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def team_course_history(session: Session, team_name: str, course_id: int) -> dict:
+    """Rider × season grid for one team at one course.
+
+    Riders are everyone who rode for the team at that course in any season
+    (via their canonical id, so a rename doesn't split them). Cells hold the
+    rider's result there that season; the newest riders come first.
+    """
+    rows = session.execute(
+        text(
+            _VENUE_ROW_SQL
+            + """
+    WHERE e.course_id = :cid
+      AND COALESCE(ra.canonical_id, ri.id) IN (
+          SELECT COALESCE(a.canonical_id, x.id)
+          FROM riders x LEFT JOIN rider_aliases a ON a.rider_id = x.id
+          WHERE x.team = :team
+      )
+    ORDER BY e.season, e.event_order
+    """
+        ),
+        {"cid": course_id, "team": team_name},
+    ).all()
+    seasons: list[int] = sorted({r.season for r in rows})
+    riders: dict[int, dict] = {}
+    for raw in rows:
+        row = _with_speed(_serialize(raw._mapping))
+        rider = riders.setdefault(
+            row["canonical_id"], {"id": row["canonical_id"], "name": row["rider_name"], "cells": {}}
+        )
+        # Two events at one course in a season (Belmont, Blue Mountain): keep the later one.
+        rider["cells"][row["season"]] = row
+    ordered = sorted(riders.values(), key=lambda x: (-max(x["cells"]), -len(x["cells"]), x["name"]))
+    return {"seasons": seasons, "riders": ordered}

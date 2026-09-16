@@ -59,6 +59,57 @@
     </div>
 </div>
 
+<!-- Course history: rider × season at one venue -->
+{% if team_courses %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-3">
+        <h2 class="text-lg font-semibold text-gray-900">Course History <span class="text-sm font-normal text-gray-400">· all seasons</span></h2>
+        <form method="get" class="flex items-center gap-2">
+            {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
+            <label class="text-xs text-gray-500">Course</label>
+            <select name="course_id" class="rounded-lg border-gray-300 border px-3 py-1.5 text-sm" onchange="this.form.submit()">
+                {% for c in team_courses %}
+                <option value="{{ c.id }}" {{ 'selected' if course and c.id == course.id }}>{{ c.name }} ({{ c.seasons }} season{{ 's' if c.seasons != 1 }})</option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    {% if course_history and course_history.riders %}
+    <div class="px-6 py-2 text-xs text-gray-400 border-b">Each cell: place/field · points · min/mile. Riders who rode for {{ team_name }} at <a href="/course/{{ course.id }}" class="hover:underline">{{ course.name }}</a>, newest first.</div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Rider</th>
+                    {% for s in course_history.seasons %}<th class="px-3 py-3 text-center">{{ s }}</th>{% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for r in course_history.riders %}
+                <tr class="hover:bg-picl-50">
+                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ r.id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a></td>
+                    {% for s in course_history.seasons %}
+                    {% set c = r.cells.get(s) %}
+                    <td class="px-3 py-2 text-center font-mono text-xs {% if c and c.status != 'OK' %}text-gray-400{% endif %}">
+                        {% if c %}
+                        <div class="text-[10px] text-gray-400 font-sans">{{ c.division }}{% if c.event_type != 'points' %} · non-scoring{% endif %}</div>
+                        <div>{% if c.place %}<span class="font-semibold text-gray-800">{{ c.place }}</span><span class="text-gray-400">/{{ c.field }}</span>{% else %}<span class="text-red-400">{{ c.status }}</span>{% endif %}
+                             · {{ c.points if c.points is not none else '—' }}
+                             · <span class="text-picl-700">{{ "%.1f"|format(c.min_per_mile) if c.min_per_mile else '—' }}</span></div>
+                        {% else %}<span class="text-gray-200">—</span>{% endif %}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="px-6 py-8 text-center text-gray-400 text-sm">No results at this course.</div>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- Roster -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-6 py-3 border-b bg-gray-50">

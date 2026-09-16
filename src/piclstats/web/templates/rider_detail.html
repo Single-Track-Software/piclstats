@@ -135,6 +135,69 @@
         </table>
     </div>
 </div>
+
+<!-- By venue: each visit to a course, with change vs the previous visit there -->
+{% if venues %}
+<div class="mt-8">
+    <div class="flex items-baseline justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-900">By Venue</h2>
+        <span class="text-xs text-gray-400">Δ columns compare with the previous scoring visit to the same course · negative pace Δ = faster</span>
+    </div>
+    <div class="space-y-4">
+    {% for v in venues %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-6 py-2.5 border-b bg-gray-50 flex items-center justify-between">
+            <h3 class="font-semibold text-gray-800"><a href="/course/{{ v.course_id }}" class="hover:underline">{{ v.course_name }}</a></h3>
+            <span class="text-xs text-gray-400">{{ v.visits | length }} visit{{ 's' if v.visits | length != 1 }}</span>
+        </div>
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
+                    <th class="px-4 py-2">Season</th>
+                    <th class="px-4 py-2">Event</th>
+                    <th class="px-4 py-2">Division</th>
+                    <th class="px-4 py-2 text-right">Laps</th>
+                    <th class="px-4 py-2 text-right">Time</th>
+                    <th class="px-4 py-2 text-right">Place</th>
+                    <th class="px-4 py-2 text-right">Points</th>
+                    <th class="px-4 py-2 text-right">Min/Mi</th>
+                    <th class="px-4 py-2 text-right">MPH</th>
+                    <th class="px-4 py-2 text-right">Δ Pace</th>
+                    <th class="px-4 py-2 text-right">Δ Place</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for x in v.visits %}
+                <tr class="hover:bg-picl-50 {% if x.status != 'OK' %}text-gray-400{% endif %}">
+                    <td class="px-4 py-2 font-medium">{{ x.season }}</td>
+                    <td class="px-4 py-2 max-w-xs truncate" title="{{ x.event_name }}">
+                        <a href="/results?event_id={{ x.event_id }}&category={{ x.category | urlencode }}" class="text-picl-700 hover:underline">{{ x.event_name }}</a>
+                        {% if x.event_type != 'points' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle">non-scoring</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-gray-600 text-xs">{{ x.division }} {{ x.gender or '' }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.laps or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs">{{ x.total_time_raw or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium">{% if x.place %}{{ x.place }}<span class="text-gray-400 font-normal">/{{ x.field }}</span>{% else %}<span class="text-red-400">{{ x.status }}</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.points if x.points is not none else '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-picl-700">{{ "%.1f"|format(x.min_per_mile) if x.min_per_mile else '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.mph if x.mph else '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.d_pace is not none %}{{ 'text-green-600' if x.d_pace < 0 else ('text-red-500' if x.d_pace > 0 else 'text-gray-400') }}{% endif %}">
+                        {% if x.d_pace is not none %}{{ '%+.1f'|format(x.d_pace) }}{% else %}—{% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.d_place is not none %}{{ 'text-green-600' if x.d_place < 0 else ('text-red-500' if x.d_place > 0 else 'text-gray-400') }}{% endif %}">
+                        {% if x.d_place is not none %}{{ '%+d'|format(x.d_place) }}{% else %}—{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+    {% endfor %}
+    </div>
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

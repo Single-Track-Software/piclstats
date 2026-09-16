@@ -227,12 +227,32 @@ def team_profile(
     request: Request,
     team_name: str,
     season: int | None = Depends(optional_season),
+    course_id: int | None = Query(None),
 ):
     with get_session() as session:
         data = queries.team_detail(session, team_name, season)
-    if not data:
-        return HTMLResponse("Team not found", status_code=404)
-    return templates.TemplateResponse("team_detail.html", _ctx(request, **data, season=season))
+        if not data:
+            return HTMLResponse("Team not found", status_code=404)
+        # Course history: rider × season grid at one venue (all seasons,
+        # independent of the season filter). Defaults to the most-visited course.
+        courses = queries.team_courses(session, team_name)
+        course = next((c for c in courses if c["id"] == course_id), None) or (
+            courses[0] if courses else None
+        )
+        course_history = (
+            queries.team_course_history(session, team_name, course["id"]) if course else None
+        )
+    return templates.TemplateResponse(
+        "team_detail.html",
+        _ctx(
+            request,
+            **data,
+            season=season,
+            team_courses=courses,
+            course=course,
+            course_history=course_history,
+        ),
+    )
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
