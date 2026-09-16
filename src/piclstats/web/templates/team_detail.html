@@ -7,6 +7,7 @@
     <div class="flex flex-wrap items-start justify-between gap-y-2">
         <div>
             <h1 class="text-3xl font-bold text-gray-900">{{ team_name }}</h1>
+            {% if team_spellings and team_spellings | length > 1 %}<div class="text-xs text-gray-400 mt-0.5" title="Results published under these spellings are combined here">also listed as {{ team_spellings | reject('equalto', team_name) | join(', ') }}</div>{% endif %}
             <div class="mt-2 flex items-center gap-2 flex-wrap">
                 <a href="/team/{{ team_name | urlencode }}?season=all" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if not season else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
