@@ -13,6 +13,8 @@ from urllib.parse import urlencode
 
 from collections.abc import Awaitable, Callable
 
+from sqlalchemy.orm import Session
+
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -202,6 +204,17 @@ def parse_season(raw: str | None) -> int | None:
     return int(value) if value.isdigit() and len(value) == 4 else None
 
 
+def season_or_current(raw: str, session: Session) -> int | None:
+    """Season for pages that default to the season in progress.
+
+    Absent means the current season; ``all`` (or any non-year) means every
+    season. Pages that are searches keep ``optional_season`` (absent = all).
+    """
+    if raw.strip() == "":
+        return queries.current_season(session)
+    return parse_season(raw)
+
+
 def optional_season(season: str = Query("")) -> int | None:
     return parse_season(season)
 
@@ -211,14 +224,18 @@ def home(request: Request):
     with get_session() as session:
         stats = queries.overview_stats(session)
         seasons = queries.seasons_list(session)
-        top_riders = queries.leaderboard(session, limit=10)
-        top_teams = queries.team_leaderboard(session, limit=10, min_riders=3)
+        season = queries.current_season(session)
+        latest = queries.latest_event(session)
+        top_riders = queries.leaderboard(session, season, limit=10)
+        top_teams = queries.team_leaderboard(session, season, limit=10, min_riders=3)
     return templates.TemplateResponse(
         "home.html",
         _ctx(
             request,
             stats=stats,
             seasons=seasons,
+            season=season,
+            latest=latest,
             top_riders=top_riders,
             top_teams=top_teams,
         ),
@@ -263,10 +280,11 @@ def rider_profile(request: Request, rider_id: int):
 def team_search(
     request: Request,
     q: str = Query("", description="Team name search"),
-    season: int | None = Depends(optional_season),
+    season_raw: str = Query("", alias="season"),
 ):
     with get_session() as session:
-        results = queries.search_teams(session, q, season) if q else []
+        season = season_or_current(season_raw, session)
+        results = queries.search_teams(session, q, season)
         seasons = queries.seasons_list(session)
     return templates.TemplateResponse(
         "teams.html",
@@ -284,11 +302,16 @@ def team_search(
 def team_profile(
     request: Request,
     team_name: str,
-    season: int | None = Depends(optional_season),
+    season_raw: str = Query("", alias="season"),
     course_id: int | None = Query(None),
 ):
     with get_session() as session:
+        season = season_or_current(season_raw, session)
         data = queries.team_detail(session, team_name, season)
+        if data and season and season not in data["seasons_available"]:
+            # Defaulted to the current season but the team has not raced it yet.
+            season = None
+            data = queries.team_detail(session, team_name, None)
         if not data:
             return HTMLResponse("Team not found", status_code=404)
         # Course history: rider × season grid at one venue (all seasons,
@@ -316,7 +339,7 @@ def team_profile(
 @app.get("/leaderboard", response_class=HTMLResponse)
 def leaderboard_page(
     request: Request,
-    season: int | None = Depends(optional_season),
+    season_raw: str = Query("", alias="season"),
     division: str = Query(""),
     gender: str = Query(""),
     metric: str = Query("avg_points"),
@@ -329,6 +352,7 @@ def leaderboard_page(
     sorts = queries.TEAM_SORTS if view == "teams" else queries.RIDER_SORTS
     metric, direction, _ = queries.leaderboard_order(sorts, metric, dir)
     with get_session() as session:
+        season = season_or_current(season_raw, session)
         seasons = queries.seasons_list(session)
         divisions = queries.divisions_list(session)
         if view == "teams":

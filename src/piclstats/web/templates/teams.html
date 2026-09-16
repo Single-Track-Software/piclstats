@@ -1,20 +1,21 @@
 {% extends "base.html" %}
-{% block title %}Team Search — PICL Stats{% endblock %}
+{% block title %}Teams — PICL Stats{% endblock %}
 
 {% block content %}
-<h1 class="text-3xl font-bold text-gray-900 mb-6">Team Search</h1>
+<h1 class="text-3xl font-bold text-gray-900 mb-1">Teams</h1>
+<p class="text-sm text-gray-500 mb-6">{% if season %}Every team with a scoring result in {{ season }}{% else %}Every team on record{% endif %}, by conference. Points and places count scoring races only.</p>
 
 <form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
     <div class="grid md:grid-cols-3 gap-4">
         <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1">Team Name</label>
-            <input type="text" name="q" value="{{ q }}" placeholder="Search teams/clubs…"
+            <label for="team-q" class="block text-xs font-medium text-gray-500 mb-1">Team Name</label>
+            <input id="team-q" type="text" name="q" value="{{ q }}" placeholder="Filter by name…"
                    class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-picl-500 focus:border-picl-500">
         </div>
         <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1">Season</label>
-            <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
-                <option value="">All Seasons</option>
+            <label for="team-season" class="block text-xs font-medium text-gray-500 mb-1">Season</label>
+            <select id="team-season" name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
+                <option value="all" {{ 'selected' if season is none }}>All Seasons</option>
                 {% for s in seasons %}
                 <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
                 {% endfor %}
@@ -22,13 +23,12 @@
         </div>
         <div class="flex items-end">
             <button type="submit" class="w-full bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">
-                Search
+                Show
             </button>
         </div>
     </div>
 </form>
 
-{% if q %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     {% if results %}
     <div class="overflow-x-auto">
@@ -40,30 +40,32 @@
                 <th class="px-6 py-3 text-right">Races</th>
                 <th class="px-6 py-3 text-right">Avg Points</th>
                 <th class="px-6 py-3 text-right">Avg Place</th>
-                <th class="px-6 py-3 text-right">Seasons</th>
+                {% if not season %}<th class="px-6 py-3 text-right">Seasons</th>{% endif %}
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
+            {% set ns = namespace(conf='') %}
             {% for t in results %}
+            {% if loop.first or t.conference != ns.conf %}
+            {% set ns.conf = t.conference %}
+            <tr class="bg-gray-50"><td colspan="6" class="px-6 py-1.5 text-xs font-semibold uppercase tracking-wider text-gray-500">{{ t.conference or 'No conference on record' }}</td></tr>
+            {% endif %}
             <tr class="hover:bg-picl-50 transition-colors">
                 <td class="px-6 py-3">
-                    <a href="/team/{{ t.team | urlencode }}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
+                    <a href="/team/{{ t.team | urlencode }}{% if season %}?season={{ season }}{% endif %}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
                 </td>
                 <td class="px-6 py-3 text-right font-mono">{{ t.rider_count }}</td>
                 <td class="px-6 py-3 text-right font-mono">{{ t.race_count }}</td>
                 <td class="px-6 py-3 text-right font-mono font-medium">{{ t.avg_points or '—' }}</td>
                 <td class="px-6 py-3 text-right font-mono">{{ t.avg_place or '—' }}</td>
-                <td class="px-6 py-3 text-right text-gray-500">{{ t.seasons_active }}</td>
+                {% if not season %}<td class="px-6 py-3 text-right text-gray-500">{{ t.seasons_active }}</td>{% endif %}
             </tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
     {% else %}
-    <div class="px-6 py-12 text-center text-gray-400">No teams found matching "{{ q }}"</div>
+    <div class="px-6 py-12 text-center text-gray-400">{% if q %}No teams match "{{ q }}"{% if season %} in {{ season }}{% endif %}.{% else %}No results yet for {{ season }}.{% endif %}</div>
     {% endif %}
 </div>
-{% else %}
-<div class="text-center py-12 text-gray-400">Enter a name to search for teams</div>
-{% endif %}
 {% endblock %}

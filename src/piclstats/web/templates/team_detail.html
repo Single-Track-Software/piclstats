@@ -8,7 +8,7 @@
         <div>
             <h1 class="text-3xl font-bold text-gray-900">{{ team_name }}</h1>
             <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <a href="/team/{{ team_name | urlencode }}" class="px-3 py-1 rounded-full text-xs font-medium
+                <a href="/team/{{ team_name | urlencode }}?season=all" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if not season else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                     All Seasons
                 </a>
@@ -20,7 +20,7 @@
                 {% endfor %}
             </div>
         </div>
-        <a href="/teams?q={{ team_name | urlencode }}" class="text-sm text-gray-400 hover:text-gray-600">&larr; Back</a>
+        <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
     </div>
 </div>
 
@@ -65,7 +65,7 @@
     <div class="px-6 py-3 border-b bg-gray-50 flex items-center justify-between flex-wrap gap-3">
         <h2 class="text-lg font-semibold text-gray-900">Course History <span class="text-sm font-normal text-gray-400">· all seasons</span></h2>
         <form method="get" class="flex items-center gap-2">
-            {% if season %}<input type="hidden" name="season" value="{{ season }}">{% endif %}
+            <input type="hidden" name="season" value="{{ season or 'all' }}">
             <label class="text-xs text-gray-500">Course</label>
             <select name="course_id" class="rounded-lg border-gray-300 border px-3 py-1.5 text-sm" onchange="this.form.submit()">
                 {% for c in team_courses %}

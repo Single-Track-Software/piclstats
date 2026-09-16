@@ -31,6 +31,16 @@
     </div>
 </div>
 
+{% if latest %}
+<a href="/results?event_id={{ latest.id }}" class="block bg-picl-800 text-white rounded-xl shadow-sm p-5 mb-8 hover:bg-picl-700">
+    <div class="text-xs uppercase tracking-wide text-picl-200">Latest results</div>
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+        <div class="text-lg font-semibold">{{ latest.season }} · {{ latest.event_name }}{% if latest.course_name %} <span class="text-picl-200 font-normal">at {{ latest.course_name }}</span>{% endif %}</div>
+        <div class="text-sm text-picl-200">{{ "{:,}".format(latest.finishers) }} finishers · full results &rarr;</div>
+    </div>
+</a>
+{% endif %}
+
 <!-- Quick search -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
     <h2 class="text-lg font-semibold text-gray-900 mb-4">Quick Search</h2>
@@ -56,8 +66,8 @@
     <!-- Top Riders -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-gray-900">Top Riders (by Avg Points)</h2>
-            <a href="/leaderboard" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
+            <h2 class="text-lg font-semibold text-gray-900">Top Riders <span class="text-sm font-normal text-gray-400">{{ season }} season · avg points</span></h2>
+            <a href="/leaderboard?season={{ season }}" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
         </div>
         <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -91,8 +101,8 @@
     <!-- Top Teams -->
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
         <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-gray-900">Top Teams (by Avg Points)</h2>
-            <a href="/leaderboard?view=teams" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
+            <h2 class="text-lg font-semibold text-gray-900">Top Teams <span class="text-sm font-normal text-gray-400">{{ season }} season · avg points</span></h2>
+            <a href="/leaderboard?view=teams&season={{ season }}" class="text-picl-600 text-sm hover:underline">View all &rarr;</a>
         </div>
         <div class="overflow-x-auto">
         <table class="w-full text-sm">

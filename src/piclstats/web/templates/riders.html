@@ -23,7 +23,7 @@
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Season</label>
             <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm focus:ring-picl-500 focus:border-picl-500">
-                <option value="">All Seasons</option>
+                <option value="all" {{ 'selected' if season is none }}>All Seasons</option>
                 {% for s in seasons %}
                 <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
                 {% endfor %}
