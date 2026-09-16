@@ -1,0 +1,17 @@
+# Nightly: look for new races on pamtb.org and run them through the DQ
+# pipeline on the production app. Cheap (one HTTP fetch when nothing is new),
+# and a failure shows up as a red run in Actions.
+name: Nightly race discovery
+on:
+  schedule:
+    - cron: "17 9 * * *"   # 09:17 UTC = 05:17 ET, after any overnight timing corrections
+  workflow_dispatch:
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    concurrency: prod-cli
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@v1.4
+      - run: flyctl ssh console -a piclstats -C "piclstats discover --scrape"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

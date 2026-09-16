@@ -90,48 +90,26 @@ def scrape(season: tuple[int, ...], event_id: tuple[int, ...], dry_run: bool) ->
     session = None
     if not dry_run:
         from piclstats.db.engine import get_session
-        from piclstats.db.loader import load_event
-        from piclstats.quality import checks, scorecard
+        from piclstats.quality.ingest import ingest_event
 
         session = get_session()
 
     try:
         for s, order, eid in targets:
             try:
-                event_results = parse_event(eid, s, order)
-                n = len(event_results.results)
-                total_results += n
-
                 if dry_run:
+                    event_results = parse_event(eid, s, order)
+                    total_results += len(event_results.results)
                     click.echo(
                         f"  [DRY RUN] Event {eid} ({event_results.config.event_name}): "
-                        f"{n} results parsed"
+                        f"{len(event_results.results)} results parsed"
                     )
-                else:
-                    assert session is not None  # opened above whenever dry_run is False
-                    stats = load_event(session, event_results)
-                    click.echo(
-                        f"  Loaded event {eid} ({event_results.config.event_name}): {n} results"
-                    )
-                    run_id = checks.start_run(
-                        session,
-                        raceresult_id=eid,
-                        season=s,
-                        event_id=stats.event_id,
-                        rows_parsed=n,
-                        rows_loaded=stats.results,
-                        riders_new=stats.riders_new,
-                        detail={"source": "scrape"},
-                    )
-                    summary = checks.run_checks(session, run_id, stats.event_id)
-                    click.echo(_summary_line(summary))
-                    _, passed, reasons = scorecard.run_scorecard(
-                        session, run_id=run_id, event_id=stats.event_id
-                    )
-                    click.echo(
-                        "    gate: "
-                        + ("PASS, published" if passed else "BLOCKED: " + "; ".join(reasons))
-                    )
+                    continue
+                assert session is not None  # opened above whenever dry_run is False
+                res = ingest_event(session, eid, s, order, source="scrape")
+                total_results += res.rows
+                click.echo(f"  Loaded event {eid} ({res.event_name}): {res.rows} results")
+                click.echo(_ingest_line(res))
             except Exception as exc:
                 errors += 1
                 click.echo(f"  ERROR event {eid}: {exc}", err=True)
@@ -297,6 +275,70 @@ def serve(host: str, port: int, do_reload: bool) -> None:
         port=port,
         reload=do_reload,
     )
+
+
+def _ingest_line(res: Any) -> str:
+    parts = ", ".join(f"{k} {v}" for k, v in sorted(res.findings.items())) or "clean"
+    gate = "PASS" if res.passed else "BLOCKED: " + "; ".join(res.reasons)
+    return f"    DQ: {res.excluded} excluded, {res.warned} flagged ({parts}); gate {gate}"
+
+
+@main.command()
+@click.option("--scrape", is_flag=True, help="Load every new race through the DQ pipeline.")
+@click.option("--season", type=int, default=None, help="Season for new races (default: this year).")
+def discover(scrape: bool, season: int | None) -> None:
+    """Check the league results page for races we have not loaded."""
+    from piclstats.db.engine import get_session
+    from piclstats.scraper import discover as disc
+
+    links = disc.parse_links(disc.fetch_page())
+    season = season or disc.current_season()
+    session = get_session()
+    try:
+        new = disc.find_new(session, links)
+        click.echo(f"{len(links)} race link(s) on {disc.RESULTS_URL}; {len(new)} new")
+        for d in new:
+            disc.record(session, d, season, "new")
+        session.commit()
+        if not new:
+            return
+        for d in new:
+            click.echo(f"  {d.raceresult_id}  {d.name}")
+        if not scrape:
+            click.echo("re-run with --scrape to load them")
+            return
+
+        from piclstats.db.merge import auto_merge
+        from piclstats.db.seed import seed_all
+        from piclstats.quality.ingest import ingest_event
+        from piclstats.quality.lineage import rebuild_rider_lineage
+
+        loaded = 0
+        for d in new:
+            order = disc.next_event_order(session, season)
+            try:
+                res = ingest_event(session, d.raceresult_id, season, order, source="discover")
+            except Exception as exc:  # keep going; the DQ page shows the failure
+                session.rollback()
+                disc.record(session, d, season, "failed", str(exc)[:500])
+                session.commit()
+                click.echo(f"  ERROR {d.raceresult_id} ({d.name}): {exc}", err=True)
+                continue
+            loaded += 1
+            disc.record(
+                session, d, season, "published" if res.passed else "blocked", "; ".join(res.reasons)
+            )
+            session.commit()
+            click.echo(f"  Loaded {d.raceresult_id} ({res.event_name}): {res.rows} results")
+            click.echo(_ingest_line(res))
+        if loaded:
+            seed_all(session)  # course mapping, season profiles, event types, conferences
+            auto_merge(session)
+            rebuild_rider_lineage(session)
+            session.commit()
+            click.echo("seeded profiles, merged riders, rebuilt lineage")
+    finally:
+        session.close()
 
 
 def _summary_line(summary: Any) -> str:

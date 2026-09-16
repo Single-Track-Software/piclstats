@@ -51,6 +51,7 @@ piclstats dq check --all # data-quality checks over every event (scrape runs the
 piclstats dq status      # results by dq_status + recent scrape runs
 piclstats dq lineage     # rebuild the lineage log (merges and folds); seed and merge auto do this too
 piclstats dq scorecard   # metrics + golden fixtures + publish gate vs the previous run
+piclstats discover       # new races on pamtb.org/results-standings; --scrape loads them through the pipeline
 ```
 
 ### Data quality
@@ -64,6 +65,16 @@ and roll up into `results.dq_status`: `excluded` rows (any error) leave every
 statistic, `warn` rows stay but show a badge on the rider page. Raw columns are
 never rewritten. After a deploy that adds new checks, run
 `piclstats dq check --all` once against production. Design: ADR 002.
+
+**Nightly discovery.** `.github/workflows/nightly-discover.yml` runs
+`piclstats discover --scrape` on the production app every morning. It reads
+the league results page, records every raceresult link in `discovered_events`,
+and loads anything new: parse → load → checks → scorecard → gate. A new race
+is published (`events.is_published`) only if the gate passes; otherwise it
+stays loaded but hidden, listed on `/admin/dq` with the reasons and a
+"Publish anyway" button. Re-scrapes never change the flag. New ids need not
+be in `scraper/registry.py`; the season is the calendar year and the order
+follows the last loaded race.
 
 Rider merging (`piclstats merge auto`) blocks on `riders.name_key`, so
 punctuation and spacing variants of one name (O'REILLY / OREILLY) merge, while

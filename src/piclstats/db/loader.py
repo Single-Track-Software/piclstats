@@ -31,6 +31,7 @@ class LoadStats:
     event_id: int
     results: int
     riders_new: int
+    created: bool = False  # the event row was inserted by this load
 
 
 def load_event(session: Session, event_results: EventResults) -> LoadStats:
@@ -57,10 +58,10 @@ def load_event(session: Session, event_results: EventResults) -> LoadStats:
                 ),
             },
         )
-        .returning(events.c.id)
+        .returning(events.c.id, text("(xmax = 0) AS created"))
     )
 
-    event_id = session.execute(evt_stmt).scalar_one()
+    event_id, event_created = session.execute(evt_stmt).one()
 
     # 2. Batch upsert riders, build lookup
     unique_riders: dict[tuple[str, str | None], dict] = {}
@@ -141,4 +142,6 @@ def load_event(session: Session, event_results: EventResults) -> LoadStats:
         count,
         len(rider_lookup),
     )
-    return LoadStats(event_id=event_id, results=count, riders_new=riders_new)
+    return LoadStats(
+        event_id=event_id, results=count, riders_new=riders_new, created=bool(event_created)
+    )

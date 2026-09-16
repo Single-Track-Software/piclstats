@@ -275,8 +275,40 @@ def lineage(session: Session, q: str = "") -> dict[str, Any] | None:
     }
 
 
+def discovered(session: Session, n: int = 20) -> list[dict[str, Any]]:
+    return [
+        dict(r._mapping)
+        for r in session.execute(
+            text("""
+            SELECT d.raceresult_id, d.season, d.name, d.status, d.note, d.found_at,
+                   e.id AS event_id, e.is_published
+            FROM discovered_events d LEFT JOIN events e ON e.raceresult_id = d.raceresult_id
+            ORDER BY d.found_at DESC LIMIT :n
+            """),
+            {"n": n},
+        ).all()
+    ]
+
+
+def unpublished(session: Session) -> list[dict[str, Any]]:
+    return [
+        dict(r._mapping)
+        for r in session.execute(
+            text("""
+            SELECT e.id, e.season, e.event_name, e.raceresult_id,
+                   (SELECT count(*) FROM results r WHERE r.event_id = e.id) AS rows,
+                   (SELECT gate_reasons FROM scrape_runs s WHERE s.event_id = e.id ORDER BY s.id DESC LIMIT 1) AS reasons
+            FROM events e WHERE NOT e.is_published
+            ORDER BY e.season DESC, e.event_order DESC
+            """)
+        ).all()
+    ]
+
+
 def page(session: Session, q: str = "", check: str | None = None) -> dict[str, Any]:
     return {
+        "discovered": discovered(session),
+        "unpublished": unpublished(session),
         "flow": flow(session),
         "cards": cards(session),
         "runs": recent_runs(session),
