@@ -78,7 +78,7 @@ Public pages: `/` (home), `/leaderboard`, `/riders`, `/rider/{id}`, `/teams`, `/
 
 Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `/staging` + `/staging.csv` (age-group z-score speed ratings, the seeding formula), `/rider/{id}/forecast`.
 
-Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`).
+Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`, data quality at `/admin/dq`: pipeline flow, scorecard trend, findings per check, scrape runs and gate, lineage inspector with merge map).
 
 ### Course profiles
 

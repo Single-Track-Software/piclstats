@@ -1,0 +1,149 @@
+{% extends "base.html" %}
+{% block title %}Data Quality — PICL Stats{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-start justify-between gap-y-2 mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900">Data Quality</h1>
+        <p class="text-sm text-gray-600">How race data flows from raceresult into the site: checks, merges, the publish gate, and the decision log behind every fold.</p>
+    </div>
+    <a href="/admin" class="text-sm text-gray-500 hover:text-picl-700">&larr; Admin</a>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+    <h2 class="text-sm font-semibold text-gray-700 mb-2">Pipeline</h2>
+    <div class="overflow-x-auto">{{ flow.svg | safe }}</div>
+    <p class="text-xs text-gray-500 mt-2">scrape → load → check → canonicalize (name/team keys) → merge → scorecard → gate → publish. Run <code class="font-mono">piclstats dq check --all</code>, <code class="font-mono">dq lineage</code>, <code class="font-mono">dq scorecard</code> after a deploy that changes the rules.</p>
+</div>
+
+{% if cards %}
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    {% for c in cards %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+        <div class="text-[11px] uppercase tracking-wide text-gray-500">{{ c.label }}</div>
+        <div class="flex items-baseline gap-2">
+            <div class="text-2xl font-semibold text-gray-900 font-mono">{{ c.value }}</div>
+            {% if c.delta is not none and c.delta != 0 %}<div class="text-xs font-medium {{ c.tone }}">{{ '+' if c.delta > 0 else '' }}{{ c.delta }}</div>{% endif %}
+        </div>
+        <div class="mt-1">{{ c.spark | safe }}</div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-3 mb-6">No scorecard runs yet — run <code class="font-mono">piclstats dq scorecard</code> once.</div>
+{% endif %}
+
+<div class="grid md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Open findings <span class="font-normal text-gray-500">(latest run per event)</span></h2></div>
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Check</th><th class="px-2 py-2">Sev</th><th class="px-2 py-2 text-right">Rows</th><th class="px-2 py-2 text-right">Events</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+            {% for f in findings.counts %}
+            <tr class="{{ 'bg-picl-50' if f.check == findings.check else '' }}">
+                <td class="px-4 py-2"><a href="?check={{ f.check }}{% if lineage and lineage.q %}&q={{ lineage.q | urlencode }}{% endif %}#findings" class="font-mono text-picl-700 hover:underline">{{ f.check }}</a></td>
+                <td class="px-2 py-2 text-center"><span class="px-1.5 py-0.5 rounded text-[10px] font-medium {{ 'bg-red-50 text-red-600' if f.severity == 'error' else ('bg-amber-50 text-amber-700' if f.severity == 'warn' else 'bg-gray-100 text-gray-500') }}">{{ f.severity }}</span></td>
+                <td class="px-2 py-2 text-right font-mono">{{ "{:,}".format(f.n) }}</td>
+                <td class="px-2 py-2 text-right font-mono">{{ f.events }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">No findings recorded — run <code class="font-mono">piclstats dq check --all</code>.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Recent scrape runs</h2></div>
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Event</th><th class="px-2 py-2 text-right">Rows</th><th class="px-2 py-2 text-right">Err</th><th class="px-2 py-2 text-right">Warn</th><th class="px-2 py-2">Gate</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+            {% for r in runs %}
+            <tr>
+                <td class="px-4 py-2"><div class="text-gray-800">{{ r.season or '' }} {{ (r.event_name or ('raceresult ' ~ r.raceresult_id))[:40] }}</div><div class="text-[11px] text-gray-400">run {{ r.id }} · {{ r.started_at.strftime('%Y-%m-%d %H:%M') if r.started_at else '' }}</div></td>
+                <td class="px-2 py-2 text-right font-mono">{{ r.rows_loaded or '—' }}</td>
+                <td class="px-2 py-2 text-right font-mono {{ 'text-red-600' if r.errors else 'text-gray-400' }}">{{ r.errors }}</td>
+                <td class="px-2 py-2 text-right font-mono {{ 'text-amber-700' if r.warns else 'text-gray-400' }}">{{ r.warns }}</td>
+                <td class="px-2 py-2 text-center">
+                    {% if r.status == 'published' %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-50 text-green-700">published</span>
+                    {% elif r.status == 'blocked' %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-50 text-red-600" title="{{ r.gate_reasons | join('; ') if r.gate_reasons else '' }}">blocked</span>
+                    {% else %}<span class="px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500">{{ r.status }}</span>{% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">No scrape runs yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+
+{% if findings.check %}
+<div id="findings" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-sm font-semibold text-gray-700"><span class="font-mono">{{ findings.check }}</span> <span class="font-normal text-gray-500">— {{ findings.help }}</span></h2>
+        <span class="text-xs text-gray-400">{{ findings.rows | length }} shown{% if findings.rows | length == 300 %} (first 300){% endif %}</span>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Event</th><th class="px-2 py-2 text-left">Category</th><th class="px-2 py-2 text-right">Bib</th><th class="px-2 py-2 text-left">Rider</th><th class="px-2 py-2 text-left">Observed</th><th class="px-2 py-2 text-left">Expected</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+        {% for r in findings.rows %}
+        <tr>
+            <td class="px-4 py-1.5 whitespace-nowrap"><a href="/results?event_id={{ r.event_id }}{% if r.category %}&category={{ r.category | urlencode }}{% endif %}" class="text-picl-700 hover:underline">{{ r.season }} {{ r.event_name[:32] }}</a></td>
+            <td class="px-2 py-1.5 text-gray-600 whitespace-nowrap">{{ r.category or '' }}</td>
+            <td class="px-2 py-1.5 text-right font-mono">{{ r.bib or '' }}</td>
+            <td class="px-2 py-1.5 whitespace-nowrap">{{ r.rider or '' }}</td>
+            <td class="px-2 py-1.5 font-mono text-xs text-red-700">{{ r.observed or '' }}</td>
+            <td class="px-2 py-1.5 font-mono text-xs text-gray-500">{{ r.expected or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-center justify-between gap-2">
+        <h2 class="text-sm font-semibold text-gray-700">Lineage inspector <span class="font-normal text-gray-500">— every raw value that fed a canonical one, and why</span></h2>
+        <form method="get" class="flex gap-2">
+            {% if findings.check %}<input type="hidden" name="check" value="{{ findings.check }}">{% endif %}
+            <label for="q" class="sr-only">Search</label>
+            <input id="q" name="q" value="{{ lineage.q if lineage else '' }}" placeholder="rider, team, division, event, conference…" class="border border-gray-300 rounded-md px-3 py-1.5 text-sm w-64">
+            <button type="submit" class="bg-picl-700 text-white text-sm px-3 py-1.5 rounded-md hover:bg-picl-800">Inspect</button>
+        </form>
+    </div>
+    {% if lineage %}
+    <div class="px-4 py-3 border-b flex flex-wrap items-baseline justify-between gap-2">
+        <div><span class="text-xs uppercase text-gray-400 mr-2">{{ lineage.level }}</span><span class="font-semibold text-green-700">{{ lineage.canonical }}</span>{% if lineage.level == 'rider' %} <a href="/rider/{{ lineage.key }}" class="text-xs text-picl-700 hover:underline">view</a>{% endif %}</div>
+        <div class="text-xs text-gray-500 font-mono">{{ lineage.edges | length }} raw · {{ "{:,}".format(lineage.total) }} rows</div>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Raw value</th><th class="px-2 py-2 text-left">Stage</th><th class="px-2 py-2 text-left">Origin</th><th class="px-2 py-2 text-right">Rows</th><th class="px-2 py-2 text-left">Mechanism</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+        {% for e in lineage.edges %}
+        <tr>
+            <td class="px-4 py-1.5 font-mono text-xs">{{ e.raw_value }}{% if lineage.level == 'rider' and e.raw_id %} <a href="/rider/{{ e.raw_id }}" class="text-picl-700 hover:underline">#{{ e.raw_id }}</a>{% endif %}</td>
+            <td class="px-2 py-1.5 text-gray-600">{{ e.stage }}</td>
+            <td class="px-2 py-1.5 text-gray-400 font-mono text-[11px]">{{ e.origin or '' }}</td>
+            <td class="px-2 py-1.5 text-right font-mono">{{ "{:,}".format(e.volume or 0) }}</td>
+            <td class="px-2 py-1.5"><span class="font-mono text-xs px-1.5 py-0.5 rounded bg-gray-100">{{ e.mechanism }}</span>{% if e.match_score is not none and e.match_score < 1 %} <span class="text-[11px] text-gray-400 font-mono">{{ "%.2f"|format(e.match_score) }}</span>{% endif %}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+    <div class="px-4 py-3 border-t">
+        <div class="text-xs text-gray-500 mb-2">Merge map</div>
+        <div class="overflow-x-auto">{{ lineage.svg | safe }}</div>
+    </div>
+    {% else %}
+    <div class="px-4 py-8 text-center text-gray-400 text-sm">{% if lineage is none and request.query_params.get('q') %}Nothing in the lineage log matches “{{ request.query_params.get('q') }}”.{% else %}No lineage built yet — run <code class="font-mono">piclstats dq lineage</code>.{% endif %}</div>
+    {% endif %}
+</div>
+{% endblock %}
