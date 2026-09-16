@@ -47,6 +47,37 @@ FORECAST_FIELDS = [
 ]
 
 
+# Inclusive (lo, hi) bounds per forecast field; None = unbounded on that side.
+FORECAST_BOUNDS: dict[str, tuple[float | None, float | None]] = {
+    "recent_race_count": (1, 50),
+    "recency_decay": (0.01, 1),
+    "fatigue_per_extra_lap": (0, 1),
+    "ms_to_hs_loop_penalty": (0.1, 10),
+    "improvement_weight": (0, 1),
+    "min_races_for_forecast": (1, 50),
+    "climbing_impact_per_100ft_mile": (0, 10),
+    "reference_climbing_ft_per_mile": (0, 5000),
+    "threshold_ready": (0, 100),
+    "threshold_competitive": (0, 100),
+}
+
+
+def forecast_value_error(key: str, value: float) -> str | None:
+    """Why a forecast setting is unusable, or None.
+
+    A recency decay of -1 makes two recent races weigh [-1, 1], total 0, and
+    every forecast page divides by that; nan/inf produce garbage silently.
+    """
+    if value != value or value in (float("inf"), float("-inf")):
+        return f"{key} must be a number"
+    lo, hi = FORECAST_BOUNDS.get(key, (None, None))
+    if lo is not None and value < lo:
+        return f"{key} must be at least {lo}"
+    if hi is not None and value > hi:
+        return f"{key} must be at most {hi}"
+    return None
+
+
 def _form_str(form: FormData, key: str, default: str = "") -> str:
     """Read a form field as text.
 
@@ -98,10 +129,13 @@ async def forecast_save(
             override[key] = typ(raw)
         except ValueError:
             raise HTTPException(400, f"Invalid value for {key}: {raw}")
+        problem = forecast_value_error(key, override[key])
+        if problem:
+            raise HTTPException(400, problem)
     # Readiness thresholds (nested)
     defaults = DEFAULT_CONFIG["readiness_thresholds"]
     try:
-        override["readiness_thresholds"] = {
+        thresholds = {
             "ready": int(_form_str(form, "threshold_ready", str(defaults["ready"]))),
             "competitive": int(
                 _form_str(form, "threshold_competitive", str(defaults["competitive"]))
@@ -109,6 +143,11 @@ async def forecast_save(
         }
     except ValueError:
         raise HTTPException(400, "Invalid threshold value")
+    for name, value in thresholds.items():
+        problem = forecast_value_error(f"threshold_{name}", value)
+        if problem:
+            raise HTTPException(400, problem)
+    override["readiness_thresholds"] = thresholds
 
     set_value("forecast_config", override)
     return RedirectResponse("/admin/forecast?saved=1", status_code=303)

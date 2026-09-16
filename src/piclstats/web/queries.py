@@ -343,6 +343,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                 r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0) AS pct_rank
             FROM results r
             WHERE r.place IS NOT NULL
+              AND r.event_id IN (SELECT event_id FROM results WHERE rider_id = ANY(:ids))
         )
         SELECT
             e.season,

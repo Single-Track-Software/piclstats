@@ -24,6 +24,12 @@ def get_engine() -> Engine:
         echo=False,
         pool_pre_ping=True,
         pool_recycle=300,
+        # uvicorn runs sync endpoints on a 40-thread pool; with the default
+        # 5+10 connections and a 30 s wait, one slow page turned into 30 s
+        # stalls for everyone else. Fail fast instead.
+        pool_size=10,
+        max_overflow=10,
+        pool_timeout=5,
         connect_args=connect_args,
     )
 
