@@ -34,13 +34,11 @@
                         PICL Stats
                     </a>
                     {% set user = request.state.user if request and request.state else None %}
+                    {% set nav_links = [('/', 'Dashboard'), ('/results', 'Results'), ('/riders', 'Riders'), ('/teams', 'Teams'), ('/leaderboard', 'Leaderboard'), ('/courses', 'Courses')] %}
                     <div class="hidden md:flex space-x-4">
-                        <a href="/" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Dashboard</a>
-                        <a href="/results" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Results</a>
-                        <a href="/riders" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Riders</a>
-                        <a href="/teams" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Teams</a>
-                        <a href="/leaderboard" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Leaderboard</a>
-                        <a href="/courses" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Courses</a>
+                        {% for href, label in nav_links %}
+                        <a href="{{ href }}" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">{{ label }}</a>
+                        {% endfor %}
                         {% if user %}
                         <a href="/staging" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Staging</a>
                         {% endif %}
@@ -51,13 +49,29 @@
                 </div>
                 <div class="flex items-center space-x-3 text-xs">
                     {% if user %}
-                    <span class="text-picl-200">{{ user.email }}</span>
+                    <span class="hidden sm:inline text-picl-200">{{ user.email }}</span>
                     <form method="post" action="/logout" class="inline">
                         <button type="submit" class="text-picl-200 hover:text-white">Sign out</button>
                     </form>
                     {% else %}
                     <a href="/login" class="text-picl-200 hover:text-white">Sign in</a>
                     {% endif %}
+                    <details class="md:hidden relative">
+                        <summary class="list-none cursor-pointer text-picl-200 hover:text-white p-2 -mr-2" aria-label="Open menu">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                        </summary>
+                        <div class="absolute right-0 mt-2 w-48 bg-picl-800 rounded-lg shadow-lg py-1 z-50 text-sm">
+                            {% for href, label in nav_links %}
+                            <a href="{{ href }}" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">{{ label }}</a>
+                            {% endfor %}
+                            {% if user %}
+                            <a href="/staging" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Staging</a>
+                            {% endif %}
+                            {% if user and user.role == 'admin' %}
+                            <a href="/admin" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Admin</a>
+                            {% endif %}
+                        </div>
+                    </details>
                 </div>
             </div>
         </div>

@@ -43,6 +43,7 @@
     <div class="px-6 py-3 border-b bg-gray-50 text-sm text-gray-500">
         {{ results|length }} rider{{ 's' if results|length != 1 }} found
     </div>
+    <div class="overflow-x-auto">
     <table class="w-full text-sm">
         <thead>
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
@@ -73,6 +74,7 @@
             {% endfor %}
         </tbody>
     </table>
+    </div>
     {% else %}
     <div class="px-6 py-12 text-center text-gray-400">No riders found matching "{{ q }}"</div>
     {% endif %}
