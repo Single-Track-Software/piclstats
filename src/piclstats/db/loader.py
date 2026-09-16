@@ -10,6 +10,7 @@ from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from piclstats.quality.keys import name_key, team_key
 from piclstats.db.tables import events, results, riders
 from piclstats.models import EventResults
 
@@ -57,7 +58,13 @@ def load_event(session: Session, event_results: EventResults) -> int:
     for r in event_results.results:
         key = (r.name, r.team)
         if key not in unique_riders:
-            unique_riders[key] = {"name": r.name, "team": r.team, "school": r.school}
+            unique_riders[key] = {
+                "name": r.name,
+                "team": r.team,
+                "school": r.school,
+                "name_key": name_key(r.name),
+                "team_key": team_key(r.team),
+            }
         elif r.school and not unique_riders[key].get("school"):
             unique_riders[key]["school"] = r.school
 

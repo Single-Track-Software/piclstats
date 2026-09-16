@@ -41,8 +41,12 @@ riders = Table(
     Column("name", Text, nullable=False),
     Column("team", Text),
     Column("school", Text),
+    # Derived blocking keys (quality.keys); raw name/team are never rewritten.
+    Column("name_key", Text),
+    Column("team_key", Text),
     UniqueConstraint("name", "team", name="uq_riders_name_team"),
     Index("idx_riders_name", "name"),
+    Index("idx_riders_name_key", "name_key"),
 )
 
 results = Table(
@@ -70,6 +74,8 @@ results = Table(
     Column("total_time", Interval),
     Column("total_time_raw", Text, nullable=False),
     Column("raw_data", JSONB),
+    # 'ok' | 'warn' (kept, flagged) | 'excluded' (dropped from every stat)
+    Column("dq_status", Text, nullable=False, server_default="ok"),
     UniqueConstraint("event_id", "bib", name="uq_results_event_bib"),
     Index("idx_results_rider", "rider_id"),
     Index("idx_results_category", "category"),
@@ -77,6 +83,7 @@ results = Table(
     Index(
         "idx_results_conference", "conference", postgresql_where=Column("conference").isnot(None)
     ),
+    Index("idx_results_dq_status", "dq_status", postgresql_where=Column("dq_status") != "ok"),
 )
 
 team_conferences = Table(
@@ -198,4 +205,124 @@ rider_aliases = Table(
     Column("match_method", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), server_default=func.now()),
     Index("idx_aliases_canonical", "canonical_id"),
+)
+
+
+# ---------------------------------------------------------------------------
+# Data-quality layer (ADR 002). Modelled on gvpd: one row per scrape run, row-
+# level findings, an append-only lineage log, a long-format scorecard, and
+# golden fixtures the publish gate checks against.
+
+scrape_runs = Table(
+    "scrape_runs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("event_id", Integer),  # set once the event row exists
+    Column("raceresult_id", Integer, nullable=False),
+    Column("season", SmallInteger),
+    Column("started_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("finished_at", DateTime(timezone=True)),
+    # 'loaded' | 'checked' | 'published' | 'blocked' | 'failed'
+    Column("status", Text, nullable=False, server_default="loaded"),
+    Column("rows_parsed", Integer),
+    Column("rows_loaded", Integer),
+    Column("riders_new", Integer),
+    Column("gate_passed", Boolean),
+    Column("gate_reasons", JSONB),
+    Column("detail", JSONB),  # detected column layout, list name, errors
+    Index("idx_scrape_runs_event", "raceresult_id", "started_at"),
+)
+
+dq_checks = Table(
+    "dq_checks",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", Integer, nullable=False),
+    Column("event_id", Integer, nullable=False),
+    Column("result_id", Integer),  # NULL for event-level findings
+    Column("check", Text, nullable=False),  # e.g. 'total_time_timestamp'
+    Column("severity", Text, nullable=False),  # 'error' | 'warn' | 'info'
+    Column("observed", Text),
+    Column("expected", Text),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_dq_checks_run", "run_id"),
+    Index("idx_dq_checks_result", "result_id"),
+    Index("idx_dq_checks_check", "check"),
+)
+
+# One typed edge per raw value folded into a canonical one. No FK to riders or
+# results on purpose: deleting a row must not erase the decision log.
+picl_lineage = Table(
+    "picl_lineage",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", Integer, nullable=False),
+    # 'rider_merge' | 'team_norm' | 'division_norm' | 'event_classify' | 'course_map' | 'conference_norm'
+    Column("stage", Text, nullable=False),
+    Column("level", Text, nullable=False),  # 'rider' | 'team' | 'division' | 'event' | 'conference'
+    Column("canonical_key", Text, nullable=False),
+    Column("raw_value", Text, nullable=False),
+    Column("raw_id", Integer),
+    Column("source", Text, nullable=False),  # 'raceresult:<id>' | 'seed' | 'admin'
+    Column("origin", Text),  # code path that decided, e.g. 'db/merge.py'
+    # 'exact' | 'casing' | 'punctuation' | 'whitespace' | 'alias' | 'typo' | 'pattern' | 'manual'
+    Column("mechanism", Text, nullable=False),
+    Column("match_score", Float),
+    Column("volume", Integer, nullable=False, server_default="0"),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_lineage_level_key", "level", "canonical_key"),
+    Index("idx_lineage_run", "run_id"),
+    Index("idx_lineage_mechanism", "mechanism"),
+)
+
+picl_lineage_runs = Table(
+    "picl_lineage_runs",
+    metadata,
+    Column("run_id", Integer, primary_key=True),
+    Column("level", Text, nullable=False),
+    Column("edges", Integer, nullable=False),
+    Column("canonicals", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+# Long format: one row per metric per run so trends are a GROUP BY.
+picl_dq_metrics = Table(
+    "picl_dq_metrics",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("run_id", Integer, nullable=False),
+    Column("metric", Text, nullable=False),
+    Column("value", Float),
+    Column("numerator", Integer),
+    Column("denominator", Integer),
+    Column("detail", JSONB),
+    Column("captured_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_dq_metrics_metric", "metric", "captured_at"),
+    Index("idx_dq_metrics_run", "run_id"),
+)
+
+# Positive fixtures: things that must stay true after every run.
+picl_golden = Table(
+    "picl_golden",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    # 'rider_canonical' | 'event_type' | 'event_course' | 'division' | 'result_value'
+    Column("kind", Text, nullable=False),
+    Column("subject", JSONB, nullable=False),  # {"rider_id": 4766}
+    Column("expected", JSONB, nullable=False),  # {"canonical_id": 4766}
+    Column("note", Text),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+)
+
+# Negative fixtures: rider pairs that must never merge (same name, two kids).
+picl_golden_pairs = Table(
+    "picl_golden_pairs",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("rider_id_a", Integer, nullable=False),
+    Column("rider_id_b", Integer, nullable=False),
+    Column("should_merge", Boolean, nullable=False, server_default="false"),
+    Column("note", Text),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    UniqueConstraint("rider_id_a", "rider_id_b", name="uq_golden_pair"),
 )
