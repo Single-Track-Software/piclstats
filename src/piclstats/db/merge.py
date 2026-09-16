@@ -9,50 +9,63 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from piclstats.db.engine import rowcount
+from piclstats.quality.lineage import classify_mechanism
 from piclstats.db.tables import rider_aliases
 
 logger = logging.getLogger(__name__)
 
 
 def find_auto_merge_candidates(session: Session) -> list[dict]:
-    """Find riders with the same name that never appear in the same event.
+    """Find riders with the same name_key that never appear in the same event.
 
-    These are safe to auto-merge (same person, different teams across seasons).
-    Returns list of {name, rider_ids, teams, race_counts}.
+    Blocking on name_key (quality.keys) folds O'REILLY/OREILLY and LA LONDE/
+    LALONDE; the never-co-raced rule still separates two kids who share a
+    name. Returns list of {name, names, rider_ids, teams, race_counts}.
     """
     rows = session.execute(
         text("""
-        WITH dupe_names AS (
-            SELECT name FROM riders GROUP BY name HAVING count(*) > 1
+        WITH keyed AS (
+            SELECT id, name, team, COALESCE(name_key, name) AS k FROM riders
+        ),
+        dupe_keys AS (
+            SELECT k FROM keyed GROUP BY k HAVING count(*) > 1
         ),
         conflicts AS (
-            SELECT DISTINCT ri.name
-            FROM riders ri
+            SELECT DISTINCT ri.k
+            FROM keyed ri
             JOIN results r ON r.rider_id = ri.id
-            GROUP BY ri.name, r.event_id
+            GROUP BY ri.k, r.event_id
             HAVING count(DISTINCT ri.id) > 1
         ),
         rider_counts AS (
-            SELECT ri.id, ri.name, ri.team, count(r.id) AS races
-            FROM riders ri
+            SELECT ri.id, ri.name, ri.team, ri.k, count(r.id) AS races
+            FROM keyed ri
             JOIN results r ON r.rider_id = ri.id
-            WHERE ri.name IN (SELECT name FROM dupe_names)
-              AND ri.name NOT IN (SELECT name FROM conflicts)
-            GROUP BY ri.id, ri.name, ri.team
+            WHERE ri.k IN (SELECT k FROM dupe_keys)
+              AND ri.k NOT IN (SELECT k FROM conflicts)
+            GROUP BY ri.id, ri.name, ri.team, ri.k
         )
-        SELECT name, id, team, races
+        SELECT k, id, team, races, name
         FROM rider_counts
-        ORDER BY name, races DESC, id
+        ORDER BY k, races DESC, id
     """)
     ).all()
 
     grouped: dict[str, dict] = {}
-    for name, rid, team, races in rows:
-        if name not in grouped:
-            grouped[name] = {"name": name, "rider_ids": [], "teams": [], "race_counts": []}
-        grouped[name]["rider_ids"].append(rid)
-        grouped[name]["teams"].append(team)
-        grouped[name]["race_counts"].append(races)
+    for key, rid, team, races, name in rows:
+        if key not in grouped:
+            # "name" is the spelling of the rider with the most races (first row)
+            grouped[key] = {
+                "name": name,
+                "names": [],
+                "rider_ids": [],
+                "teams": [],
+                "race_counts": [],
+            }
+        grouped[key]["names"].append(name)
+        grouped[key]["rider_ids"].append(rid)
+        grouped[key]["teams"].append(team)
+        grouped[key]["race_counts"].append(races)
 
     return [v for v in grouped.values() if len(v["rider_ids"]) > 1]
 
@@ -74,15 +87,15 @@ def find_conflicts(session: Session) -> list[dict]:
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id
-        WHERE ri.name IN (
-            SELECT ri2.name
+        WHERE COALESCE(ri.name_key, ri.name) IN (
+            SELECT COALESCE(ri2.name_key, ri2.name)
             FROM riders ri2
             JOIN results r2 ON r2.rider_id = ri2.id
-            GROUP BY ri2.name, r2.event_id
+            GROUP BY COALESCE(ri2.name_key, ri2.name), r2.event_id
             HAVING count(DISTINCT ri2.id) > 1
         )
         GROUP BY ri.name, ri.id, ri.team
-        ORDER BY ri.name, races DESC
+        ORDER BY COALESCE(ri.name_key, ri.name), races DESC
     """)
     ).all()
 
@@ -127,17 +140,15 @@ def auto_merge(session: Session, dry_run: bool = False) -> int:
                 list(zip(alias_ids, group["teams"][1:], group["race_counts"][1:])),
             )
         else:
-            for alias_id in alias_ids:
+            for alias_id, alias_name in zip(alias_ids, group["names"][1:]):
+                mechanism, _ = classify_mechanism(alias_name, group["name"])
+                method = "auto_name" if mechanism == "exact" else f"auto_{mechanism}"
                 stmt = (
                     insert(rider_aliases)
-                    .values(
-                        rider_id=alias_id,
-                        canonical_id=canonical_id,
-                        match_method="auto_name",
-                    )
+                    .values(rider_id=alias_id, canonical_id=canonical_id, match_method=method)
                     .on_conflict_do_update(
                         index_elements=["rider_id"],
-                        set_={"canonical_id": canonical_id, "match_method": "auto_name"},
+                        set_={"canonical_id": canonical_id, "match_method": method},
                     )
                 )
                 session.execute(stmt)
@@ -199,7 +210,8 @@ def merge_stats(session: Session) -> dict:
             (SELECT count(*) FROM rider_aliases) AS aliases,
             (SELECT count(DISTINCT canonical_id) FROM rider_aliases) AS canonical_groups,
             (SELECT count(*) FROM (
-                SELECT name FROM riders GROUP BY name HAVING count(*) > 1
+                SELECT COALESCE(name_key, name) FROM riders
+                GROUP BY COALESCE(name_key, name) HAVING count(*) > 1
             ) x) AS remaining_dupes,
             (SELECT count(*) FROM riders) AS total_riders
     """)

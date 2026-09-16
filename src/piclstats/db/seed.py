@@ -414,4 +414,8 @@ def seed_all(session: Session) -> None:
     seed_season_profiles(session)
     seed_conferences(session)
     session.commit()
+    # Record every fold above as lineage edges (ADR 002).
+    from piclstats.quality.lineage import rebuild_all
+
+    rebuild_all(session)
     logger.info("Seed complete")
