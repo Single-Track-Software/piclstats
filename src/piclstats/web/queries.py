@@ -239,6 +239,60 @@ def search_riders(
     return [_serialize(r._mapping) for r in rows]
 
 
+def rider_rivals(session: Session, ids: list[int], season: int, limit: int = 8) -> list[dict]:
+    """Riders who finish around this one in the same category during `season`.
+
+    A rival is anyone within three places in at least one shared scoring
+    race. For each, the record over every shared race that season: head-to-
+    head wins, average place gap (positive = the rival finished behind), and
+    average finish-time gap in percent on equal laps.
+    """
+    rows = session.execute(
+        text(f"""
+        WITH {_CANONICAL_CTE},
+        mine AS (
+            SELECT r.event_id, r.category, r.place, r.total_time, e.event_order, e.event_name,
+                   {_ACTUAL_LAPS} AS laps
+            FROM results r
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+            WHERE r.rider_id = ANY(:ids) AND r.place IS NOT NULL
+              AND r.dq_status <> 'excluded' AND {_POINTS_ONLY}
+        ),
+        theirs AS (
+            SELECT c.cid, c.name, c.team, m.event_order, m.event_name, m.place AS my_place,
+                   r.place AS their_place,
+                   CASE WHEN {_ACTUAL_LAPS} = m.laps AND m.total_time > interval '0'
+                             AND r.total_time IS NOT NULL
+                        THEN EXTRACT(EPOCH FROM (r.total_time - m.total_time))
+                             / EXTRACT(EPOCH FROM m.total_time) * 100
+                   END AS time_gap_pct
+            FROM mine m
+            JOIN results r ON r.event_id = m.event_id AND r.category = m.category
+            JOIN canonical c ON c.rider_id = r.rider_id
+            WHERE r.rider_id <> ALL(:ids) AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+        )
+        SELECT cid,
+               (array_agg(name ORDER BY event_order DESC))[1] AS name,
+               (array_agg(team ORDER BY event_order DESC))[1] AS team,
+               count(*) AS shared,
+               count(*) FILTER (WHERE abs(their_place - my_place) <= 3) AS close,
+               count(*) FILTER (WHERE my_place < their_place) AS wins,
+               round(avg(their_place - my_place)::numeric, 1) AS avg_place_gap,
+               round(avg(time_gap_pct)::numeric, 1) AS avg_time_gap_pct,
+               array_agg(json_build_object('event_order', event_order, 'event_name', event_name,
+                                           'me', my_place, 'them', their_place)
+                         ORDER BY event_order) AS races
+        FROM theirs
+        GROUP BY cid
+        HAVING count(*) FILTER (WHERE abs(their_place - my_place) <= 3) >= 1
+        ORDER BY close DESC, shared DESC, abs(avg(their_place - my_place)) ASC, name
+        LIMIT :limit
+        """),
+        {"ids": ids, "season": season, "limit": limit},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def rider_detail(session: Session, rider_id: int) -> dict | None:
     """Full rider profile — unified across all aliases."""
     # Resolve to canonical
@@ -375,12 +429,25 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
 
     serialized_races = [_serialize(r._mapping) for r in races]
 
+    # Rivals for the latest season with at least two placed scoring races
+    # (one race is too thin), else the latest season raced.
+    per_season: dict[int, int] = {}
+    for x in serialized_races:
+        if x["place"] and x["dq_status"] != "excluded" and x["event_type"] == "points":
+            per_season[int(x["season"])] = per_season.get(int(x["season"]), 0) + 1
+    rival_season = next((y for y in sorted(per_season, reverse=True) if per_season[y] >= 2), None)
+    if rival_season is None and per_season:
+        rival_season = max(per_season)
+    rivals = rider_rivals(session, all_ids, rival_season) if rival_season else []
+
     return {
         "info": _serialize(info._mapping),
         "team_history": [_serialize(r._mapping) for r in team_history],
         "venues": rider_venue_history(session, canonical_id) if canonical_id is not None else [],
         "races": serialized_races,
         "season_stats": season_summary(serialized_races),
+        "rivals": rivals,
+        "rival_season": rival_season,
     }
 
 

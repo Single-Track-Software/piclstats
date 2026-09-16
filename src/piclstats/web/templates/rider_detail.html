@@ -87,6 +87,50 @@
     </div>
 </div>
 
+{% if rivals %}
+<!-- Rivals: who finishes around this rider -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
+    <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Rivals <span class="text-sm font-normal text-gray-400">{{ rival_season }} season</span></h2>
+        <span class="text-xs text-gray-400">Riders within 3 places in at least one shared race · record over every shared race that season</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Rider</th>
+                    <th class="px-4 py-3">Team</th>
+                    <th class="px-4 py-3 text-right" title="Shared scoring races this season">Races</th>
+                    <th class="px-4 py-3 text-right" title="Times this rider finished ahead">Head-to-head</th>
+                    <th class="px-4 py-3 text-right" title="Average places the rival finished behind (negative = ahead)">Avg gap</th>
+                    <th class="px-4 py-3 text-right" title="Rival's finish time relative to this rider, equal laps only">Time gap</th>
+                    <th class="px-4 py-3">Race by race <span class="normal-case text-gray-400">(me vs them)</span></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for v in rivals %}
+                <tr class="hover:bg-picl-50 transition-colors">
+                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ v.cid }}" class="text-picl-700 font-medium hover:underline">{{ v.name }}</a></td>
+                    <td class="px-4 py-2 text-gray-500 text-xs">{{ v.team or '' }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ v.shared }}</td>
+                    <td class="px-4 py-2 text-right font-mono {{ 'text-green-600' if v.wins * 2 > v.shared else ('text-red-500' if v.wins * 2 < v.shared else 'text-gray-600') }}">{{ v.wins }}–{{ v.shared - v.wins }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {{ 'text-green-600' if v.avg_place_gap > 0 else ('text-red-500' if v.avg_place_gap < 0 else 'text-gray-500') }}">{{ '+' if v.avg_place_gap > 0 else '' }}{{ v.avg_place_gap }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if v.avg_time_gap_pct is not none %}{{ 'text-green-600' if v.avg_time_gap_pct > 0 else ('text-red-500' if v.avg_time_gap_pct < 0 else 'text-gray-500') }}{% endif %}">{% if v.avg_time_gap_pct is not none %}{{ '+' if v.avg_time_gap_pct > 0 else '' }}{{ "%.1f"|format(v.avg_time_gap_pct) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2">
+                        <div class="flex flex-wrap gap-1">
+                        {% for g in v.races %}
+                        <span class="font-mono text-[11px] px-1.5 py-0.5 rounded {{ 'bg-green-50 text-green-700' if g.me < g.them else 'bg-red-50 text-red-600' }}" title="{{ g.event_name }}">#{{ g.event_order }} {{ g.me }}v{{ g.them }}</span>
+                        {% endfor %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- Race history table -->
 {% set ns = namespace(laps=3) %}
 {% for r in races %}{% for i in range(4, 7) %}{% if r['lap' ~ i] and i > ns.laps %}{% set ns.laps = i %}{% endif %}{% endfor %}{% endfor %}
