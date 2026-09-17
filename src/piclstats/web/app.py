@@ -16,8 +16,9 @@ from collections.abc import Awaitable, Callable
 
 from sqlalchemy.orm import Session
 
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -147,6 +148,19 @@ app.add_middleware(
     # default, set here so it reads as a decision rather than an accident.
     max_age=14 * 24 * 60 * 60,
 )
+
+
+@app.exception_handler(HTTPException)
+async def _http_exception_handler(request: Request, exc: HTTPException):
+    # A signed-in person hitting a page above their role gets a real page, not
+    # JSON. Everything else keeps FastAPI's default response.
+    if exc.status_code == 403 and "text/html" in request.headers.get("accept", ""):
+        return templates.TemplateResponse(
+            "forbidden.html",
+            {"request": request, "detail": exc.detail},
+            status_code=403,
+        )
+    return await http_exception_handler(request, exc)
 
 
 @app.exception_handler(LoginRequired)
