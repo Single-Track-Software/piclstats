@@ -1385,6 +1385,56 @@ def past_race_fields(session: Session, event_ids: list[int], gender: str) -> lis
     return [_serialize(r._mapping) for r in rows]
 
 
+def rating_rows(
+    session: Session,
+    gender: str | None = None,
+    loop_type: str | None = None,
+    min_season: int | None = None,
+) -> list[dict]:
+    """Placed points-race results in the shape `ratings.race_scores` wants.
+
+    One row per result with the rider resolved to their canonical id.
+    `lap_secs` (ride time / laps ridden) is NULL when the splits don't add up,
+    so the row still counts toward rosters and attendance but never scores.
+    """
+    filters = ""
+    params: dict = {}
+    if gender:
+        filters += " AND r.gender = :gender"
+        params["gender"] = gender
+    if loop_type:
+        filters += " AND dl.loop_type = :loop_type"
+        params["loop_type"] = loop_type
+    if min_season:
+        filters += " AND e.season >= :min_season"
+        params["min_season"] = min_season
+    rows = session.execute(
+        text(f"""
+        SELECT
+            e.id AS event_id, e.season, e.event_order,
+            COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
+            r.division, r.gender, r.place, r.conference, r.category_order,
+            ri.team,
+            dl.loop_type,
+            {_ACTUAL_LAPS} AS laps,
+            CASE WHEN r.total_time IS NOT NULL AND {_LAPS_CONSISTENT}
+                 THEN {_RIDE_SECS} / {_ACTUAL_LAPS}
+            END AS lap_secs
+        FROM results r
+        JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
+        JOIN riders ri ON ri.id = r.rider_id
+        LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
+        {_LAP_JOINS}
+        WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.status = 'OK'
+          AND dl.loop_type IS NOT NULL
+          {filters}
+        ORDER BY e.season, e.event_order, e.id
+    """),
+        params,
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def division_profile_lookup(
     session: Session,
     division: str,
