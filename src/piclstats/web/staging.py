@@ -142,6 +142,51 @@ def build_speed_rating(rows: list[dict]) -> dict:
 # ── Staging grid (the /staging page) ────────────────────────────────────
 
 
+# Staging always runs down the ladder, fastest category first.
+DIVISION_ORDER = [
+    "Varsity",
+    "JV1",
+    "JV2",
+    "JV3",
+    "9th Grade",
+    "MS Advanced",
+    "Middle School Advanced",
+    "8th Grade",
+    "7th Grade",
+    "6th Grade",
+]
+
+# Start formats: which divisions roll off the line as one start. A format is
+# the set of divisions that start *with the division above them*; anything
+# else ("custom") comes from the page's checkboxes.
+START_FORMATS: dict[str, str] = {
+    "separate": "Each division on its own",
+    "state": "State race",
+    "combined": "All divisions together",
+    "custom": "Custom",
+}
+# State races: MS Advanced and 8th Grade share a start (MS Advanced is wave 1,
+# 8th Grade follows a minute later as wave 2...); every other division is its
+# own race.
+_STATE_JOINS = {"8th Grade"}
+
+
+def division_sort_key(division: str | None) -> tuple[int, str]:
+    name = division or ""
+    return (DIVISION_ORDER.index(name) if name in DIVISION_ORDER else len(DIVISION_ORDER), name)
+
+
+def start_joins(start_format: str, divisions: list[str], custom: list[str] | None = None) -> set:
+    """Divisions (of `divisions`, already in ladder order) that start with the one above."""
+    if start_format == "combined":
+        return set(divisions[1:])
+    if start_format == "state":
+        return _STATE_JOINS & set(divisions[1:])
+    if start_format == "custom":
+        return set(custom or []) & set(divisions[1:])
+    return set()
+
+
 def build_grid(
     rows: list[dict],
     metric: str = "pace",
@@ -149,16 +194,27 @@ def build_grid(
     division: str | None = None,
     conference: str | None = None,
     wave_size: int = 20,
+    row_size: int = 0,
+    start_format: str = "separate",
+    custom_joins: list[str] | None = None,
 ) -> dict:
     """Build the staging grid from per-(rider, event) z-score rows.
 
     Pivots into one row per kid with a z column per race, plus Best-z and Avg-z.
     Ranks the category (most negative = fastest first); a division and/or
-    conference filter narrows to a specific race's field, re-ranked and split
-    into waves of `wave_size`. A conference filter value matches either the
-    specific conference (e.g. 'Eastern Blue') or its group (e.g. 'Eastern' =
-    Blue + Gold), so you can model pack size both split and combined. Riders
-    with no usable z sort last with no wave.
+    conference filter narrows to a specific race's field. A conference filter
+    value matches either the specific conference (e.g. 'Eastern Blue') or its
+    group (e.g. 'Eastern' = Blue + Gold), so you can model pack size both split
+    and combined.
+
+    Order is always division first (down the ladder), fastest first within a
+    division, unrated riders at the back of their division with no wave or row.
+    `rank` is the position within the division. Each division is cut into
+    waves of `wave_size`; a new division always opens a new wave. The start
+    format groups divisions into starts: wave numbers run on through every
+    division of a start (MS Advanced wave 1, 8th Grade waves 2-5) and begin
+    again at 1 for the next start. With `row_size`, riders also get a grid row
+    within their division; a row never straddles two waves.
     """
     zkey = "z_pace" if metric == "pace" else "z_lap"
     sort_key = "best_z" if sort == "best" else "avg_z"
@@ -201,7 +257,9 @@ def build_grid(
             rd["conference_group"] = r.get("conference_group")
 
     event_list = sorted(events.values(), key=lambda e: e["event_order"])
-    divisions = sorted({r["division"] for r in riders.values() if r["division"]})
+    divisions = sorted(
+        {r["division"] for r in riders.values() if r["division"]}, key=division_sort_key
+    )
 
     # Conference dropdown: every specific conference, plus any group that spans
     # more than one conference (e.g. 'Eastern' over Blue + Gold) so the combined
@@ -227,12 +285,50 @@ def build_grid(
     if conference:
         grid = [r for r in grid if conference in (r["conference"], r["conference_group"])]
 
-    # Most negative (fastest) first; unrated riders last.
-    grid.sort(key=lambda r: (r[sort_key] is None, r[sort_key] if r[sort_key] is not None else 0.0))
+    # Division first; then most negative (fastest) first, unrated riders last.
+    grid.sort(
+        key=lambda r: (
+            division_sort_key(r["division"]),
+            r[sort_key] is None,
+            r[sort_key] if r[sort_key] is not None else 0.0,
+        )
+    )
 
-    for i, r in enumerate(grid):
-        r["rank"] = i + 1
-        r["wave"] = (i // wave_size) + 1 if r[sort_key] is not None else None
+    staged = sorted({r["division"] for r in grid if r["division"]}, key=division_sort_key)
+    joins = start_joins(start_format, staged, custom_joins)
+
+    starts: list[dict] = []
+    current = object()  # sentinel: no division yet
+    start_no = wave = 0
+    for r in grid:
+        if r["division"] != current:
+            current = r["division"]
+            if current not in joins or not starts:
+                start_no += 1
+                wave = 0
+                starts.append({"start": start_no, "divisions": []})
+            starts[-1]["divisions"].append(current)
+            in_division = in_wave = in_row = row = 0
+        in_division += 1
+        r["rank"] = in_division
+        r["start"] = start_no
+        if r[sort_key] is None:
+            r["wave"] = r["row"] = None
+            continue
+        if in_wave == 0 or in_wave >= wave_size:
+            wave += 1
+            in_wave = 0
+            in_row = 0  # a row never straddles two waves
+        in_wave += 1
+        r["wave"] = wave
+        if row_size > 0:
+            if in_row == 0 or in_row >= row_size:
+                row += 1
+                in_row = 0
+            in_row += 1
+            r["row"] = row
+        else:
+            r["row"] = None
 
     return {
         "events": event_list,
@@ -243,5 +339,10 @@ def build_grid(
         "metric": metric,
         "sort": sort,
         "wave_size": wave_size,
+        "row_size": row_size,
+        "start_format": start_format if start_format in START_FORMATS else "separate",
+        "staged_divisions": staged,
+        "joins": joins,
+        "starts": starts,
         "rated_count": sum(1 for r in grid if r[sort_key] is not None),
     }

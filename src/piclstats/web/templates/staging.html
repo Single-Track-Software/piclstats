@@ -5,7 +5,7 @@
 <div class="mb-6">
     <h1 class="text-3xl font-bold text-gray-900">Staging</h1>
     <p class="mt-1 text-sm text-gray-500">
-        Rank a category by speed (z-score vs the field) to set start order — fastest at the front, split into waves.
+        Rank a category by speed (z-score vs the field) to set start order — division by division, fastest at the front, split into waves and rows.
         Staging is predictive: to seed a season opener, rank from <strong>last</strong> season; mid-season, rank from this season to date.
     </p>
 </div>
@@ -77,6 +77,38 @@
             <input type="number" name="wave" value="{{ wave }}" min="1" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
         </div>
     </div>
+    <div class="grid md:grid-cols-8 gap-4 mt-4 pt-4 border-t border-gray-100">
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Row Size</label>
+            <input type="number" name="row" value="{{ row }}" min="0" title="Riders per grid row; 0 turns rows off" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+        </div>
+        <div class="md:col-span-2">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Start Format</label>
+            <select name="format" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for key, label in start_formats.items() %}
+                <option value="{{ key }}" {{ 'selected' if key == start_format }}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if grid and grid.staged_divisions|length > 1 %}
+        <div class="md:col-span-5">
+            <label class="block text-xs font-medium text-gray-500 mb-1">Starts with the division above it</label>
+            <div class="flex flex-wrap gap-x-5 gap-y-2 py-2 text-sm text-gray-700">
+                {% for d in grid.staged_divisions[1:] %}
+                <label class="inline-flex items-center gap-1.5" title="{{ d }} starts in the same race as {{ grid.staged_divisions[loop.index0] }}; wave numbers run on">
+                    <input type="checkbox" name="join" value="{{ d }}" {{ 'checked' if d in grid.joins }}
+                           onchange="this.form.format.value='custom'; this.form.submit()">
+                    {{ d }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+    <p class="mt-2 text-xs text-gray-400">
+        Divisions that start together share one run of wave numbers: in a state race MS Advanced is wave 1 and 8th Grade follows as wave 2, 3&hellip;, while 7th Grade is its own race from wave 1.
+        A new division always opens a new wave. Tick the boxes to match any other race, such as every division in one start.
+    </p>
 </form>
 
 {% if grid and grid.riders %}
@@ -84,9 +116,10 @@
     <p class="text-sm text-gray-500">
         {{ grid.rated_count }} rated rider{{ 's' if grid.rated_count != 1 }}
         {% if division %}in {{ division }}{% else %}in {{ age_group }} {{ 'Boys' if gender == 'Male' else 'Girls' }}{% endif %}
-        · waves of {{ grid.wave_size }}
+        · {{ grid.starts|length }} start{{ 's' if grid.starts|length != 1 }}
+        · waves of {{ grid.wave_size }}{% if grid.row_size %} · rows of {{ grid.row_size }}{% endif %}
     </p>
-    <a href="/staging.csv?age_group={{ age_group }}&gender={{ gender }}&season={{ season }}&metric={{ metric }}&sort={{ sort }}&division={{ division | urlencode }}&conference={{ conference | urlencode }}&wave={{ wave }}"
+    <a href="/staging.csv?{{ csv_query }}"
        class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">
         Download CSV
     </a>
@@ -97,7 +130,8 @@
         <table class="w-full text-sm">
             <thead>
                 <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
-                    <th class="px-3 py-3 w-10">#</th>
+                    <th class="px-3 py-3 w-10" title="Position within the division">#</th>
+                    {% if grid.row_size %}<th class="px-3 py-3 w-10">Row</th>{% endif %}
                     <th class="px-3 py-3">Rider</th>
                     <th class="px-3 py-3">Team</th>
                     <th class="px-3 py-3">Conference</th>
@@ -111,18 +145,36 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                {% set ns = namespace(wave=0) %}
+                {% set cols = grid.events|length + (9 if grid.row_size else 8) %}
+                {% set ns = namespace(wave=0, division=none, row=0) %}
                 {% for r in grid.riders %}
+                {% if r.division != ns.division %}
+                {% set ns.division = r.division %}
+                {% set ns.wave = 0 %}
+                {% set ns.row = 0 %}
+                {% set start = grid.starts[r.start - 1] %}
+                <tr class="bg-picl-700 text-white border-t-4 border-white">
+                    <td colspan="{{ cols }}" class="px-3 py-2 text-sm font-bold uppercase tracking-wider">
+                        {{ r.division or 'No division' }}
+                        <span class="ml-2 text-xs font-normal normal-case tracking-normal opacity-80">
+                            Start {{ r.start }}{% if start.divisions|length > 1 %} · with {{ start.divisions | reject('equalto', r.division) | join(', ') }}{% endif %}
+                        </span>
+                    </td>
+                </tr>
+                {% endif %}
                 {% if r.wave and r.wave != ns.wave %}
                 {% set ns.wave = r.wave %}
                 <tr class="bg-picl-100/60">
-                    <td colspan="{{ grid.events|length + 8 }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
+                    <td colspan="{{ cols }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
                         Wave {{ r.wave }}
                     </td>
                 </tr>
                 {% endif %}
-                <tr class="hover:bg-picl-50 {% if r.best_z is none %}text-gray-400{% endif %}">
+                {% set new_row = r.row and r.row != ns.row %}
+                {% if r.row %}{% set ns.row = r.row %}{% endif %}
+                <tr class="hover:bg-picl-50 {% if r.best_z is none %}text-gray-400{% endif %} {% if new_row and r.row > 1 %}border-t-2 border-gray-300{% endif %}">
                     <td class="px-3 py-2 font-mono text-gray-400">{{ r.rank }}</td>
+                    {% if grid.row_size %}<td class="px-3 py-2 font-mono text-gray-600">{{ r.row or '' }}</td>{% endif %}
                     <td class="px-3 py-2">
                         <a href="/rider/{{ r.canonical_id }}/forecast" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
                     </td>
@@ -151,7 +203,7 @@
     </div>
     <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
         Negative z = faster than the field. A blank (·) means that race's field was too small for a reliable z.
-        Riders with no rating sort last. Click a name for their full speed-rating + division forecast.
+        Riders with no rating go to the back of their division with no wave or row. Click a name for their full speed-rating + division forecast.
     </p>
 </div>
 {% elif grid %}

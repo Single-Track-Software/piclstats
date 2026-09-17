@@ -760,7 +760,10 @@ def rider_forecast(
     )
 
 
-def _staging_grid(session, age_group, gender, season, metric, sort, division, conference, wave):
+def _staging_grid(
+    session, age_group, gender, season, metric, sort, division, conference, wave,
+    row=0, start_format="separate", join=None,
+):  # fmt: skip
     from piclstats.web import staging as staging_mod
 
     rows = queries.staging_rows(session, age_group, gender, season)
@@ -771,6 +774,9 @@ def _staging_grid(session, age_group, gender, season, metric, sort, division, co
         division=division or None,
         conference=conference or None,
         wave_size=max(1, wave),
+        row_size=max(0, row),
+        start_format=start_format,
+        custom_joins=join or [],
     )
 
 
@@ -785,8 +791,13 @@ def staging_page(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
+    row: int = Query(5),
+    start_format: str = Query("separate", alias="format"),
+    join: list[str] = Query([]),
     _user: dict = Depends(require_picl),
 ):
+    from piclstats.web.staging import START_FORMATS as staging_formats
+
     with get_session() as session:
         seasons = queries.seasons_list(session)
         if season is None:
@@ -794,8 +805,9 @@ def staging_page(
         grid = None
         if season is not None:
             grid = _staging_grid(
-                session, age_group, gender, season, metric, sort, division, conference, wave
-            )
+                session, age_group, gender, season, metric, sort, division, conference, wave,
+                row, start_format, join,
+            )  # fmt: skip
     return templates.TemplateResponse(
         "staging.html",
         _ctx(
@@ -810,6 +822,24 @@ def staging_page(
             division=division,
             conference=conference,
             wave=wave,
+            row=row,
+            start_format=grid["start_format"] if grid else start_format,
+            start_formats=staging_formats,
+            csv_query=urlencode(
+                [
+                    ("age_group", age_group),
+                    ("gender", gender),
+                    ("season", season or ""),
+                    ("metric", metric),
+                    ("sort", sort),
+                    ("division", division),
+                    ("conference", conference),
+                    ("wave", wave),
+                    ("row", row),
+                    ("format", start_format),
+                ]
+                + [("join", j) for j in join]
+            ),  # fmt: skip
         ),
     )
 
@@ -841,6 +871,9 @@ def staging_csv(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
+    row: int = Query(5),
+    start_format: str = Query("separate", alias="format"),
+    join: list[str] = Query([]),
     _user: dict = Depends(require_picl_api),
 ):
     with get_session() as session:
@@ -850,14 +883,16 @@ def staging_csv(
         if season is None:
             return Response("No data", media_type="text/plain")
         grid = _staging_grid(
-            session, age_group, gender, season, metric, sort, division, conference, wave
-        )
+            session, age_group, gender, season, metric, sort, division, conference, wave,
+            row, start_format, join,
+        )  # fmt: skip
 
     buf = io.StringIO()
     w = csv.writer(buf)
     events = grid["events"]
     w.writerow(
-        ["Rank", "Wave", "Name", "Team", "Conference", "Division", "Best z", "Avg z", "Races"]
+        ["Division", "Start", "Wave", "Row", "Rank", "Name", "Team", "Conference"]
+        + ["Best z", "Avg z", "Races"]
         + [e["event_name"] for e in events]
     )
     for r in grid["riders"]:
@@ -867,12 +902,14 @@ def staging_csv(
             per.append("" if v is None else v)
         w.writerow(
             [
-                r["rank"],
+                r["division"] or "",
+                r["start"],
                 r["wave"] or "",
+                r["row"] or "",
+                r["rank"],
                 r["name"],
                 r["team"] or "",
                 r["conference"] or "",
-                r["division"] or "",
                 "" if r["best_z"] is None else r["best_z"],
                 "" if r["avg_z"] is None else r["avg_z"],
                 r["n_events"],

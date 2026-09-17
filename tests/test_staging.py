@@ -107,12 +107,12 @@ def _category_rows():
 def test_grid_ranks_fastest_first_and_pivots_events():
     grid = build_grid(_category_rows(), sort="best")
     assert [r["name"] for r in grid["riders"]] == ["Fast Kid", "Mid Kid", "Slow Kid"]
-    assert [r["rank"] for r in grid["riders"]] == [1, 2, 3]
+    assert [r["rank"] for r in grid["riders"]] == [1, 1, 1]  # position within the division
     assert len(grid["events"]) == 2
     fast = grid["riders"][0]
     assert fast["best_z"] == -2.0  # most negative across events
     assert fast["per_event"][1] == -1.8 and fast["per_event"][2] == -2.0
-    assert grid["divisions"] == ["6th Grade", "7th Grade", "MS Advanced"]
+    assert grid["divisions"] == ["MS Advanced", "7th Grade", "6th Grade"]  # ladder order
 
 
 def test_grid_waves_split_by_size():
@@ -171,3 +171,87 @@ def test_grid_carries_conference_on_rider():
     by_name = {r["name"]: r for r in build_grid(_conf_rows())["riders"]}
     assert by_name["Blue Fast"]["conference"] == "Eastern Blue"
     assert by_name["Blue Fast"]["conference_group"] == "Eastern"
+
+
+# ── Division order, start formats, rows ─────────────────────────────────
+
+
+def _ms_field():
+    """3 MS Advanced, 5 8th Grade, 4 7th Grade; z rises with the rider id."""
+    rows = []
+    for i, division in enumerate(["7th Grade"] * 4 + ["MS Advanced"] * 3 + ["8th Grade"] * 5):
+        rows += _grow(i, f"Kid {i}", division, {1: -2.0 + 0.1 * i})
+    return rows
+
+
+def _by_division(grid, key):
+    out: dict = {}
+    for r in grid["riders"]:
+        out.setdefault(r["division"], []).append(r[key])
+    return out
+
+
+def test_grid_is_division_first_even_when_a_lower_division_is_faster():
+    grid = build_grid(_ms_field())  # the 7th graders have the best z of all
+    assert list(_by_division(grid, "rank")) == ["MS Advanced", "8th Grade", "7th Grade"]
+    assert _by_division(grid, "rank")["8th Grade"] == [1, 2, 3, 4, 5]
+
+
+def test_separate_starts_restart_the_wave_count():
+    grid = build_grid(_ms_field(), wave_size=2)
+    assert _by_division(grid, "wave") == {
+        "MS Advanced": [1, 1, 2],
+        "8th Grade": [1, 1, 2, 2, 3],
+        "7th Grade": [1, 1, 2, 2],
+    }
+    assert [s["divisions"] for s in grid["starts"]] == [
+        ["MS Advanced"],
+        ["8th Grade"],
+        ["7th Grade"],
+    ]
+
+
+def test_state_format_runs_waves_on_from_ms_advanced_into_8th_grade():
+    grid = build_grid(_ms_field(), wave_size=4, start_format="state")
+    waves = _by_division(grid, "wave")
+    assert waves["MS Advanced"] == [1, 1, 1]  # small enough for one wave
+    assert waves["8th Grade"] == [2, 2, 2, 2, 3]  # its first wave is marked wave 2
+    assert waves["7th Grade"] == [1, 1, 1, 1]  # its own race
+    assert [s["divisions"] for s in grid["starts"]] == [["MS Advanced", "8th Grade"], ["7th Grade"]]
+    assert _by_division(grid, "start")["8th Grade"] == [1] * 5
+
+
+def test_combined_format_numbers_waves_across_every_division():
+    grid = build_grid(_ms_field(), wave_size=4, start_format="combined")
+    waves = _by_division(grid, "wave")
+    assert (waves["MS Advanced"], waves["8th Grade"], waves["7th Grade"]) == (
+        [1, 1, 1],
+        [2, 2, 2, 2, 3],
+        [4, 4, 4, 4],
+    )
+    assert len(grid["starts"]) == 1
+
+
+def test_custom_format_joins_only_the_ticked_divisions():
+    grid = build_grid(_ms_field(), wave_size=4, start_format="custom", custom_joins=["7th Grade"])
+    assert [s["divisions"] for s in grid["starts"]] == [["MS Advanced"], ["8th Grade", "7th Grade"]]
+    assert _by_division(grid, "wave")["7th Grade"] == [3, 3, 3, 3]
+    # The top division has nothing above it to join.
+    top = build_grid(_ms_field(), start_format="custom", custom_joins=["MS Advanced"])
+    assert len(top["starts"]) == 3
+
+
+def test_rows_count_within_the_division_and_break_at_a_wave():
+    grid = build_grid(_ms_field(), wave_size=3, row_size=2)
+    assert _by_division(grid, "row")["8th Grade"] == [1, 1, 2, 3, 3]  # wave 1 = rows 1-2
+    assert _by_division(grid, "row")["MS Advanced"] == [1, 1, 2]
+    assert set(_by_division(build_grid(_ms_field()), "row")["8th Grade"]) == {None}  # rows off
+
+
+def test_unrated_riders_go_to_the_back_of_their_division_without_a_wave_or_row():
+    rows = _ms_field() + _grow(99, "No Time", "MS Advanced", {1: None})
+    grid = build_grid(rows, wave_size=2, row_size=2, start_format="state")
+    adv = [r for r in grid["riders"] if r["division"] == "MS Advanced"]
+    assert adv[-1]["name"] == "No Time" and adv[-1]["rank"] == 4
+    assert adv[-1]["wave"] is None and adv[-1]["row"] is None
+    assert _by_division(grid, "wave")["8th Grade"][0] == 3  # unrated rider opened no wave
