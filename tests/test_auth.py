@@ -54,18 +54,31 @@ def test_require_member_redirects_anonymous(monkeypatch):
     assert exc.value.next_path == "/staging?age_group=MS"
 
 
-def test_require_member_allows_member(monkeypatch):
-    user = {"id": 1, "role": "member", "is_active": True}
+def test_require_member_allows_any_role(monkeypatch):
+    user = {"id": 1, "role": "coach", "is_active": True}
     monkeypatch.setattr(auth, "load_user", lambda request: user)
     assert auth.require_member(_FakeRequest()) is user
 
 
-def test_require_admin_forbids_member(monkeypatch):
-    user = {"id": 1, "role": "member", "is_active": True}
+def test_require_admin_forbids_picl(monkeypatch):
+    user = {"id": 1, "role": "picl", "is_active": True}
     monkeypatch.setattr(auth, "load_user", lambda request: user)
     with pytest.raises(HTTPException) as exc:
         auth.require_admin(_FakeRequest())
     assert exc.value.status_code == 403
+
+
+def test_staging_needs_picl_and_forecast_needs_coach(monkeypatch):
+    coach = {"id": 1, "role": "coach", "is_active": True}
+    monkeypatch.setattr(auth, "load_user", lambda request: coach)
+    assert auth.require_coach(_FakeRequest()) is coach
+    with pytest.raises(HTTPException) as exc:
+        auth.require_picl(_FakeRequest())
+    assert exc.value.status_code == 403
+    picl = {"id": 2, "role": "picl", "is_active": True}
+    monkeypatch.setattr(auth, "load_user", lambda request: picl)
+    assert auth.require_picl(_FakeRequest()) is picl
+    assert auth.require_coach(_FakeRequest()) is picl
 
 
 def test_require_admin_allows_admin(monkeypatch):
@@ -74,11 +87,17 @@ def test_require_admin_allows_admin(monkeypatch):
     assert auth.require_admin(_FakeRequest()) is user
 
 
-def test_require_member_api_401_anonymous(monkeypatch):
+def test_require_picl_api_401_anonymous_403_coach(monkeypatch):
     monkeypatch.setattr(auth, "load_user", lambda request: None)
     with pytest.raises(HTTPException) as exc:
-        auth.require_member_api(_FakeRequest())
+        auth.require_picl_api(_FakeRequest())
     assert exc.value.status_code == 401
+    monkeypatch.setattr(
+        auth, "load_user", lambda request: {"id": 1, "role": "coach", "is_active": True}
+    )
+    with pytest.raises(HTTPException) as exc:
+        auth.require_picl_api(_FakeRequest())
+    assert exc.value.status_code == 403
 
 
 @pytest.mark.parametrize(

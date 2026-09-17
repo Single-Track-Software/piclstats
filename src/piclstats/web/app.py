@@ -30,8 +30,9 @@ from piclstats.web.auth import (
     LoginRequired,
     client_ip,
     load_user,
-    require_member,
-    require_member_api,
+    require_coach,
+    require_picl,
+    require_picl_api,
 )
 
 TEMPLATE_DIR = Path(__file__).parent / "templates"
@@ -516,7 +517,7 @@ def rider_forecast(
     target_division: str = Query(""),
     course_id: int | None = Depends(optional_course_id),
     season: int | None = Depends(optional_season),
-    _user: dict = Depends(require_member),
+    _user: dict = Depends(require_coach),
 ):
     from piclstats.web.forecast import ForecastInput, RaceObservation, StatisticalForecastModel
     from piclstats.web.staging import build_speed_rating
@@ -674,7 +675,7 @@ def staging_page(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
-    _user: dict = Depends(require_member),
+    _user: dict = Depends(require_picl),
 ):
     with get_session() as session:
         seasons = queries.seasons_list(session)
@@ -730,7 +731,7 @@ def staging_csv(
     division: str = Query(""),
     conference: str = Query(""),
     wave: int = Query(20),
-    _user: dict = Depends(require_member_api),
+    _user: dict = Depends(require_picl_api),
 ):
     with get_session() as session:
         seasons = queries.seasons_list(session)
