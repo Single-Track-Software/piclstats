@@ -1435,6 +1435,51 @@ def rating_rows(
     return [_serialize(r._mapping) for r in rows]
 
 
+def upcoming_races(session: Session, today) -> list[dict]:
+    """Scheduled races from `today` on, soonest first (/admin/schedule)."""
+    rows = session.execute(
+        text("""
+        SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference,
+               sr.course_id, c.name AS course
+        FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
+        WHERE sr.event_date >= :today
+        ORDER BY sr.event_date, sr.name
+    """),
+        {"today": today},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def division_lap_counts(
+    session: Session, course_id: int | None, season: int, gender: str
+) -> dict[str, int]:
+    """{division: laps} at a course — its `season` profile, else its default.
+
+    Without a course, the league-wide defaults (every course seeds the same).
+    """
+    scope = "dl.course_id = :course_id" if course_id is not None else "dl.season IS NULL"
+    rows = session.execute(
+        text(f"""
+        SELECT DISTINCT ON (dl.division) dl.division, dl.lap_count
+        FROM division_laps dl
+        WHERE {scope}
+          AND (dl.gender = :gender OR dl.gender IS NULL)
+          AND (dl.season = :season OR dl.season IS NULL)
+        ORDER BY dl.division, dl.season NULLS LAST, dl.gender NULLS LAST, dl.course_id
+    """),
+        {"course_id": course_id, "season": season, "gender": gender},
+    ).all()
+    laps = {r[0]: r[1] for r in rows}
+    # The league renamed this division; results carry either spelling.
+    for a, b in (
+        ("MS Advanced", "Middle School Advanced"),
+        ("Middle School Advanced", "MS Advanced"),
+    ):
+        if a in laps:
+            laps.setdefault(b, laps[a])
+    return laps
+
+
 def division_profile_lookup(
     session: Session,
     division: str,

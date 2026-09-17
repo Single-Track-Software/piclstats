@@ -524,6 +524,69 @@ def course_profile(
     return templates.TemplateResponse("course_detail.html", _ctx(request, **data, season=season))
 
 
+def _future_race_matrix(session, rider_data: dict) -> dict | None:
+    """Upcoming races × divisions for the forecast page (see web/ratings.py).
+
+    Returns None when the rider has no timed race to rate; otherwise a dict
+    that always has `season`, plus either the matrix or a `note` saying why
+    there isn't one.
+    """
+    from datetime import date
+
+    from piclstats.db.settings_store import get_forecast_config
+    from piclstats.web import ratings
+    from piclstats.web.forecast import _place_color
+
+    timed = [r for r in rider_data["races"] if r.get("min_per_mile") is not None]
+    if not timed or not timed[-1].get("loop_type"):
+        return None
+    gender, loop_type = timed[-1]["gender"], timed[-1]["loop_type"]
+
+    races = queries.upcoming_races(session, date.today())
+    seasons = queries.seasons_list(session)
+    season = races[0]["season"] if races else (max(seasons) if seasons else date.today().year)
+    races = [r for r in races if r["season"] == season]
+    scheduled = bool(races)
+    if not scheduled:
+        # No calendar entered yet: one generic row, the whole league on default laps.
+        races = [{"name": "Next state race", "event_date": None, "course": None,
+                  "course_id": None, "conference": None}]  # fmt: skip
+    for race in races:
+        race["laps"] = queries.division_lap_counts(session, race["course_id"], season, gender)
+
+    rows = queries.rating_rows(session, gender, loop_type, min_season=season - 1)
+    roster = ratings.build_roster(rows, ratings.race_scores(rows), season)
+    me = next((r for r in roster if r["rider_id"] == rider_data["canonical_id"]), None)
+    if me is None:
+        return {
+            "season": season,
+            "note": f"No {season} race yet, so there is no division to forecast from.",
+        }
+
+    # A rider only lines up at state races and their own conference's.
+    if me["conference"]:
+        races = [
+            r
+            for r in races
+            if not r["conference"] or " ".join(r["conference"].split()) == me["conference"]
+        ]
+
+    config = get_forecast_config()
+    matrix = ratings.build_future_matrix(
+        rider_data["canonical_id"],
+        me["division"],
+        roster,
+        races,
+        lambda place, field: _place_color(place, field, config),
+        config["fatigue_per_extra_lap"],
+        ratings.field_history(rows),
+        season,
+    )
+    if matrix is None:
+        return None
+    return {**matrix, "season": season, "division": me["division"], "scheduled": scheduled}
+
+
 @app.get("/rider/{rider_id}/forecast", response_class=HTMLResponse)
 def rider_forecast(
     request: Request,
@@ -576,6 +639,12 @@ def rider_forecast(
             except Exception:
                 logger.exception("past-race matrix failed for rider %s", rider_id)
 
+        try:
+            future_races = _future_race_matrix(session, rider_data)
+        except Exception:
+            logger.exception("future-race matrix failed for rider %s", rider_id)
+            future_races = None
+
         if not source_div or not gender:
             return templates.TemplateResponse(
                 "forecast.html",
@@ -583,6 +652,7 @@ def rider_forecast(
                     request,
                     rider=rider_data,
                     past_races=past_races,
+                    future_races=future_races,
                     divisions=[],
                     courses=[],
                     course_id=None,
@@ -682,6 +752,7 @@ def rider_forecast(
             target_division=target_division,
             forecast=forecast_result,
             past_races=past_races,
+            future_races=future_races,
             season=season,
             speed_rating=speed_rating,
             error=error if not forecast_result else None,
