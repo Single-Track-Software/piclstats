@@ -66,6 +66,10 @@ COURSES = {
         "location": "Hershey, PA",
         "patterns": ["Hershey"],
     },
+    "Birdsboro": {  # new venue on the 2026 calendar (Rustic Park @ Birdsboro Preserve)
+        "location": "Birdsboro, PA",
+        "patterns": ["Birdsboro"],
+    },
 }
 
 # ── Division lap profiles (from PICL spreadsheet) ────────────────────
