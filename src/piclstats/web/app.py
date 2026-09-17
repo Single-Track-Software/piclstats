@@ -219,6 +219,25 @@ def optional_season(season: str = Query("")) -> int | None:
     return parse_season(season)
 
 
+def parse_int(raw: str | None) -> int | None:
+    """An integer query value, or None for blank or junk.
+
+    Select boxes submit ``course_id=`` when nothing is chosen; FastAPI's
+    ``int | None`` rejects that with a 422 JSON page instead of treating it
+    as "no course".
+    """
+    value = (raw or "").strip()
+    return int(value) if value.isdigit() else None
+
+
+def optional_course_id(course_id: str = Query("")) -> int | None:
+    return parse_int(course_id)
+
+
+def optional_event_id(event_id: str = Query("")) -> int | None:
+    return parse_int(event_id)
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     with get_session() as session:
@@ -303,7 +322,7 @@ def team_profile(
     request: Request,
     team_name: str,
     season_raw: str = Query("", alias="season"),
-    course_id: int | None = Query(None),
+    course_id: int | None = Depends(optional_course_id),
 ):
     with get_session() as session:
         season = season_or_current(season_raw, session)
@@ -392,7 +411,7 @@ def leaderboard_page(
 @app.get("/results", response_class=HTMLResponse)
 def results_page(
     request: Request,
-    event_id: int | None = Query(None),
+    event_id: int | None = Depends(optional_event_id),
     category: str = Query(""),
     tab: str = Query("results"),
     top: int = Query(0, description="Race Position tab: show only the top N finishers; 0 = all"),
@@ -467,7 +486,7 @@ def rider_forecast(
     request: Request,
     rider_id: int,
     target_division: str = Query(""),
-    course_id: int | None = Query(None),
+    course_id: int | None = Depends(optional_course_id),
     season: int | None = Depends(optional_season),
     _user: dict = Depends(require_member),
 ):
@@ -658,7 +677,7 @@ def staging_page(
 
 @app.get("/racechart")
 def racechart_redirect(
-    event_id: int | None = Query(None),
+    event_id: int | None = Depends(optional_event_id),
     category: str = Query(""),
     top: int = Query(0),
 ):
