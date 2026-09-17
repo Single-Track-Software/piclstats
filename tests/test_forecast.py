@@ -356,8 +356,8 @@ def test_matrix_takes_last_five_newest_first_and_merges_renamed_division():
         fields += _field(i, name, [5.0, 6.0], loop="MS", laps=4, order=1)
     m = build_past_race_matrix(races, fields)
     assert [r["race"]["event_id"] for r in m["rows"]] == [7, 6, 5, 4, 3]
-    assert m["divisions"] == ["Middle School Advanced", "8th Grade"]
-    assert all("Middle School Advanced" in r["cells"] for r in m["rows"])
+    assert m["divisions"] == ["MS Advanced", "8th Grade"]
+    assert all("MS Advanced" in r["cells"] for r in m["rows"])
 
 
 def test_matrix_none_without_timed_races():

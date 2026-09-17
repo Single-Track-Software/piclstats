@@ -116,8 +116,8 @@ def _format_minutes(minutes: float | None) -> str | None:
 
 # ── Past races: "where would you have placed?" ──────────────────────
 
-# The league renamed this division; treat both spellings as one column.
-_DIVISION_ALIASES = {"MS Advanced": "Middle School Advanced"}
+# Results carry either spelling until `seed` normalises them; one column, the normalised name.
+_DIVISION_ALIASES = {"Middle School Advanced": "MS Advanced"}
 
 
 def _canonical_division(name: str) -> str:
