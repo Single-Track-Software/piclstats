@@ -114,7 +114,7 @@ Public pages need no account. Everything gated is **invite-only** — there is n
 
 1. An admin invites an address at `/admin/users` and picks the role (default `coach`).
 2. The app emails a one-time link (7-day expiry) and also shows it once on screen, so the admin can send it another way if email is down.
-3. The coach opens `/invite/{token}`, sets their own password (12 chars minimum, passphrases encouraged), and lands signed in on `/staging`.
+3. The coach opens `/invite/{token}`, sets their own password (12 chars minimum, passphrases encouraged), and lands signed in on the first page their role can use (`/staging` for picl and admin, the dashboard for coaches).
 
 A password never passes through an admin. Forgotten passwords self-serve via `/forgot` → emailed link → `/reset/{token}` (1-hour expiry); admins can also trigger that email from `/admin/users`. Only the SHA-256 hash of each token is stored, links are one-time, and issuing a new one retires any outstanding link for that address.
 

@@ -113,6 +113,11 @@ ROLE_HELP = {
 DEFAULT_ROLE = "coach"
 
 
+def landing_for(role: str | None) -> str:
+    """Where a freshly signed-in account should land: the first page it can use."""
+    return "/staging" if role_allows(role, "picl") else "/"
+
+
 def role_allows(role: str | None, needed: str) -> bool:
     """True if `role` is at least `needed` in the ranking. Unknown roles allow nothing."""
     return role in ROLE_RANK and ROLE_RANK[role] >= ROLE_RANK[needed]
@@ -337,7 +342,8 @@ def invite_accept(
     # password is the step where people give up.
     request.session["user_id"] = user_id
     users_store.touch_last_login(user_id)
-    return RedirectResponse("/staging", status_code=303)
+    fresh = users_store.get_user_by_id(user_id)
+    return RedirectResponse(landing_for(fresh["role"] if fresh else None), status_code=303)
 
 
 # --- password reset ---------------------------------------------------------
@@ -439,7 +445,8 @@ def reset_submit(
 
     request.session["user_id"] = user_id
     users_store.touch_last_login(user_id)
-    return RedirectResponse("/staging", status_code=303)
+    fresh = users_store.get_user_by_id(user_id)
+    return RedirectResponse(landing_for(fresh["role"] if fresh else None), status_code=303)
 
 
 @router.post("/logout")
