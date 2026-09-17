@@ -344,3 +344,24 @@ discovered_events = Table(
     Column("note", Text),
     Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
 )
+
+# First-party usage log (web/usage.py). visitor = salted daily hash of IP + UA.
+page_views = Table(
+    "page_views",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ts", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("route", Text, nullable=False),
+    Column("path", Text, nullable=False),
+    Column("query", Text),
+    Column("entity", Text),
+    Column("status", SmallInteger, nullable=False),
+    Column("duration_ms", Integer),
+    Column("visitor", Text, nullable=False),
+    Column("user_id", Integer),
+    Column("referrer", Text),
+    Column("is_bot", Boolean, nullable=False, server_default="false"),
+    Index("idx_page_views_ts", "ts"),
+    Index("idx_page_views_route_ts", "route", "ts"),
+    Index("idx_page_views_visitor_ts", "visitor", "ts"),
+)
