@@ -553,12 +553,36 @@ def rider_forecast(
         source_div = rider_data["primary_division"]
         gender = rider_data["gender"]
 
+        # "Where would you have placed": the rider's last five timed races
+        # slotted into every division's field that day. Independent of the
+        # target-division form, so it renders as soon as the page loads.
+        past_races = None
+        if gender:
+            try:
+                from piclstats.db.settings_store import get_forecast_config
+                from piclstats.web.forecast import build_past_race_matrix
+
+                timed = [
+                    r
+                    for r in rider_data["races"]
+                    if r.get("min_per_mile") is not None and (not season or r["season"] == season)
+                ][-5:]
+                past_races = build_past_race_matrix(
+                    timed,
+                    queries.past_race_fields(session, [r["event_id"] for r in timed], gender),
+                    config=get_forecast_config(),
+                    pace_range=queries.PACE_RANGE,
+                )
+            except Exception:
+                logger.exception("past-race matrix failed for rider %s", rider_id)
+
         if not source_div or not gender:
             return templates.TemplateResponse(
                 "forecast.html",
                 _ctx(
                     request,
                     rider=rider_data,
+                    past_races=past_races,
                     divisions=[],
                     courses=[],
                     course_id=None,
@@ -657,6 +681,7 @@ def rider_forecast(
             course_id=course["id"] if course else None,
             target_division=target_division,
             forecast=forecast_result,
+            past_races=past_races,
             season=season,
             speed_rating=speed_rating,
             error=error if not forecast_result else None,

@@ -128,6 +128,7 @@ _FULL_DISTANCE = f"{_ACTUAL_LAPS} = r.full_laps"
 # where the default 2.0/3.5 mi loop distance doesn't apply).
 _PACE_MIN = 3.5
 _PACE_MAX = 15.0
+PACE_RANGE = (_PACE_MIN, _PACE_MAX)
 
 # Only points events count toward standings. Rallies and exhibitions are
 # excluded from every points/place aggregate and ranking below; they still
@@ -1073,12 +1074,15 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
     races = session.execute(
         text(f"""
         SELECT
+            e.id AS event_id,
             e.event_name,
             e.course_id,
             e.season,
             e.event_order,
             r.division,
             r.gender,
+            r.place,
+            {_ACTUAL_LAPS} AS actual_laps,
             dl.loop_type,
             dl.lap_count,
             cl.distance_miles AS loop_distance,
@@ -1342,6 +1346,43 @@ def division_pace_distribution(
     field_sizes = list({r[1] for r in rows if r[1]})
 
     return {"paces": paces, "field_sizes": field_sizes}
+
+
+def past_race_fields(session: Session, event_ids: list[int], gender: str) -> list[dict]:
+    """Every placed same-gender result at the given events, with pace and laps.
+
+    Feeds the forecast page's "where would you have placed" matrix: one row per
+    finisher so the rider's pace can be slotted into each division's field.
+    """
+    if not event_ids:
+        return []
+    rows = session.execute(
+        text(f"""
+        SELECT
+            r.event_id,
+            r.division,
+            r.category_order,
+            dl.loop_type,
+            {_ACTUAL_LAPS} AS laps,
+            CASE WHEN r.total_time IS NOT NULL
+                      AND cl.distance_miles > 0
+                      AND {_LAPS_CONSISTENT}
+                 THEN round((
+                     ({_RIDE_SECS} / 60.0)
+                     / ({_ACTUAL_LAPS} * cl.distance_miles)
+                 )::numeric, 1)
+            END AS min_per_mile
+        FROM results r
+        JOIN events e ON r.event_id = e.id AND e.is_published
+        {_LAP_JOINS}
+        WHERE r.event_id = ANY(:eids)
+          AND r.gender = :gender
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+          AND r.status = 'OK'
+    """),
+        {"eids": event_ids, "gender": gender},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
 
 
 def division_profile_lookup(

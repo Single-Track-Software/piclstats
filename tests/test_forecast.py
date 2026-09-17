@@ -270,3 +270,97 @@ def test_finish_time_absent_without_loop_data():
     result = _model().predict(_inp(target_loop_miles=0.0))
     assert result is not None
     assert result.predicted_finish_minutes is None
+
+
+# ── Past races: "where would you have placed?" ──────────────────────
+
+
+def _race(event_id, pace, division="JV2", loop="HS", laps=2, place=5):
+    return {
+        "event_id": event_id,
+        "event_name": f"Race {event_id}",
+        "season": 2026,
+        "division": division,
+        "min_per_mile": pace,
+        "actual_laps": laps,
+        "loop_type": loop,
+        "place": place,
+    }
+
+
+def _field(event_id, division, paces, loop="HS", laps=2, order=1):
+    return [
+        {
+            "event_id": event_id,
+            "division": division,
+            "category_order": order,
+            "loop_type": loop,
+            "laps": laps,
+            "min_per_mile": p,
+        }
+        for p in paces
+    ]
+
+
+def test_hypothetical_place_counts_faster_riders_and_joins_the_field():
+    from piclstats.web.forecast import hypothetical_place
+
+    cell = hypothetical_place(7.0, 2, [6.0, 6.5, 7.5, 8.0], 2)
+    assert (cell["place"], cell["field"], cell["actual"]) == (3, 5, False)
+
+
+def test_hypothetical_place_extra_laps_cost_time_but_fewer_give_no_bonus():
+    from piclstats.web.forecast import hypothetical_place
+
+    paces = [6.0, 6.5, 7.1, 8.0]
+    same = hypothetical_place(7.0, 2, paces, 2)
+    more = hypothetical_place(7.0, 2, paces, 4)
+    fewer = hypothetical_place(7.0, 4, paces, 2)
+    assert more["place"] > same["place"]
+    assert more["extra_laps"] == 2
+    assert fewer["adjusted_pace"] == same["adjusted_pace"] == 7.0
+
+
+def test_place_colors_follow_readiness_thresholds():
+    from piclstats.web.forecast import hypothetical_place
+
+    paces = [5.0 + 0.1 * i for i in range(19)]  # rider makes a field of 20
+    assert hypothetical_place(4.0, 2, paces, 2)["color"] == "green"
+    assert hypothetical_place(6.25, 2, paces, 2)["color"] == "amber"  # 13th of 20
+    assert hypothetical_place(9.0, 2, paces, 2)["color"] == "red"
+
+
+def test_matrix_own_division_is_actual_and_other_loop_is_left_out():
+    from piclstats.web.forecast import build_past_race_matrix
+
+    fields = (
+        _field(1, "Varsity", [5.0, 5.5, 6.0], laps=3, order=1)
+        + _field(1, "JV2", [6.5, 7.0, 7.5], order=2)
+        + _field(1, "8th Grade", [4.0, 4.5], loop="MS", order=3)
+    )
+    m = build_past_race_matrix([_race(1, 7.0, place=2)], fields)
+    assert m["divisions"] == ["Varsity", "JV2"]  # MS loop isn't comparable
+    cells = m["rows"][0]["cells"]
+    assert cells["JV2"]["actual"] and (cells["JV2"]["place"], cells["JV2"]["field"]) == (2, 3)
+    assert (cells["Varsity"]["place"], cells["Varsity"]["field"]) == (4, 4)
+
+
+def test_matrix_takes_last_five_newest_first_and_merges_renamed_division():
+    from piclstats.web.forecast import build_past_race_matrix
+
+    races = [_race(i, 7.0, division="8th Grade", loop="MS") for i in range(1, 8)]
+    fields = []
+    for i in range(1, 8):
+        fields += _field(i, "8th Grade", [6.0, 8.0], loop="MS", order=2)
+        name = "MS Advanced" if i < 7 else "Middle School Advanced"
+        fields += _field(i, name, [5.0, 6.0], loop="MS", laps=4, order=1)
+    m = build_past_race_matrix(races, fields)
+    assert [r["race"]["event_id"] for r in m["rows"]] == [7, 6, 5, 4, 3]
+    assert m["divisions"] == ["Middle School Advanced", "8th Grade"]
+    assert all("Middle School Advanced" in r["cells"] for r in m["rows"])
+
+
+def test_matrix_none_without_timed_races():
+    from piclstats.web.forecast import build_past_race_matrix
+
+    assert build_past_race_matrix([_race(1, None)], []) is None

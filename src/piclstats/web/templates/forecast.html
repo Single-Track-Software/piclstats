@@ -19,6 +19,9 @@
     </div>
 </div>
 
+<!-- Section 1: forward-looking forecast -->
+<h2 class="text-xl font-semibold text-gray-900 mb-1">Forecast</h2>
+<p class="text-sm text-gray-400 mb-4">Pick a division to predict how {{ rider.info.name }} would do there next.</p>
 <div class="grid lg:grid-cols-3 gap-8">
     <!-- Left: Current pace stats + selector -->
     <div class="lg:col-span-1 space-y-6">
@@ -281,6 +284,62 @@
         {% endif %}
     </div>
 </div>
+
+<!-- Section 2: backward-looking — recent races slotted into every division -->
+{% if past_races %}
+<h2 class="text-xl font-semibold text-gray-900 mt-10 mb-1">Where You Would Have Placed</h2>
+<p class="text-sm text-gray-400 mb-4">The last {{ past_races.rows | length }} timed race{{ 's' if past_races.rows | length != 1 }}, with that day's pace dropped into each division's field.</p>
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Race</th>
+                    <th class="px-4 py-3">Raced In</th>
+                    <th class="px-4 py-3 text-right">Pace</th>
+                    {% for d in past_races.divisions %}
+                    <th class="px-3 py-3 text-center whitespace-nowrap">{{ d }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for row in past_races.rows %}
+                <tr>
+                    <td class="px-4 py-2 max-w-xs truncate" title="{{ row.race.event_name }}">
+                        <span class="text-gray-400 text-xs">{{ row.race.season }}</span> {{ row.race.event_name }}
+                    </td>
+                    <td class="px-4 py-2 text-gray-600 whitespace-nowrap">{{ row.division }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-gray-600">{{ "%.1f"|format(row.race.min_per_mile) }}</td>
+                    {% for d in past_races.divisions %}
+                    {% set c = row.cells.get(d) %}
+                    {% if c and c.place %}
+                    <td class="px-3 py-2 text-center whitespace-nowrap font-mono
+                        {% if c.color == 'green' %}bg-green-50 text-green-700
+                        {% elif c.color == 'amber' %}bg-amber-50 text-amber-700
+                        {% elif c.color == 'red' %}bg-red-50 text-red-700
+                        {% endif %}{% if c.actual %} ring-2 ring-inset ring-picl-500{% endif %}"
+                        title="{% if c.actual %}Actual result{% else %}{{ c.adjusted_pace }} min/mi after adjustments{% if c.extra_laps %} (+{{ c.extra_laps }} lap{{ 's' if c.extra_laps != 1 }}){% endif %}{% endif %}">
+                        <span class="font-semibold">{{ c.place }}</span><span class="text-xs opacity-70"> / {{ c.field or '—' }}</span>
+                    </td>
+                    {% else %}
+                    <td class="px-3 py-2 text-center text-gray-300">—</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-6 py-3 text-[11px] text-gray-400 border-t">
+        <span class="text-green-700 font-medium">Green</span> = top half ·
+        <span class="text-amber-700 font-medium">orange</span> = 25th–50th percentile ·
+        <span class="text-red-700 font-medium">red</span> = bottom quarter. The outlined cell is the actual result.
+        Other cells compare that day's pace with the riders who raced the division on the same loop, slowed by the forecast's fatigue
+        factor for each extra lap (no bonus for fewer laps). Middle school and high school divisions ride different loops, so they
+        aren't compared within a race &mdash; use the forecast above for that move.
+    </p>
+</div>
+{% endif %}
 
 <!-- Per-event speed: age-group z-scores (the staging view) -->
 {% if speed_rating and speed_rating.has_data %}
