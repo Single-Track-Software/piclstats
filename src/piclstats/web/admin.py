@@ -9,13 +9,15 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from sqlalchemy import text, update
+from sqlalchemy import delete, insert, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.datastructures import FormData
 
@@ -23,7 +25,7 @@ from piclstats.db import tokens_store, users_store
 from piclstats.db.engine import get_session
 from piclstats.db.seed import RIDDEN_LAPS_SQL, DIVISION_PROFILES, PROFILE_KEYS
 from piclstats.db.settings_store import get_forecast_config, set_value
-from piclstats.db.tables import courses
+from piclstats.db.tables import courses, events, scheduled_races
 from piclstats.web import mail
 from piclstats.web.auth import ROLE_HELP, ROLES, build_link, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
@@ -552,6 +554,290 @@ def _users_page(
         },
         status_code=status_code,
     )
+
+
+# ── Season schedule and race dates ─────────────────────────────────────
+#
+# The calendar of races still to come (scheduled_races) feeds the forecast's
+# future-races table: the course gives the lap counts, the field says who
+# turns up. Loaded events get their race date here too.
+
+STATE_FIELD = "State"
+
+
+def _squash(value: str) -> str:
+    """Collapse whitespace; conference names arrive as 'Eastern  Blue' some seasons."""
+    return " ".join(value.split())
+
+
+def parse_schedule_date(raw: str) -> date:
+    try:
+        return date.fromisoformat(raw.strip())
+    except ValueError:
+        raise ValueError(f"'{raw.strip()}' is not a date (use YYYY-MM-DD)") from None
+
+
+def parse_schedule_field(raw: str, conferences: list[str]) -> str | None:
+    """'State' (or blank) -> None; otherwise one of the season's conferences."""
+    wanted = _squash(raw)
+    if wanted == "" or wanted.lower() == STATE_FIELD.lower():
+        return None
+    for conf in conferences:
+        if conf.lower() == wanted.lower():
+            return conf
+    raise ValueError(f"'{wanted}' is not State or one of: {', '.join(conferences)}")
+
+
+def parse_schedule_lines(
+    raw: str, course_ids: Mapping[str, int], conferences: list[str]
+) -> list[dict[str, Any]]:
+    """Parse the paste-in schedule: one `date | name | course | field` per line.
+
+    All or nothing — every bad line is reported, by number, in one ValueError.
+    `course_ids` maps lower-cased course name to id.
+    """
+    races: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for number, line in enumerate(raw.splitlines(), start=1):
+        if not line.strip():
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        try:
+            if len(parts) != 4:
+                raise ValueError("expected 4 parts: date | name | course | field")
+            when, name, course, field = parts
+            if not name:
+                raise ValueError("race name is blank")
+            course_id = course_ids.get(_squash(course).lower())
+            if course_id is None:
+                raise ValueError(f"unknown course '{course}'")
+            races.append(
+                {
+                    "event_date": parse_schedule_date(when),
+                    "name": _squash(name),
+                    "course_id": course_id,
+                    "conference": parse_schedule_field(field, conferences),
+                }
+            )
+        except ValueError as exc:
+            errors.append(f"Line {number}: {exc}")
+    if errors:
+        raise ValueError("; ".join(errors))
+    return races
+
+
+def _season_conferences(s: Session, season: int) -> list[str]:
+    """That season's conferences, else the latest season that has any."""
+    rows = s.execute(
+        text("""
+        SELECT DISTINCT conference FROM team_conferences
+        WHERE season = (
+            SELECT max(season) FROM team_conferences
+            WHERE season <= :season OR NOT EXISTS (
+                SELECT 1 FROM team_conferences WHERE season <= :season
+            )
+        )
+    """),
+        {"season": season},
+    ).all()
+    return sorted({_squash(r[0]) for r in rows})
+
+
+def _schedule_redirect(season: int, **params: str) -> RedirectResponse:
+    query = "".join(f"&{k}={quote(v)}" for k, v in params.items())
+    return RedirectResponse(f"/admin/schedule?season={season}{query}", status_code=303)
+
+
+@router.get("/schedule", response_class=HTMLResponse)
+def schedule_page(
+    request: Request,
+    season: int | None = None,
+    saved: str = "",
+    error: str = "",
+    _: str = Depends(require_admin),
+):
+    this_year = date.today().year
+    with get_session() as s:
+        seasons = {
+            r[0]
+            for r in s.execute(
+                text("SELECT season FROM events UNION SELECT season FROM scheduled_races")
+            ).all()
+        } | {this_year, this_year + 1}
+        if season is None or not 2000 <= season <= 2100:
+            season = this_year
+        races = (
+            s.execute(
+                text("""
+            SELECT sr.id, sr.event_date, sr.name, sr.course_id, sr.conference, c.name AS course
+            FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
+            WHERE sr.season = :season ORDER BY sr.event_date, sr.name
+        """),
+                {"season": season},
+            )
+            .mappings()
+            .all()
+        )
+        loaded = (
+            s.execute(
+                text("""
+            SELECT e.id, e.event_name, e.event_order, e.event_date, e.event_type, c.name AS course
+            FROM events e LEFT JOIN courses c ON c.id = e.course_id
+            WHERE e.season = :season ORDER BY e.event_order, e.id
+        """),
+                {"season": season},
+            )
+            .mappings()
+            .all()
+        )
+        course_rows = s.execute(text("SELECT id, name FROM courses ORDER BY name")).mappings().all()
+        conferences = _season_conferences(s, season)
+    return templates.TemplateResponse(
+        "admin/schedule.html",
+        {
+            "request": request,
+            "season": season,
+            "seasons": sorted(seasons, reverse=True),
+            "races": [dict(r) for r in races],
+            "loaded": [dict(r) for r in loaded],
+            "courses": [dict(r) for r in course_rows],
+            "conferences": conferences,
+            "state_field": STATE_FIELD,
+            "today": date.today(),
+            "saved": saved,
+            "error": error,
+        },
+    )
+
+
+def _race_from_form(s: Session, form: FormData, season: int) -> dict[str, Any]:
+    name = _squash(_form_str(form, "name"))
+    if not name:
+        raise ValueError("race name is blank")
+    try:
+        course_id = int(_form_str(form, "course_id"))
+    except ValueError:
+        raise ValueError("pick a course") from None
+    if not s.execute(text("SELECT 1 FROM courses WHERE id = :id"), {"id": course_id}).first():
+        raise ValueError("pick a course")
+    return {
+        "event_date": parse_schedule_date(_form_str(form, "event_date")),
+        "name": name,
+        "course_id": course_id,
+        "conference": parse_schedule_field(
+            _form_str(form, "conference"), _season_conferences(s, season)
+        ),
+    }
+
+
+@router.post("/schedule/{season}/add")
+async def schedule_add(
+    request: Request,
+    season: int,
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    with get_session() as s:
+        try:
+            s.execute(
+                insert(scheduled_races).values(season=season, **_race_from_form(s, form, season))
+            )
+            s.commit()
+        except ValueError as exc:
+            return _schedule_redirect(season, error=str(exc))
+        except IntegrityError:
+            return _schedule_redirect(season, error="That race is already on the schedule")
+    return _schedule_redirect(season, saved="race")
+
+
+@router.post("/schedule/{season}/import")
+async def schedule_import(
+    request: Request,
+    season: int,
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    with get_session() as s:
+        course_ids = {
+            _squash(name).lower(): cid
+            for cid, name in s.execute(text("SELECT id, name FROM courses")).all()
+        }
+        try:
+            races = parse_schedule_lines(
+                _form_str(form, "lines"), course_ids, _season_conferences(s, season)
+            )
+            if not races:
+                raise ValueError("nothing to import")
+            s.execute(insert(scheduled_races), [{"season": season, **r} for r in races])
+            s.commit()
+        except ValueError as exc:
+            return _schedule_redirect(season, error=str(exc))
+        except IntegrityError:
+            return _schedule_redirect(
+                season, error="One of those races is already on the schedule; nothing imported"
+            )
+    return _schedule_redirect(season, saved=f"{len(races)} races")
+
+
+@router.post("/schedule/race/{race_id}")
+async def schedule_update(
+    request: Request,
+    race_id: int,
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    with get_session() as s:
+        season = s.execute(
+            text("SELECT season FROM scheduled_races WHERE id = :id"), {"id": race_id}
+        ).scalar()
+        if season is None:
+            raise HTTPException(404, "Scheduled race not found")
+        if _form_str(form, "action") == "delete":
+            s.execute(delete(scheduled_races).where(scheduled_races.c.id == race_id))
+            s.commit()
+            return _schedule_redirect(season, saved="deleted")
+        try:
+            s.execute(
+                update(scheduled_races)
+                .where(scheduled_races.c.id == race_id)
+                .values(**_race_from_form(s, form, season))
+            )
+            s.commit()
+        except ValueError as exc:
+            return _schedule_redirect(season, error=str(exc))
+        except IntegrityError:
+            return _schedule_redirect(season, error="That race is already on the schedule")
+    return _schedule_redirect(season, saved="race")
+
+
+@router.post("/schedule/{season}/event-dates")
+async def schedule_event_dates(
+    request: Request,
+    season: int,
+    _: str = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Save the race date of every loaded event in the season (blank clears it)."""
+    form = await request.form()
+    with get_session() as s:
+        ids = [
+            r[0] for r in s.execute(text("SELECT id FROM events WHERE season = :s"), {"s": season})
+        ]
+        try:
+            for event_id in ids:
+                raw = _form_str(form, f"event_date_{event_id}").strip()
+                s.execute(
+                    update(events)
+                    .where(events.c.id == event_id)
+                    .values(event_date=parse_schedule_date(raw) if raw else None)
+                )
+            s.commit()
+        except ValueError as exc:
+            return _schedule_redirect(season, error=str(exc))
+    return _schedule_redirect(season, saved="dates")
 
 
 @router.get("/dq", response_class=HTMLResponse)
