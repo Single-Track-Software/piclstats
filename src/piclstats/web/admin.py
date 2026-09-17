@@ -644,6 +644,17 @@ async def dq_golden_delete(
     return RedirectResponse("/admin/dq#golden", status_code=303)
 
 
+@router.get("/usage", response_class=HTMLResponse)
+def usage_page(request: Request, days: int = 30, _: dict = Depends(require_admin)):
+    """Who uses the site and what they look at (first-party log, no cookies)."""
+    from piclstats.web import usagepage
+
+    days = days if days in (7, 30, 90) else 30
+    with get_session() as s:
+        data = usagepage.page(s, days=days)
+    return templates.TemplateResponse("admin/usage.html", {"request": request, **data})
+
+
 @router.get("/users", response_class=HTMLResponse)
 def users_list(
     request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)

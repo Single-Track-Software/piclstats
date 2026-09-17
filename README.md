@@ -92,6 +92,8 @@ Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `
 
 Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`, data quality at `/admin/dq`: pipeline flow, scorecard trend, findings per check, scrape runs and gate, lineage inspector with merge map).
 
+**Usage** (`/admin/usage`): a first-party page log (`page_views`, written off-thread by `web/usage.py`). No cookies and no third party: a visitor is `sha256(salt + date + ip + user agent)[:16]`, so uniques count per day without storing anything identifying; query strings keep allow-listed params only; bots and errors are excluded from counts; rows older than 180 days are pruned. Shows visitors and views, routes with p50/p95 latency, riders and teams looked up, coach activity, referrers, and the recent log.
+
 ### Course profiles
 
 Pace, staging ratings, and forecasts divide a rider's time by laps × loop distance, so each course carries MS and HS loop distance and elevation gain plus a lap count per division and gender. Profiles are **per season**: a season-NULL default plus optional rows for each year, resolved season-first everywhere (`web/queries._lap_joins`). `piclstats seed` creates a row for every course-season with results, taking lap counts from what finishers actually recorded (the spreadsheet defaults were wrong at most venues — see `docs/decisions/001`). Seeding never overwrites rows, so edits made at `/admin/courses/{id}` stick. That page shows the recorded lap count beside each entry and highlights mismatches.

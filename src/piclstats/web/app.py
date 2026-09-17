@@ -6,6 +6,7 @@ import csv
 import io
 import logging
 import secrets
+import time
 from contextlib import asynccontextmanager
 import hashlib
 from pathlib import Path
@@ -21,12 +22,13 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
-from piclstats.web import canonical
+from piclstats.web import canonical, usage
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
 from piclstats.web.auth import (
     LoginRequired,
+    client_ip,
     load_user,
     require_member,
     require_member_api,
@@ -79,7 +81,29 @@ async def _canonical_host_redirect(request: Request, call_next):
 async def _load_user_state(request: Request, call_next):
     # Expose the current user to every template (nav login state) via request.state.
     request.state.user = load_user(request)
-    return await call_next(request)
+    started = time.perf_counter()
+    response = await call_next(request)
+    if usage.should_log(request.method, request.url.path, response.status_code):
+        route, entity = usage.classify(request.url.path)
+        ua = request.headers.get("user-agent")
+        user = request.state.user
+        usage.record(
+            {
+                "route": route,
+                "path": request.url.path[:200],
+                "query": usage.kept_query(request.url.query),
+                "entity": entity,
+                "status": response.status_code,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+                "visitor": usage.visitor_id(client_ip(request), ua, _USAGE_SALT),
+                "user_id": user["id"] if user else None,
+                "referrer": usage.referrer_host(
+                    request.headers.get("referer"), request.headers.get("host")
+                ),
+                "is_bot": usage.is_bot(ua),
+            }
+        )
+    return response
 
 
 def _insecure_session_config() -> bool:
@@ -108,6 +132,10 @@ def _session_secret() -> str:
     )
     return secrets.token_hex(32)
 
+
+# Salt for the daily visitor hash: the session secret when configured, else a
+# per-process value (uniques then reset on restart, which is acceptable).
+_USAGE_SALT = settings.session_secret or secrets.token_hex(32)
 
 app.add_middleware(
     SessionMiddleware,

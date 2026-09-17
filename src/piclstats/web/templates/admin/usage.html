@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Usage — PICL Stats{% endblock %}
+{% block content %}
+<div class="flex flex-wrap items-start justify-between gap-y-2 mb-6">
+    <div>
+        <h1 class="text-2xl font-bold text-gray-900">Usage</h1>
+        <p class="text-sm text-gray-600">First-party page log: no cookies, no third party. A visitor is a salted hash of IP and browser that changes every day. Bots and errors are left out of the counts.</p>
+    </div>
+    <div class="flex items-center gap-3 text-sm">
+        {% for d in (7, 30, 90) %}<a href="?days={{ d }}" class="{{ 'font-semibold text-picl-700' if d == days else 'text-gray-500 hover:text-picl-700' }}">{{ d }} days</a>{% endfor %}
+        <a href="/admin" class="text-gray-400 hover:text-picl-700">&larr; Admin</a>
+    </div>
+</div>
+
+<div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+    {% for label, v, sub in [("Visitors today", totals.visitors_1d, totals.views_1d ~ " views"), ("Visitors, 7 days", totals.visitors_7d, totals.views_7d ~ " views"), ("Visitors, 30 days", totals.visitors_30d, totals.views_30d ~ " views"), ("Coaches signed in, 7 days", totals.users_7d, totals.bot_views_7d ~ " bot hits ignored")] %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
+        <div class="text-[11px] uppercase tracking-wide text-gray-500">{{ label }}</div>
+        <div class="text-2xl font-semibold text-gray-900 font-mono">{{ v }}</div>
+        <div class="text-xs text-gray-400">{{ sub }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+        <h2 class="text-sm font-semibold text-gray-700">Daily, last {{ days }} days</h2>
+        <div class="flex items-center gap-4 text-xs text-gray-500"><span class="flex items-center gap-1">{{ spark_views | safe }} views</span><span class="flex items-center gap-1">{{ spark_visitors | safe }} visitors</span></div>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="text-xs font-mono">
+        <tr class="text-gray-400">{% for d in daily %}<td class="px-1 text-center">{{ d.day.strftime('%-d') }}</td>{% endfor %}</tr>
+        <tr>{% for d in daily %}<td class="px-1 text-center {{ 'text-gray-300' if not d.visitors else '' }}">{{ d.visitors }}</td>{% endfor %}</tr>
+        <tr class="text-gray-500">{% for d in daily %}<td class="px-1 text-center">{{ d.views }}</td>{% endfor %}</tr>
+    </table>
+    <div class="text-[11px] text-gray-400 mt-1">day · visitors · views</div>
+    </div>
+</div>
+
+<div class="grid md:grid-cols-2 gap-6 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Pages</h2></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Route</th><th class="px-2 py-2 text-right">Views</th><th class="px-2 py-2 text-right">Visitors</th><th class="px-2 py-2 text-right">p50 ms</th><th class="px-2 py-2 text-right">p95 ms</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+            {% for r in routes %}<tr><td class="px-4 py-1.5 font-mono">{{ r.route }}</td><td class="px-2 py-1.5 text-right font-mono">{{ r.views }}</td><td class="px-2 py-1.5 text-right font-mono">{{ r.visitors }}</td><td class="px-2 py-1.5 text-right font-mono text-xs">{{ r.p50_ms | int if r.p50_ms is not none else '—' }}</td><td class="px-2 py-1.5 text-right font-mono text-xs {{ 'text-red-600' if r.p95_ms and r.p95_ms > 1500 else '' }}">{{ r.p95_ms | int if r.p95_ms is not none else '—' }}</td></tr>
+            {% else %}<tr><td colspan="5" class="px-4 py-6 text-center text-gray-400">Nothing logged yet.</td></tr>{% endfor %}
+            </tbody></table></div>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Coaches</h2></div>
+        <div class="overflow-x-auto"><table class="w-full text-sm">
+            <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">Account</th><th class="px-2 py-2 text-left">Last seen</th><th class="px-2 py-2 text-right">Views</th><th class="px-2 py-2 text-right">Staging</th><th class="px-2 py-2 text-right">Forecast</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+            {% for u in users %}<tr><td class="px-4 py-1.5"><div>{{ u.name or u.email }}</div><div class="text-[11px] text-gray-400">{{ u.email }} · {{ u.role }}</div></td><td class="px-2 py-1.5 text-xs text-gray-500 whitespace-nowrap">{{ u.last_seen.strftime('%b %-d %H:%M') if u.last_seen else ('never' if not u.last_login_at else 'before log') }}</td><td class="px-2 py-1.5 text-right font-mono">{{ u.views }}</td><td class="px-2 py-1.5 text-right font-mono">{{ u.staging_views }}</td><td class="px-2 py-1.5 text-right font-mono">{{ u.forecast_views }}</td></tr>
+            {% endfor %}
+            </tbody></table></div>
+    </div>
+</div>
+
+<div class="grid md:grid-cols-3 gap-6 mb-6">
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Riders looked up</h2></div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+        {% for r in riders %}<tr><td class="px-4 py-1.5"><a href="/rider/{{ r.id }}" class="text-picl-700 hover:underline">{{ r.name }}</a><div class="text-[11px] text-gray-400">{{ r.team or '' }}</div></td><td class="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap">{{ r.views }} <span class="text-gray-400">/ {{ r.visitors }}</span></td></tr>
+        {% else %}<tr><td class="px-4 py-4 text-center text-gray-400 text-sm">None yet</td></tr>{% endfor %}
+        </tbody></table>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Teams looked up</h2></div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+        {% for t in teams %}<tr><td class="px-4 py-1.5"><a href="/team/{{ t.team | urlencode }}" class="text-picl-700 hover:underline">{{ t.team }}</a></td><td class="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap">{{ t.views }} <span class="text-gray-400">/ {{ t.visitors }}</span></td></tr>
+        {% else %}<tr><td class="px-4 py-4 text-center text-gray-400 text-sm">None yet</td></tr>{% endfor %}
+        </tbody></table>
+    </div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Referrers</h2></div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+        {% for r in referrers %}<tr><td class="px-4 py-1.5 font-mono text-xs">{{ r.referrer }}</td><td class="px-2 py-1.5 text-right font-mono text-xs whitespace-nowrap">{{ r.views }} <span class="text-gray-400">/ {{ r.visitors }}</span></td></tr>
+        {% else %}<tr><td class="px-4 py-4 text-center text-gray-400 text-sm">Direct only so far</td></tr>{% endfor %}
+        </tbody></table>
+    </div>
+</div>
+
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Recent</h2></div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+        <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">When</th><th class="px-2 py-2 text-left">Page</th><th class="px-2 py-2 text-left">Who</th><th class="px-2 py-2 text-right">Status</th><th class="px-2 py-2 text-right">ms</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+        {% for p in recent %}<tr><td class="px-4 py-1 text-xs text-gray-500 whitespace-nowrap">{{ p.ts.strftime('%b %-d %H:%M:%S') }}</td><td class="px-2 py-1 font-mono text-xs"><a href="{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}" class="text-picl-700 hover:underline">{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}</a></td><td class="px-2 py-1 text-xs text-gray-500">{{ p.email or ('visitor ' ~ p.visitor[:6]) }}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.status }}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.duration_ms }}</td></tr>
+        {% endfor %}
+        </tbody></table></div>
+</div>
+{% endblock %}
