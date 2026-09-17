@@ -80,7 +80,7 @@
     <div class="grid md:grid-cols-8 gap-4 mt-4 pt-4 border-t border-gray-100">
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Row Size</label>
-            <input type="number" name="row" value="{{ row }}" min="0" title="Riders per grid row; 0 turns rows off" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+            <input type="number" name="row" value="{{ row }}" min="0" title="Riders per grid row; rows count from 1 in each wave; 0 turns rows off" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
         </div>
         <div class="md:col-span-2">
             <label class="block text-xs font-medium text-gray-500 mb-1">Start Format</label>
@@ -164,6 +164,7 @@
                 {% endif %}
                 {% if r.wave and r.wave != ns.wave %}
                 {% set ns.wave = r.wave %}
+                {% set ns.row = 0 %}
                 <tr class="bg-picl-100/60">
                     <td colspan="{{ cols }}" class="px-3 py-1.5 text-xs font-bold text-picl-800 uppercase tracking-wider">
                         Wave {{ r.wave }}

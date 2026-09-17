@@ -214,7 +214,8 @@ def build_grid(
     format groups divisions into starts: wave numbers run on through every
     division of a start (MS Advanced wave 1, 8th Grade waves 2-5) and begin
     again at 1 for the next start. With `row_size`, riders also get a grid row
-    within their division; a row never straddles two waves.
+    within their wave (row 1 is the front of each wave), which is what gets
+    written on the number plate beside the wave's colour dot.
     """
     zkey = "z_pace" if metric == "pace" else "z_lap"
     sort_key = "best_z" if sort == "best" else "avg_z"
@@ -318,7 +319,7 @@ def build_grid(
         if in_wave == 0 or in_wave >= wave_size:
             wave += 1
             in_wave = 0
-            in_row = 0  # a row never straddles two waves
+            in_row = row = 0  # rows count from 1 again in every wave
         in_wave += 1
         r["wave"] = wave
         if row_size > 0:
