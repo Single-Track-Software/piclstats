@@ -29,7 +29,7 @@
             <div>
                 <label class="block text-xs text-gray-600 mb-1">Role</label>
                 <select name="role" class="w-full border rounded px-2 py-1 text-sm">
-                    {% for r in roles %}<option value="{{ r }}">{{ r }}</option>{% endfor %}
+                    {% for r in roles %}<option value="{{ r }}">{{ r }} — {{ role_help[r] }}</option>{% endfor %}
                 </select>
             </div>
             <div>

@@ -23,7 +23,7 @@
                         {% for href, label in nav_links %}
                         <a href="{{ href }}" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">{{ label }}</a>
                         {% endfor %}
-                        {% if user %}
+                        {% if user and user.role in ('picl', 'admin') %}
                         <a href="/staging" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Staging</a>
                         {% endif %}
                         {% if user and user.role == 'admin' %}
@@ -33,7 +33,7 @@
                 </div>
                 <div class="flex items-center space-x-3 text-xs">
                     {% if user %}
-                    <span class="hidden sm:inline text-picl-200">{{ user.email }}</span>
+                    <a href="/account" class="hidden sm:inline text-picl-200 hover:text-white" title="Your account">{{ user.email }}</a>
                     <form method="post" action="/logout" class="inline">
                         <button type="submit" class="text-picl-200 hover:text-white">Sign out</button>
                     </form>
@@ -48,8 +48,11 @@
                             {% for href, label in nav_links %}
                             <a href="{{ href }}" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">{{ label }}</a>
                             {% endfor %}
-                            {% if user %}
+                            {% if user and user.role in ('picl', 'admin') %}
                             <a href="/staging" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Staging</a>
+                            {% endif %}
+                            {% if user %}
+                            <a href="/account" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Account</a>
                             {% endif %}
                             {% if user and user.role == 'admin' %}
                             <a href="/admin" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Admin</a>

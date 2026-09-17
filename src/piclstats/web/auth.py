@@ -13,6 +13,8 @@ mechanism at /forgot and /reset/{token}.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -96,6 +98,33 @@ def _next_path(request: Request) -> str:
     return path
 
 
+# --- roles ------------------------------------------------------------------
+# Ranked: each role has everything below it.
+#   coach — finish-time predictions
+#   picl  — predictions + staging orders (league staff)
+#   admin — everything, including this admin area
+ROLES: tuple[str, ...] = ("coach", "picl", "admin")
+ROLE_RANK = {role: i for i, role in enumerate(ROLES)}
+ROLE_HELP = {
+    "coach": "Finish-time predictions for any rider.",
+    "picl": "Predictions plus staging orders and the CSV export.",
+    "admin": "Everything, plus courses, users, data quality and usage.",
+}
+DEFAULT_ROLE = "coach"
+
+
+def role_allows(role: str | None, needed: str) -> bool:
+    """True if `role` is at least `needed` in the ranking. Unknown roles allow nothing."""
+    return role in ROLE_RANK and ROLE_RANK[role] >= ROLE_RANK[needed]
+
+
+def _forbidden(needed: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"This page needs the {needed} role. Ask a PICL admin if you should have it.",
+    )
+
+
 def require_member(request: Request) -> dict:
     """Page gate: any active account. Redirects anonymous users to /login."""
     user = load_user(request)
@@ -104,22 +133,40 @@ def require_member(request: Request) -> dict:
     return user
 
 
+def require_role(needed: str) -> Callable[[Request], dict]:
+    """Page gate for a minimum role; anonymous users go to /login, others get 403."""
+
+    def gate(request: Request) -> dict:
+        user = require_member(request)
+        if not role_allows(user["role"], needed):
+            raise _forbidden(needed)
+        return user
+
+    return gate
+
+
+def require_role_api(needed: str) -> Callable[[Request], dict]:
+    """API gate (CSV export): 401/403 instead of an HTML redirect."""
+
+    def gate(request: Request) -> dict:
+        user = load_user(request)
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Login required")
+        if not role_allows(user["role"], needed):
+            raise _forbidden(needed)
+        return user
+
+    return gate
+
+
+require_coach = require_role("coach")
+require_picl = require_role("picl")
+require_picl_api = require_role_api("picl")
+
+
 def require_admin(request: Request) -> dict:
     """Page gate: admin role only."""
-    user = load_user(request)
-    if not user:
-        raise LoginRequired(_next_path(request))
-    if user["role"] != "admin":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admins only")
-    return user
-
-
-def require_member_api(request: Request) -> dict:
-    """API gate (e.g. CSV export): 401 instead of an HTML redirect."""
-    user = load_user(request)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Login required")
-    return user
+    return require_role("admin")(request)
 
 
 def require_same_origin(request: Request) -> None:
@@ -282,7 +329,7 @@ def invite_accept(
         email=invite["email"],
         name=name.strip() or None,
         password_hash=hash_password(password),
-        role=invite["role"] or "member",
+        role=invite["role"] or DEFAULT_ROLE,
     )
     tokens_store.consume(invite["id"])
 
@@ -399,3 +446,53 @@ def reset_submit(
 def logout(request: Request, __: None = Depends(require_same_origin)):
     request.session.clear()
     return RedirectResponse("/", status_code=303)
+
+
+# --- account: change your own password ----------------------------------------
+
+
+def _account_page(
+    request: Request,
+    user: dict,
+    error: str | None = None,
+    saved: bool = False,
+    status_code: int = 200,
+):
+    return templates.TemplateResponse(
+        "account.html",
+        {
+            "request": request,
+            "account": user,
+            "role_help": ROLE_HELP,
+            "roles": ROLES,
+            "error": error,
+            "saved": saved,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/account", response_class=HTMLResponse)
+def account_page(request: Request, saved: str = "", user: dict = Depends(require_member)):
+    return _account_page(request, user, saved=saved == "1")
+
+
+@router.post("/account/password", response_class=HTMLResponse)
+def account_password(
+    request: Request,
+    current: str = Form(...),
+    password: str = Form(...),
+    confirm: str = Form(...),
+    user: dict = Depends(require_member),
+    __: None = Depends(require_same_origin),
+):
+    full = users_store.get_user_by_id(user["id"])
+    if not full or not verify_password(current, full["password_hash"]):
+        return _account_page(request, user, error="Current password is wrong.", status_code=400)
+    problem = password_problem(password, confirm)
+    if problem:
+        return _account_page(request, user, error=problem, status_code=400)
+    if verify_password(password, full["password_hash"]):
+        return _account_page(request, user, error="That is already your password.", status_code=400)
+    users_store.set_password(user["id"], hash_password(password))
+    return RedirectResponse("/account?saved=1", status_code=303)

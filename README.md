@@ -88,7 +88,15 @@ alias, pattern, typo, manual); the admin DQ page renders that as a merge map.
 
 Public pages: `/` (home), `/leaderboard`, `/riders`, `/rider/{id}`, `/teams`, `/team/{name}`, `/courses`, `/course/{id}`, `/results` (published finish list per event and category, with a Race Position tab: position bump chart + lap-times Gantt with top-N filter; `/racechart` redirects there).
 
-Login-gated (member or admin role, session cookie auth — see `web/auth.py`): `/staging` + `/staging.csv` (age-group z-score speed ratings, the seeding formula), `/rider/{id}/forecast`.
+Login-gated (session cookie auth — see `web/auth.py`), by role:
+
+| role | can use |
+|---|---|
+| `coach` | `/rider/{id}/forecast` (finish-time predictions), `/account` |
+| `picl` | coach + `/staging` and `/staging.csv` (age-group z-score speed ratings, the seeding formula) |
+| `admin` | everything + `/admin` |
+
+Roles rank, so each includes the ones below it (`auth.role_allows`). Anyone signed in changes their own password at `/account`.
 
 Admin-only: `/admin` (courses, forecast tuning, user management at `/admin/users`, data quality at `/admin/dq`: pipeline flow, scorecard trend, findings per check, scrape runs and gate, lineage inspector with merge map).
 
@@ -104,7 +112,7 @@ After a fresh deploy that adds this migration, run `piclstats seed` against prod
 
 Public pages need no account. Everything gated is **invite-only** — there is no signup page.
 
-1. An admin invites an address at `/admin/users` and picks the role.
+1. An admin invites an address at `/admin/users` and picks the role (default `coach`).
 2. The app emails a one-time link (7-day expiry) and also shows it once on screen, so the admin can send it another way if email is down.
 3. The coach opens `/invite/{token}`, sets their own password (12 chars minimum, passphrases encouraged), and lands signed in on `/staging`.
 

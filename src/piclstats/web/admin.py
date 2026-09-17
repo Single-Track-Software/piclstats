@@ -25,7 +25,7 @@ from piclstats.db.seed import RIDDEN_LAPS_SQL, DIVISION_PROFILES, PROFILE_KEYS
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import courses
 from piclstats.web import mail
-from piclstats.web.auth import build_link, require_admin, require_same_origin
+from piclstats.web.auth import ROLE_HELP, ROLES, build_link, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
 from piclstats.web.templating import Jinja2Templates
 
@@ -521,7 +521,7 @@ async def profile_save(
 
 # --- user management --------------------------------------------------------
 
-VALID_ROLES = ("member", "admin")
+VALID_ROLES = ROLES
 
 
 def _users_page(
@@ -542,6 +542,7 @@ def _users_page(
             "saved": saved,
             "error": error,
             "roles": VALID_ROLES,
+            "role_help": ROLE_HELP,
             # Shown once, immediately after minting — the raw token is not
             # recoverable afterwards, only its hash is stored.
             "invite_link": invite_link,
@@ -676,7 +677,7 @@ async def users_invite(
     """
     form = await request.form()
     email = _form_str(form, "email").strip()
-    role = _form_str(form, "role") or "member"
+    role = _form_str(form, "role") or "coach"
 
     if not email:
         return _users_page(request, error="Email required", status_code=400)
@@ -746,7 +747,7 @@ async def users_update(
     if not target:
         raise HTTPException(404, "User not found")
 
-    role = (_form_str(form, "role") or "member") if action == "set_role" else None
+    role = (_form_str(form, "role") or "coach") if action == "set_role" else None
     if role is not None and role not in VALID_ROLES:
         return RedirectResponse("/admin/users?error=Invalid+role", status_code=303)
 
