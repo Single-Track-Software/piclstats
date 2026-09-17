@@ -128,6 +128,7 @@ _FULL_DISTANCE = f"{_ACTUAL_LAPS} = r.full_laps"
 # where the default 2.0/3.5 mi loop distance doesn't apply).
 _PACE_MIN = 3.5
 _PACE_MAX = 15.0
+PACE_RANGE = (_PACE_MIN, _PACE_MAX)
 
 # Only points events count toward standings. Rallies and exhibitions are
 # excluded from every points/place aggregate and ranking below; they still
@@ -1073,12 +1074,15 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
     races = session.execute(
         text(f"""
         SELECT
+            e.id AS event_id,
             e.event_name,
             e.course_id,
             e.season,
             e.event_order,
             r.division,
             r.gender,
+            r.place,
+            {_ACTUAL_LAPS} AS actual_laps,
             dl.loop_type,
             dl.lap_count,
             cl.distance_miles AS loop_distance,
@@ -1342,6 +1346,138 @@ def division_pace_distribution(
     field_sizes = list({r[1] for r in rows if r[1]})
 
     return {"paces": paces, "field_sizes": field_sizes}
+
+
+def past_race_fields(session: Session, event_ids: list[int], gender: str) -> list[dict]:
+    """Every placed same-gender result at the given events, with pace and laps.
+
+    Feeds the forecast page's "where would you have placed" matrix: one row per
+    finisher so the rider's pace can be slotted into each division's field.
+    """
+    if not event_ids:
+        return []
+    rows = session.execute(
+        text(f"""
+        SELECT
+            r.event_id,
+            r.division,
+            r.category_order,
+            dl.loop_type,
+            {_ACTUAL_LAPS} AS laps,
+            CASE WHEN r.total_time IS NOT NULL
+                      AND cl.distance_miles > 0
+                      AND {_LAPS_CONSISTENT}
+                 THEN round((
+                     ({_RIDE_SECS} / 60.0)
+                     / ({_ACTUAL_LAPS} * cl.distance_miles)
+                 )::numeric, 1)
+            END AS min_per_mile
+        FROM results r
+        JOIN events e ON r.event_id = e.id AND e.is_published
+        {_LAP_JOINS}
+        WHERE r.event_id = ANY(:eids)
+          AND r.gender = :gender
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+          AND r.status = 'OK'
+    """),
+        {"eids": event_ids, "gender": gender},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
+def rating_rows(
+    session: Session,
+    gender: str | None = None,
+    loop_type: str | None = None,
+    min_season: int | None = None,
+) -> list[dict]:
+    """Placed points-race results in the shape `ratings.race_scores` wants.
+
+    One row per result with the rider resolved to their canonical id.
+    `lap_secs` (ride time / laps ridden) is NULL when the splits don't add up,
+    so the row still counts toward rosters and attendance but never scores.
+    """
+    filters = ""
+    params: dict = {}
+    if gender:
+        filters += " AND r.gender = :gender"
+        params["gender"] = gender
+    if loop_type:
+        filters += " AND dl.loop_type = :loop_type"
+        params["loop_type"] = loop_type
+    if min_season:
+        filters += " AND e.season >= :min_season"
+        params["min_season"] = min_season
+    rows = session.execute(
+        text(f"""
+        SELECT
+            e.id AS event_id, e.season, e.event_order,
+            COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
+            r.division, r.gender, r.place, r.conference, r.category_order,
+            ri.team,
+            dl.loop_type,
+            {_ACTUAL_LAPS} AS laps,
+            CASE WHEN r.total_time IS NOT NULL AND {_LAPS_CONSISTENT}
+                 THEN {_RIDE_SECS} / {_ACTUAL_LAPS}
+            END AS lap_secs
+        FROM results r
+        JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
+        JOIN riders ri ON ri.id = r.rider_id
+        LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
+        {_LAP_JOINS}
+        WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.status = 'OK'
+          AND dl.loop_type IS NOT NULL
+          {filters}
+        ORDER BY e.season, e.event_order, e.id
+    """),
+        params,
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
+def upcoming_races(session: Session, today) -> list[dict]:
+    """Scheduled races from `today` on, soonest first (/admin/schedule)."""
+    rows = session.execute(
+        text("""
+        SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference,
+               sr.course_id, c.name AS course
+        FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
+        WHERE sr.event_date >= :today
+        ORDER BY sr.event_date, sr.name
+    """),
+        {"today": today},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def division_lap_counts(
+    session: Session, course_id: int | None, season: int, gender: str
+) -> dict[str, int]:
+    """{division: laps} at a course — its `season` profile, else its default.
+
+    Without a course, the league-wide defaults (every course seeds the same).
+    """
+    scope = "dl.course_id = :course_id" if course_id is not None else "dl.season IS NULL"
+    rows = session.execute(
+        text(f"""
+        SELECT DISTINCT ON (dl.division) dl.division, dl.lap_count
+        FROM division_laps dl
+        WHERE {scope}
+          AND (dl.gender = :gender OR dl.gender IS NULL)
+          AND (dl.season = :season OR dl.season IS NULL)
+        ORDER BY dl.division, dl.season NULLS LAST, dl.gender NULLS LAST, dl.course_id
+    """),
+        {"course_id": course_id, "season": season, "gender": gender},
+    ).all()
+    laps = {r[0]: r[1] for r in rows}
+    # The league renamed this division; results carry either spelling.
+    for a, b in (
+        ("MS Advanced", "Middle School Advanced"),
+        ("Middle School Advanced", "MS Advanced"),
+    ):
+        if a in laps:
+            laps.setdefault(b, laps[a])
+    return laps
 
 
 def division_profile_lookup(

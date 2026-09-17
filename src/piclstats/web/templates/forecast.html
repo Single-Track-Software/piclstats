@@ -19,6 +19,127 @@
     </div>
 </div>
 
+<!-- Section 1: backward-looking — recent races slotted into every division -->
+{% if past_races %}
+<h2 class="text-xl font-semibold text-gray-900 mb-1">Where You Would Have Placed</h2>
+<p class="text-sm text-gray-400 mb-4">The last {{ past_races.rows | length }} timed race{{ 's' if past_races.rows | length != 1 }}, with that day's pace dropped into each division's field.</p>
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Race</th>
+                    <th class="px-4 py-3">Raced In</th>
+                    <th class="px-4 py-3 text-right">Pace</th>
+                    {% for d in past_races.divisions %}
+                    <th class="px-3 py-3 text-center whitespace-nowrap">{{ d }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for row in past_races.rows %}
+                <tr>
+                    <td class="px-4 py-2 max-w-xs truncate" title="{{ row.race.event_name }}">
+                        <span class="text-gray-400 text-xs">{{ row.race.season }}</span> {{ row.race.event_name }}
+                    </td>
+                    <td class="px-4 py-2 text-gray-600 whitespace-nowrap">{{ row.division }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-gray-600">{{ "%.1f"|format(row.race.min_per_mile) }}</td>
+                    {% for d in past_races.divisions %}
+                    {% set c = row.cells.get(d) %}
+                    {% if c and c.place %}
+                    <td class="px-3 py-2 text-center whitespace-nowrap font-mono
+                        {% if c.color == 'green' %}bg-green-50 text-green-700
+                        {% elif c.color == 'amber' %}bg-amber-50 text-amber-700
+                        {% elif c.color == 'red' %}bg-red-50 text-red-700
+                        {% endif %}{% if c.actual %} ring-2 ring-inset ring-picl-500{% endif %}"
+                        title="{% if c.actual %}Actual result{% else %}{{ c.adjusted_pace }} min/mi after adjustments{% if c.extra_laps %} (+{{ c.extra_laps }} lap{{ 's' if c.extra_laps != 1 }}){% endif %}{% endif %}">
+                        <span class="font-semibold">{{ c.place }}</span><span class="text-xs opacity-70"> / {{ c.field or '—' }}</span>
+                    </td>
+                    {% else %}
+                    <td class="px-3 py-2 text-center text-gray-300">—</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-6 py-3 text-[11px] text-gray-400 border-t">
+        <span class="text-green-700 font-medium">Green</span> = top half ·
+        <span class="text-amber-700 font-medium">orange</span> = 25th–50th percentile ·
+        <span class="text-red-700 font-medium">red</span> = bottom quarter. The outlined cell is the actual result.
+        Other cells compare that day's pace with the riders who raced the division on the same loop, slowed by the forecast's fatigue
+        factor for each extra lap (no bonus for fewer laps). Middle school and high school divisions ride different loops, so they
+        aren't compared within a race &mdash; use the forecast above for that move.
+    </p>
+</div>
+{% endif %}
+
+<!-- Section 2: forward-looking — upcoming races × divisions -->
+{% if future_races %}
+<h2 class="text-xl font-semibold text-gray-900 {{ 'mt-10 ' if past_races }}mb-1">Where You're Forecast to Place</h2>
+{% if future_races.note %}
+<p class="text-sm text-gray-400 mb-4">{{ future_races.note }}</p>
+{% else %}
+<p class="text-sm text-gray-400 mb-4">
+    {% if future_races.scheduled %}The {{ future_races.season }} races still to come, against the riders expected in each division.
+    {% else %}No upcoming races are on the schedule yet, so this is a generic state race against everyone seen in {{ future_races.season }}.{% endif %}
+</p>
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-3">Race</th>
+                    <th class="px-4 py-3">Field</th>
+                    {% for d in future_races.divisions %}
+                    <th class="px-3 py-3 text-center whitespace-nowrap">{{ d }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for row in future_races.rows %}
+                <tr>
+                    <td class="px-4 py-2 max-w-xs">
+                        <div class="truncate" title="{{ row.race.name }}">{{ row.race.name }}</div>
+                        {% if row.race.event_date %}<div class="text-xs text-gray-400">{{ row.race.event_date.strftime('%b %-d') }}{% if row.race.course %} · {{ row.race.course }}{% endif %}</div>{% endif %}
+                    </td>
+                    <td class="px-4 py-2 text-gray-600 whitespace-nowrap">{{ row.race.conference or 'State' }}</td>
+                    {% for d in future_races.divisions %}
+                    {% set c = row.cells.get(d) %}
+                    {% if c %}
+                    <td class="px-3 py-2 text-center whitespace-nowrap font-mono
+                        {% if c.color == 'green' %}bg-green-50 text-green-700
+                        {% elif c.color == 'amber' %}bg-amber-50 text-amber-700
+                        {% elif c.color == 'red' %}bg-red-50 text-red-700
+                        {% endif %}{% if c.own %} ring-2 ring-inset ring-picl-500{% endif %}"
+                        title="Most likely {{ c.place }}; 8 times in 10 between {{ c.place_low }} and {{ c.place_high }} of about {{ c.field }}{% if c.extra_laps %} (+{{ c.extra_laps }} lap{{ 's' if c.extra_laps != 1 }}){% endif %}">
+                        <div><span class="font-semibold">{{ c.place }}</span><span class="text-xs opacity-70"> / ~{{ c.field }}</span></div>
+                        <div class="text-[11px] opacity-70">{{ c.place_low }}–{{ c.place_high }}</div>
+                    </td>
+                    {% else %}
+                    <td class="px-3 py-2 text-center text-gray-300">—</td>
+                    {% endif %}
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-6 py-3 text-[11px] text-gray-400 border-t">
+        The big number is the most likely place; the range under it is where the rider should land 8 times in 10. Same colours as above; the outlined column is
+        the rider's current division ({{ future_races.division }}). Built from lap times relative to everyone on the same loop each day
+        ({{ future_races.rating.races }} race{{ 's' if future_races.rating.races != 1 }} for this rider{% if future_races.rating.stale %}, none yet this season{% endif %}),
+        ranked against each division's {{ future_races.season }} riders &mdash; one conference's for a conference race &mdash; and scaled to a typical field.
+        Replayed over 2024&ndash;26 it misses by about 11% of the field on average, so read it as a band, not a promise. Middle school and high school loops aren't compared.
+    </p>
+</div>
+{% endif %}
+{% endif %}
+
+<!-- Section 3: single-division pace forecast -->
+<h2 class="text-xl font-semibold text-gray-900 {{ 'mt-10 ' if past_races or future_races }}mb-1">Division Forecast in Detail</h2>
+<p class="text-sm text-gray-400 mb-4">Pick a division to predict how {{ rider.info.name }} would do there next, with the pace maths shown.</p>
 <div class="grid lg:grid-cols-3 gap-8">
     <!-- Left: Current pace stats + selector -->
     <div class="lg:col-span-1 space-y-6">

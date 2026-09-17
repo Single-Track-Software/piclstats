@@ -114,6 +114,141 @@ def _format_minutes(minutes: float | None) -> str | None:
     return f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
 
 
+# ── Past races: "where would you have placed?" ──────────────────────
+
+# Results carry either spelling until `seed` normalises them; one column, the normalised name.
+_DIVISION_ALIASES = {"Middle School Advanced": "MS Advanced"}
+
+
+def _canonical_division(name: str) -> str:
+    return _DIVISION_ALIASES.get(name, name)
+
+
+def _place_color(place: int | None, field: int | None, config: dict | None = None) -> str:
+    """green / amber / red on the same percentile thresholds as the readiness badge."""
+    if not place or not field:
+        return "gray"
+    thresholds = {**DEFAULT_CONFIG, **(config or {})}["readiness_thresholds"]
+    percentile = (1 - (place - 1) / field) * 100
+    if percentile >= thresholds["ready"]:
+        return "green"
+    return "amber" if percentile >= thresholds["competitive"] else "red"
+
+
+def hypothetical_place(
+    rider_pace: float,
+    rider_laps: int,
+    target_paces: list[float],
+    target_laps: int,
+    config: dict | None = None,
+) -> dict:
+    """Slot a rider's actual race pace into another division's field that day.
+
+    Both fields rode the same loop on the same day, so loop distance and
+    climbing cancel out and the only adjustment is the forecast's fatigue per
+    extra lap (never a bonus for fewer laps; conservative). The rider joins
+    the field, so `field` is the division's timed finishers plus one.
+    """
+    cfg = {**DEFAULT_CONFIG, **(config or {})}
+    extra_laps = max(0, target_laps - rider_laps)
+    adjusted = rider_pace * (1.0 + cfg["fatigue_per_extra_lap"] * extra_laps)
+    place = bisect.bisect_left(sorted(target_paces), adjusted) + 1
+    field = len(target_paces) + 1
+    return {
+        "place": place,
+        "field": field,
+        "color": _place_color(place, field, cfg),
+        "adjusted_pace": round(adjusted, 1),
+        "extra_laps": extra_laps,
+        "actual": False,
+    }
+
+
+def build_past_race_matrix(
+    races: list[dict],
+    field_rows: list[dict],
+    config: dict | None = None,
+    limit: int = 5,
+    pace_range: tuple[float, float] | None = None,
+) -> dict | None:
+    """Rider's last `limit` timed races × the divisions that shared their loop.
+
+    `races` are the rider's own results (oldest first; needs event_id, division,
+    min_per_mile, actual_laps, loop_type, place). `field_rows` are the same-gender
+    placed results at those events (event_id, division, category_order, loop_type,
+    laps, min_per_mile). The rider's own division shows their real place; other
+    cells are `hypothetical_place` against that day's field.
+
+    Only divisions on the rider's loop (MS or HS) that day are compared. Every
+    course still carries the league-default loop distances, so min/mile across
+    the two loops is not comparable within one event (the HS/MS median pace
+    ratio swings from 0.5 to 1.3 between venues); on a shared loop the distance
+    cancels and the comparison is exact.
+    """
+    timed = [r for r in races if r.get("min_per_mile") is not None and r.get("event_id")]
+    recent = list(reversed(timed[-limit:]))  # newest first
+    if not recent:
+        return None
+
+    lo, hi = pace_range or (float("-inf"), float("inf"))
+    fields: dict[tuple[int, str], dict] = {}
+    for fr in field_rows:
+        div = _canonical_division(fr["division"])
+        f = fields.setdefault(
+            (fr["event_id"], div),
+            {"paces": [], "laps": 0, "loop_type": None, "size": 0, "order": None},
+        )
+        f["size"] += 1
+        f["laps"] = max(f["laps"], fr.get("laps") or 0)
+        f["loop_type"] = f["loop_type"] or fr.get("loop_type")
+        if f["order"] is None:
+            f["order"] = fr.get("category_order")
+        pace = fr.get("min_per_mile")
+        if pace is not None and lo <= float(pace) <= hi:
+            f["paces"].append(float(pace))
+
+    rows = []
+    # Column order follows the race-day category order of the newest event a
+    # division appears in: (how many races back, order within that race).
+    column_order: dict[str, tuple[int, int]] = {}
+    for age, race in enumerate(recent):
+        own = _canonical_division(race["division"])
+        cells: dict[str, dict] = {}
+        for (eid, div), f in fields.items():
+            if eid != race["event_id"]:
+                continue
+            if div == own:
+                cell = {
+                    "place": race.get("place"),
+                    "field": f["size"],
+                    "color": _place_color(race.get("place"), f["size"], config),
+                    "adjusted_pace": float(race["min_per_mile"]),
+                    "extra_laps": 0,
+                    "actual": True,
+                }
+            elif (
+                not f["paces"]
+                or not f["laps"]
+                or not race.get("loop_type")
+                or f["loop_type"] != race["loop_type"]
+            ):
+                continue  # untimed, or a different loop — not comparable
+            else:
+                cell = hypothetical_place(
+                    float(race["min_per_mile"]),
+                    race.get("actual_laps") or f["laps"],
+                    f["paces"],
+                    f["laps"],
+                    config,
+                )
+            cells[div] = cell
+            column_order.setdefault(div, (age, f["order"] if f["order"] is not None else 10**6))
+        rows.append({"race": race, "division": own, "cells": cells})
+
+    divisions = sorted(column_order, key=lambda d: (column_order[d], d))
+    return {"divisions": divisions, "rows": rows}
+
+
 # ── Model Implementation ────────────────────────────────────────────
 
 

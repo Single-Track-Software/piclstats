@@ -349,6 +349,23 @@ def _summary_line(summary: Any) -> str:
     )
 
 
+@main.command("forecast-backtest")
+@click.option("--min-season", type=int, default=2024, help="Score forecasts from this season on.")
+def forecast_backtest(min_season: int) -> None:
+    """Replay past races through the future-race forecast and score it."""
+    from piclstats.backtest import BacktestResult, run_backtest
+    from piclstats.db.engine import get_session
+    from piclstats.web import queries
+
+    total = BacktestResult()
+    with get_session() as session:
+        for gender in ("Male", "Female"):
+            for loop_type in ("HS", "MS"):
+                rows = queries.rating_rows(session, gender, loop_type)
+                total.merge(run_backtest(rows, min_season=min_season))
+    click.echo(total.report())
+
+
 @main.group()
 def dq() -> None:
     """Data-quality checks (ADR 002)."""

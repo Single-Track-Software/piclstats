@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block title %}Season schedule — Admin{% endblock %}
+{% block content %}
+{% set input = "rounded border border-gray-300 px-2 py-1 text-sm" %}
+<div class="max-w-5xl">
+    <div class="mb-4"><a href="/admin" class="text-sm text-picl-700 hover:underline">&larr; Admin</a></div>
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-1">
+        <h1 class="text-2xl font-bold text-gray-900">Season schedule</h1>
+        <form method="get" class="flex items-center gap-2 text-sm">
+            <label for="season" class="text-gray-500">Season</label>
+            <select id="season" name="season" class="{{ input }}" onchange="this.form.submit()">
+                {% for s in seasons %}<option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>{% endfor %}
+            </select>
+        </form>
+    </div>
+    <p class="text-sm text-gray-500 mb-6">Races still to come feed the forecast's future-races table: the course sets the lap counts, the field sets who turns up. A race drops off the forecast once its date has passed.</p>
+
+    {% if saved %}<div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">Saved ({{ saved }}).</div>{% endif %}
+    {% if error %}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ error }}</div>{% endif %}
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Scheduled races</h2>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-4">
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr>
+                    <th class="text-left px-3 py-2">Date</th>
+                    <th class="text-left px-3 py-2">Race</th>
+                    <th class="text-left px-3 py-2">Course</th>
+                    <th class="text-left px-3 py-2">Field</th>
+                    <th class="px-3 py-2"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for r in races %}
+                <tr class="{{ 'text-gray-400' if r.event_date < today }}">
+                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="date" name="event_date" value="{{ r.event_date }}" required class="{{ input }}"></td>
+                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="text" name="name" value="{{ r.name }}" required class="{{ input }} w-64"></td>
+                    <td class="px-3 py-2">
+                        <select form="race-{{ r.id }}" name="course_id" class="{{ input }}">
+                            {% for c in courses %}<option value="{{ c.id }}" {{ 'selected' if c.id == r.course_id }}>{{ c.name }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="px-3 py-2">
+                        <select form="race-{{ r.id }}" name="conference" class="{{ input }}">
+                            <option value="{{ state_field }}">{{ state_field }} (all teams)</option>
+                            {% for conf in conferences %}<option value="{{ conf }}" {{ 'selected' if conf == r.conference }}>{{ conf }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                        {% if r.event_date < today %}<span class="text-xs mr-2">past</span>{% endif %}
+                        <form id="race-{{ r.id }}" method="post" action="/admin/schedule/race/{{ r.id }}" class="inline">
+                        <button name="action" value="save" class="text-picl-700 hover:underline text-sm font-medium">Save</button>
+                        <button name="action" value="delete" class="text-red-600 hover:underline text-sm ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No races scheduled for {{ season }} yet.</td></tr>
+                {% endfor %}
+                <tr class="bg-gray-50">
+                    <td class="px-3 py-2"><input form="race-add" type="date" name="event_date" required class="{{ input }}"></td>
+                    <td class="px-3 py-2"><input form="race-add" type="text" name="name" placeholder="Race name" required class="{{ input }} w-64"></td>
+                    <td class="px-3 py-2">
+                        <select form="race-add" name="course_id" required class="{{ input }}">
+                            <option value="">Course…</option>
+                            {% for c in courses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="px-3 py-2">
+                        <select form="race-add" name="conference" class="{{ input }}">
+                            <option value="{{ state_field }}">{{ state_field }} (all teams)</option>
+                            {% for conf in conferences %}<option value="{{ conf }}">{{ conf }}</option>{% endfor %}
+                        </select>
+                    </td>
+                    <td class="px-3 py-2 text-right"><form id="race-add" method="post" action="/admin/schedule/{{ season }}/add" class="inline"><button class="bg-picl-600 text-white px-3 py-1 rounded text-sm font-medium hover:bg-picl-700">Add</button></form></td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <details class="bg-white rounded-lg shadow border border-gray-200 mb-10">
+        <summary class="px-4 py-3 cursor-pointer text-sm font-semibold text-gray-700 select-none">Paste a whole schedule</summary>
+        <form method="post" action="/admin/schedule/{{ season }}/import" class="px-4 pb-4 border-t">
+            <p class="text-xs text-gray-500 mt-3 mb-2">One race per line: <code>YYYY-MM-DD | Race name | Course | Field</code>. Course must match a course name exactly; field is <code>{{ state_field }}</code>{% for conf in conferences %} or <code>{{ conf }}</code>{% endfor %}. Nothing is imported unless every line is valid.</p>
+            <textarea name="lines" rows="8" class="w-full rounded border border-gray-300 px-3 py-2 text-sm font-mono" placeholder="{{ season }}-09-27 | State Event #2 | {{ courses[0].name if courses else 'Course' }} | {{ state_field }}"></textarea>
+            <button class="mt-2 bg-picl-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-700">Import</button>
+        </form>
+    </details>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Loaded events</h2>
+    <form method="post" action="/admin/schedule/{{ season }}/event-dates" class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr>
+                    <th class="text-left px-3 py-2">#</th>
+                    <th class="text-left px-3 py-2">Event</th>
+                    <th class="text-left px-3 py-2">Course</th>
+                    <th class="text-left px-3 py-2">Type</th>
+                    <th class="text-left px-3 py-2">Race date</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for e in loaded %}
+                <tr>
+                    <td class="px-3 py-2 text-gray-500 font-mono">{{ e.event_order or '—' }}</td>
+                    <td class="px-3 py-2">{{ e.event_name }}</td>
+                    <td class="px-3 py-2 text-gray-600">{{ e.course or '—' }}</td>
+                    <td class="px-3 py-2 text-gray-500 text-xs">{{ e.event_type }}</td>
+                    <td class="px-3 py-2"><input type="date" name="event_date_{{ e.id }}" value="{{ e.event_date or '' }}" class="{{ input }}"></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No events loaded for {{ season }}.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% if loaded %}
+        <div class="px-3 py-3 border-t bg-gray-50 text-right">
+            <button class="bg-picl-600 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-700">Save race dates</button>
+        </div>
+        {% endif %}
+    </form>
+</div>
+{% endblock %}

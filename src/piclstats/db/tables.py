@@ -3,8 +3,10 @@
 from sqlalchemy import (
     Boolean,
     Column,
+    Date,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     Interval,
@@ -32,6 +34,8 @@ events = Table(
     # False while the publish gate holds a newly discovered race (ADR 002).
     Column("is_published", Boolean, nullable=False, server_default="true"),
     Column("scraped_at", DateTime(timezone=True), server_default=func.now()),
+    # Race day, entered in /admin/schedule; the scrape doesn't carry one.
+    Column("event_date", Date),
     Index("idx_events_season", "season"),
     Index("idx_events_event_type", "event_type"),
 )
@@ -364,4 +368,19 @@ page_views = Table(
     Index("idx_page_views_ts", "ts"),
     Index("idx_page_views_route_ts", "route", "ts"),
     Index("idx_page_views_visitor_ts", "visitor", "ts"),
+)
+
+# The season calendar (/admin/schedule). A race is "upcoming" by date alone;
+# it is never linked to the event its results later load as.
+scheduled_races = Table(
+    "scheduled_races",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("season", SmallInteger, nullable=False),
+    Column("event_date", Date, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("course_id", Integer, ForeignKey("courses.id"), nullable=False),
+    Column("conference", Text),  # NULL = state race; else team_conferences.conference
+    UniqueConstraint("season", "event_date", "name", name="uq_scheduled_race"),
+    Index("idx_scheduled_races_date", "event_date"),
 )
