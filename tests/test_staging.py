@@ -241,9 +241,10 @@ def test_custom_format_joins_only_the_ticked_divisions():
     assert len(top["starts"]) == 3
 
 
-def test_rows_count_within_the_division_and_break_at_a_wave():
+def test_rows_restart_in_every_wave():
     grid = build_grid(_ms_field(), wave_size=3, row_size=2)
-    assert _by_division(grid, "row")["8th Grade"] == [1, 1, 2, 3, 3]  # wave 1 = rows 1-2
+    assert _by_division(grid, "wave")["8th Grade"] == [1, 1, 1, 2, 2]
+    assert _by_division(grid, "row")["8th Grade"] == [1, 1, 2, 1, 1]  # wave 2 starts at row 1
     assert _by_division(grid, "row")["MS Advanced"] == [1, 1, 2]
     assert set(_by_division(build_grid(_ms_field()), "row")["8th Grade"]) == {None}  # rows off
 
