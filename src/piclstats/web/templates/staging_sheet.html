@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Race sheet — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4 print:hidden">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900">Race sheet</h1>
+        <p class="mt-1 text-sm text-gray-500">
+            Every category of one race in the league's row-sheet order — plate, group colour and row for the dot on each plate.
+            {% if conference %}{{ conference }} · {% endif %}{{ season }} · {{ 'lap time' if metric == 'lap' else 'normalized pace' }} · {{ wave_formats.get(wave_format, wave_format) }} · groups of {{ group }}{% if row %} · rows of {{ row }}{% endif %}
+        </p>
+    </div>
+    <div class="flex gap-2">
+        <a href="/staging?{{ grid_query }}" class="bg-white text-picl-700 border border-picl-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50">Back to grid</a>
+        <button type="button" onclick="window.print()" class="bg-white text-picl-700 border border-picl-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50">Print</button>
+        <a href="/staging/sheet.csv?{{ csv_query }}" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">Download CSV</a>
+    </div>
+</div>
+
+{% if sheet %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-0">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                <th class="px-3 py-2 w-16">Plate</th>
+                <th class="px-3 py-2">Name</th>
+                <th class="px-3 py-2">Team</th>
+                <th class="px-3 py-2">Category</th>
+                <th class="px-3 py-2 w-12 text-right" title="Divisions that roll off the line together">Wave</th>
+                <th class="px-3 py-2 w-12 text-right" title="Start box within the wave">Group</th>
+                <th class="px-3 py-2 w-24">Color</th>
+                <th class="px-3 py-2 w-12 text-right">Row</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% set ns = namespace(category=none, group=0) %}
+            {% for r in sheet %}
+            {% if r.category != ns.category %}
+            {% set ns.category = r.category %}
+            {% set ns.group = 0 %}
+            <tr class="bg-picl-700 text-white print:bg-gray-200 print:text-gray-900" style="break-after: avoid">
+                <td colspan="8" class="px-3 py-1.5 text-xs font-bold uppercase tracking-wider">{{ r.category }} <span class="font-normal normal-case tracking-normal opacity-80">· wave {{ r.wave }}</span></td>
+            </tr>
+            {% endif %}
+            <tr class="{% if r.group != ns.group %}border-t-2 border-gray-300{% endif %}">
+                {% set ns.group = r.group %}
+                <td class="px-3 py-1 font-mono">{{ r.plate }}</td>
+                <td class="px-3 py-1"><a href="/rider/{{ r.canonical_id }}" class="text-picl-700 hover:underline print:text-gray-900">{{ r.name }}</a></td>
+                <td class="px-3 py-1 text-gray-600 text-xs">{{ r.team }}</td>
+                <td class="px-3 py-1 text-gray-600 text-xs">{{ r.category }}</td>
+                <td class="px-3 py-1 font-mono text-right text-gray-500">{{ r.wave }}</td>
+                <td class="px-3 py-1 font-mono text-right">{{ r.group }}</td>
+                <td class="px-3 py-1">
+                    <span class="inline-block w-3 h-3 rounded-full align-middle mr-1 border border-gray-300 print:hidden" style="background: {{ r.color_css }}"></span>{{ r.color }}
+                </td>
+                <td class="px-3 py-1 font-mono text-right">{{ r.row or '' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t print:hidden">
+        {{ sheet|length }} riders. Only rated riders are listed — a rider with no timed race in the ranking season has no group yet and is added at the back of their division by hand.
+        Group colours: Red, Yellow, Green, Blue, Orange, Neon Pink, Purple, White; the coach writes the row number on the dot.
+    </p>
+</div>
+{% else %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No rated riders{% if conference %} in {{ conference }}{% endif %} for {{ season }}.
+</div>
+{% endif %}
+{% endblock %}

@@ -388,8 +388,8 @@ def seed_conferences(session: Session) -> int:
     ).all()
 
     for team, season, conference in rows:
-        # Normalize conference name (fix double spaces)
-        conf = conference.strip()
+        # Normalize conference name (fix double spaces: 2026 has 'Eastern  Blue')
+        conf = " ".join(conference.split())
         conf_group = CONFERENCE_LINEAGE.get(conf, conf)
 
         session.execute(
