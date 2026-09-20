@@ -26,6 +26,7 @@ CARD_METRICS: list[tuple[str, str, str]] = [
 ]
 
 CHECK_HELP = {
+    "try_it_out": "A Single Lap try-it-out category, not a race. Shown in results, excluded from every statistic.",
     "total_time_timestamp": "Finish time is a clock time (e.g. 24:44:02), not an elapsed time. Excluded.",
     "total_time_over_cutoff": "Finish over 2 hours; no PICL race runs that long. Excluded.",
     "place_nonpositive": "Place of 0 or below in the source. Excluded.",
