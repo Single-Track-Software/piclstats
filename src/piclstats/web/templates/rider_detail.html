@@ -77,16 +77,27 @@
 {% if form %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 class="text-lg font-semibold text-gray-900">Form</h2>
+        <h2 class="text-lg font-semibold text-gray-900">Form{% if compare %} <span class="text-base font-normal text-gray-500">vs <a href="/rider/{{ compare.id }}?compare={{ info.id }}" class="text-rose-600 hover:underline">{{ compare.name }}</a></span>{% endif %}</h2>
         <span class="text-xs text-gray-400">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-picl-600 align-middle"></span> state race ·
             <span class="inline-block w-2.5 h-2.5 rounded-full border-2 border-amber-500 align-middle"></span> conference race ·
-            <span class="inline-block w-5 border-t-2 border-dashed border-gray-500 align-middle"></span> rating
+            <span class="inline-block w-5 border-t-2 border-dashed border-gray-500 align-middle"></span> rating{% if compare %} ·
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 align-middle"></span> {{ compare.name }}{% endif %}
         </span>
     </div>
-    <p class="text-xs text-gray-400 mb-4">Each race as % faster (up) or slower than the typical rider on that loop that day &mdash; the day is judged by who was in it, so a thin conference field or a wet Sunday doesn't move the line. The dashed rating is what the forecasts use.</p>
+    <p class="text-xs text-gray-400 mb-3">Each race as % faster (up) or slower than the typical rider on that loop that day &mdash; the day is judged by who was in it, so a thin conference field or a wet Sunday doesn't move the line. The dashed rating is what the forecasts use.</p>
+    <form method="get" class="flex flex-wrap items-center gap-2 mb-4 text-sm" id="compareForm">
+        <label for="compareInput" class="text-gray-500">Compare with</label>
+        <input id="compareInput" list="riderOptions" placeholder="Type a rider's name…" autocomplete="off"
+               class="rounded-lg border border-gray-300 px-3 py-1.5 text-sm w-64" value="{{ compare.name if compare else '' }}">
+        <datalist id="riderOptions"></datalist>
+        <input type="hidden" name="compare" id="compareId" value="{{ compare.id if compare else '' }}">
+        <button class="bg-picl-600 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-picl-700">Overlay</button>
+        {% if compare %}<a href="/rider/{{ info.id }}" class="text-gray-400 hover:text-gray-600">clear</a>{% endif %}
+    </form>
+    {% if compare and not compare.form %}<p class="text-xs text-amber-700 mb-3">{{ compare.name }} has no timed points races to show.</p>{% endif %}
     <canvas id="formChart" height="200"></canvas>
-    <p class="text-[11px] text-gray-400 mt-3">Points races with clean lap times only. A smaller dot means a thin day (under 40 on the loop), which reads the day less reliably. Middle school and high school loops are separate series.</p>
+    <p class="text-[11px] text-gray-400 mt-3">Points races with clean lap times only. A smaller dot means a thin day (under 40 on the loop), which reads the day less reliably. Middle school and high school loops are separate series{% if compare %}; two riders on different loops the same season are measured against different fields, so compare the trend rather than the gap{% endif %}.</p>
 </div>
 {% endif %}
 
@@ -113,7 +124,7 @@
             <tbody class="divide-y divide-gray-100">
                 {% for v in rivals %}
                 <tr class="hover:bg-picl-50 transition-colors">
-                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ v.cid }}" class="text-picl-700 font-medium hover:underline">{{ v.name }}</a></td>
+                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ v.cid }}" class="text-picl-700 font-medium hover:underline">{{ v.name }}</a> <a href="/rider/{{ info.id }}?compare={{ v.cid }}#formChart" class="ml-1 text-[11px] text-gray-400 hover:text-rose-600" title="Overlay {{ v.name }} on the Form chart">compare</a></td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ v.team or '' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ v.shared }}</td>
                     <td class="px-4 py-2 text-right font-mono {{ 'text-green-600' if v.wins * 2 > v.shared else ('text-red-500' if v.wins * 2 < v.shared else 'text-gray-600') }}">{{ v.wins }}–{{ v.shared - v.wins }}</td>
@@ -266,36 +277,69 @@
 <script>
 {% if form %}
 const form = {{ form | tojson }};
-const formLabels = form.map(f => `${f.season} #${f.event_order}`);
+const other = {{ (compare.form if compare else []) | tojson }};
+const otherName = {{ (compare.name if compare else '') | tojson }};
+const key = f => `${f.season} #${f.event_order}`;
+// Shared x axis: every race either rider started, in season order.
+const axis = [...new Map([...form, ...other].map(f => [key(f), [f.season, f.event_order]])).entries()]
+    .sort((a, b) => a[1][0] - b[1][0] || a[1][1] - b[1][1]).map(e => e[0]);
+const at = (points, pick) => { const m = new Map(points.map(f => [key(f), f])); return axis.map(k => m.has(k) ? pick(m.get(k)) : null); };
 const isState = f => f.draw === null;
+const loops = points => [...new Set(points.map(f => f.loop_type))];
+// One dashed rating line per loop: an 8th grader's -20% on the MS loop and a
+// JV3 rider's -5% on the HS loop are against different fields, not a slump.
+const ratingLines = (points, colour) => loops(points).map(loop => ({
+    label: 'rating', data: at(points, f => f.loop_type === loop ? f.rating_pct : null), borderColor: colour,
+    borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: false, order: 2, _points: points}));
+const dots = (points, fill, edge, hollow) => ({
+    label: 'race', data: at(points, f => f.score_pct), showLine: false, order: 1, _points: points,
+    pointRadius: at(points, f => f.day_field < 40 ? 5 : 6),
+    pointBackgroundColor: at(points, f => (!hollow || isState(f)) ? fill : fill.replace('rgb(', 'rgba(').replace(')', ',0.15)')),
+    pointBorderColor: at(points, f => (!hollow || isState(f)) ? fill : edge),
+    pointBorderWidth: at(points, f => f.day_field < 40 ? 1.5 : 2)});
+const datasets = [...ratingLines(form, 'rgb(107,114,128)'), dots(form, 'rgb(16,32,232)', 'rgb(217,119,6)', true)];
+if (other.length) datasets.push(...ratingLines(other, 'rgba(225,29,72,0.6)'), dots(other, 'rgb(225,29,72)', 'rgb(225,29,72)', true));
+const pointAt = (ds, i) => ds._points.find(f => key(f) === axis[i]);
 new Chart(document.getElementById('formChart'), {
     type: 'line',
-    // One dashed rating line per loop: an 8th grader's -20% on the MS loop and a
-    // JV3 rider's -5% on the HS loop are against different fields, not a slump.
-    data: {labels: formLabels, datasets: [
-        ...[...new Set(form.map(f => f.loop_type))].map(loop => (
-        {label: 'Rating', data: form.map(f => f.loop_type === loop ? f.rating_pct : null), borderColor: 'rgb(107,114,128)',
-         borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: false, order: 2})),
-        {label: 'Race', data: form.map(f => f.score_pct), showLine: false, order: 1,
-         pointRadius: form.map(f => f.day_field < 40 ? 5 : 6),
-         pointBackgroundColor: form.map(f => isState(f) ? 'rgb(16,32,232)' : 'rgba(245,158,11,0.15)'),
-         pointBorderColor: form.map(f => isState(f) ? 'rgb(16,32,232)' : 'rgb(217,119,6)'),
-         pointBorderWidth: form.map(f => f.day_field < 40 ? 1.5 : 2)},
-    ]},
+    data: {labels: axis, datasets},
     options: {
         responsive: true,
         plugins: {legend: {display: false}, tooltip: {callbacks: {
-            title: (items) => { const f = form[items[0].dataIndex]; return `${f.season} #${f.event_order} · ${f.division} · ${f.draw || 'State race'} · ${f.loop_type} loop`; },
-            label: (ctx) => { const f = form[ctx.dataIndex];
-                if (ctx.dataset.label === 'Rating') return `Rating ${f.rating_pct > 0 ? '+' : ''}${f.rating_pct}% on the ${f.loop_type} loop`;
-                return `${f.score_pct > 0 ? '+' : ''}${f.score_pct}% vs the typical rider · ${f.day_field} on the loop`; },
-            afterLabel: (ctx) => ctx.dataset.label === 'Race' ? `≈ ${form[ctx.dataIndex].league_place} of ${form[ctx.dataIndex].league_field} league-wide` : undefined,
+            title: (items) => { const f = pointAt(items[0].dataset, items[0].dataIndex); return `${f.season} #${f.event_order} · ${f.division} · ${f.draw || 'State race'} · ${f.loop_type} loop`; },
+            label: (ctx) => { const f = pointAt(ctx.dataset, ctx.dataIndex); const who = ctx.dataset._points === other ? otherName : {{ info.name | tojson }};
+                if (ctx.dataset.label === 'rating') return `${who} rating ${f.rating_pct > 0 ? '+' : ''}${f.rating_pct}% on the ${f.loop_type} loop`;
+                return `${who} ${f.score_pct > 0 ? '+' : ''}${f.score_pct}% vs the typical rider · ${f.day_field} on the loop`; },
+            afterLabel: (ctx) => { const f = pointAt(ctx.dataset, ctx.dataIndex); return ctx.dataset.label === 'race' ? `≈ ${f.league_place} of ${f.league_field} league-wide` : undefined; },
         }}},
         scales: {y: {reverse: true, title: {display: true, text: '% vs typical rider (up = faster)'},
                      ticks: {callback: v => (v > 0 ? '+' : '') + v + '%'}},
                  x: {ticks: {maxRotation: 45, font: {size: 10}}}}
     }
 });
+
+// Compare box: look names up as you type; the hidden field carries the id.
+(() => {
+    const input = document.getElementById('compareInput'), list = document.getElementById('riderOptions'),
+          hidden = document.getElementById('compareId'), formEl = document.getElementById('compareForm');
+    let found = [], timer = null;
+    input.addEventListener('input', () => {
+        hidden.value = '';
+        clearTimeout(timer);
+        const q = input.value.trim();
+        if (q.length < 2) return;
+        timer = setTimeout(async () => {
+            const res = await fetch(`/api/riders?q=${encodeURIComponent(q)}`);
+            found = res.ok ? await res.json() : [];
+            list.replaceChildren(...found.map(r => { const o = document.createElement('option'); o.value = `${r.name} — ${r.team || ''}`; return o; }));
+        }, 200);
+    });
+    formEl.addEventListener('submit', (e) => {
+        const match = found.find(r => `${r.name} — ${r.team || ''}` === input.value) || found.find(r => r.name.toLowerCase() === input.value.trim().toLowerCase()) || (found.length === 1 ? found[0] : null);
+        if (match) hidden.value = match.id;
+        if (!hidden.value) { e.preventDefault(); input.focus(); }
+    });
+})();
 {% endif %}
 </script>
 {% endblock %}
