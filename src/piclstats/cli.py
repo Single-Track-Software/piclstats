@@ -286,17 +286,29 @@ def _ingest_line(res: Any) -> str:
 @main.command()
 @click.option("--scrape", is_flag=True, help="Load every new race through the DQ pipeline.")
 @click.option("--season", type=int, default=None, help="Season for new races (default: this year).")
-def discover(scrape: bool, season: int | None) -> None:
+@click.option(
+    "--event-id",
+    "event_ids",
+    type=int,
+    multiple=True,
+    help="raceresult id(s) to treat as discovered, for races posted before the league page links them.",
+)
+def discover(scrape: bool, season: int | None, event_ids: tuple[int, ...]) -> None:
     """Check the league results page for races we have not loaded."""
     from piclstats.db.engine import get_session
     from piclstats.scraper import discover as disc
 
-    links = disc.parse_links(disc.fetch_page())
+    if event_ids:
+        source = "the command line"
+        links = [disc.Discovered(eid, f"raceresult {eid}") for eid in event_ids]
+    else:
+        source = disc.RESULTS_URL
+        links = disc.parse_links(disc.fetch_page())
     season = season or disc.current_season()
     session = get_session()
     try:
         new = disc.find_new(session, links)
-        click.echo(f"{len(links)} race link(s) on {disc.RESULTS_URL}; {len(new)} new")
+        click.echo(f"{len(links)} race link(s) on {source}; {len(new)} new")
         for d in new:
             disc.record(session, d, season, "new")
         session.commit()
@@ -325,6 +337,8 @@ def discover(scrape: bool, season: int | None) -> None:
                 click.echo(f"  ERROR {d.raceresult_id} ({d.name}): {exc}", err=True)
                 continue
             loaded += 1
+            if res.event_name:  # an id given by hand had only a placeholder name
+                d = disc.Discovered(d.raceresult_id, res.event_name)
             disc.record(
                 session, d, season, "published" if res.passed else "blocked", "; ".join(res.reasons)
             )
