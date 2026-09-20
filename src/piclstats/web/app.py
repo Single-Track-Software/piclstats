@@ -397,9 +397,16 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
             logger.exception("rider form failed for rider %s", rider_id)
             form = []
 
-        # Overlay another rider's form on the chart (?compare=<rider id>).
+        # Overlay another rider's form on the chart (?compare=<rider id>, or a
+        # name typed and submitted before the lookup answered).
         other = None
-        if compare.strip().isdigit() and int(compare) != data["info"]["id"]:
+        compare = compare.strip()
+        if compare and not compare.isdigit():
+            compare = compare.split(" — ")[0].strip()  # the picker's "Name — Team" label
+            hits = queries.search_riders(session, compare)
+            exact = [h for h in hits if h["name"].lower() == compare.lower()]
+            compare = str((exact or hits or [{"id": ""}])[0]["id"])
+        if compare.isdigit() and int(compare) != data["info"]["id"]:
             other_data = queries.rider_detail(session, int(compare))
             if other_data and other_data["info"]["id"] != data["info"]["id"]:
                 try:
