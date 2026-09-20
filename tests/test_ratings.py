@@ -166,3 +166,46 @@ def test_future_matrix_cuts_the_field_to_the_conference():
     assert west["cells"]["JV2"]["field"] <= state["cells"]["JV2"]["field"]
     assert west["cells"]["JV2"]["color"] == "red"
     assert build_future_matrix(999, "JV2", roster, races, _place_color, 0.03, [], 2026) is None
+
+
+# ── Rider form (the rider page's trend line) ────────────────────────────
+
+
+def test_rider_form_is_stable_when_only_the_field_changes():
+    from piclstats.web.ratings import rider_form
+
+    # Rider 5 rides identical lap times at a state race (everyone there) and at
+    # a conference race that only the slower half attends, on a course 20%
+    # slower for all: the day effect sees through both, so the score holds.
+    rows = [_row(1, i, 1000 + 20 * i, order=1) for i in range(12)]
+    rows += [_row(2, i, (1000 + 20 * i) * 1.2, order=2, conf="Western") for i in range(4, 12)]
+    form = rider_form(5, rows)
+    assert [f["event_order"] for f in form] == [1, 2]
+    assert abs(form[0]["score_pct"] - form[1]["score_pct"]) < 0.2
+    assert form[0]["draw"] is None and form[1]["draw"] == "Western"
+    assert form[1]["day_field"] == 8
+    assert form[0]["league_field"] == 12  # the season's division, rider excluded, plus one
+    assert form[0]["league_place"] == form[1]["league_place"]
+
+
+def test_rider_form_reads_the_draw_from_the_event_name_when_results_lack_a_conference():
+    from piclstats.web.ratings import rider_form
+
+    rows = [
+        {**_row(1, i, 1000 + 20 * i), "event_name": "Central Conf #2 - Coleman"} for i in range(10)
+    ]
+    assert rider_form(3, rows)[0]["draw"] == "Conference"
+    assert rider_form(3, [_row(1, i, 1000 + 20 * i) for i in range(10)])[0]["draw"] is None
+
+
+def test_rider_form_rating_follows_the_scores_and_absent_riders_get_nothing():
+    from piclstats.web.ratings import rider_form
+
+    rows = []
+    for order in (1, 2, 3):
+        rows += [_row(order, i, 1000 + 20 * i, order=order) for i in range(10)]
+        rows.append(_row(order, 99, 1000 - 60 * order, order=order))  # improving every race
+    form = rider_form(99, rows)
+    assert [f["rating_pct"] for f in form] == sorted((f["rating_pct"] for f in form), reverse=True)
+    assert form[-1]["rating_pct"] > form[-1]["score_pct"]  # rating lags the newest score
+    assert rider_form(12345, rows) == []

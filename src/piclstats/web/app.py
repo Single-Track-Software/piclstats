@@ -14,6 +14,7 @@ from urllib.parse import urlencode
 
 from collections.abc import Awaitable, Callable
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -329,13 +330,65 @@ def rider_search(
     )
 
 
+_rating_rows_cache: dict[tuple, tuple[tuple, list[dict]]] = {}
+
+
+def _cached_rating_rows(session, gender: str, loop_type: str) -> list[dict]:
+    """`queries.rating_rows` for a gender + loop, reused until results change.
+
+    Every rider page on the same loop needs the same few thousand rows and the
+    same day-effect fit; the cache key changes whenever a race is loaded,
+    republished or merged.
+    """
+    stamp = session.execute(
+        text("""
+        SELECT (SELECT count(*) FROM events WHERE is_published),
+               (SELECT max(id) FROM results),
+               (SELECT count(*) FROM rider_aliases)
+    """)
+    ).one()
+    key = (gender, loop_type)
+    hit = _rating_rows_cache.get(key)
+    if hit and hit[0] == tuple(stamp):
+        return hit[1]
+    rows = queries.rating_rows(session, gender, loop_type)
+    _rating_rows_cache[key] = (tuple(stamp), rows)
+    return rows
+
+
+def _rider_form(session, races: list[dict], canonical_id: int) -> list[dict]:
+    """Form points for every loop the rider has raced (see ratings.rider_form)."""
+    from piclstats.web.ratings import rider_form
+
+    groups = {
+        (r["gender"], r["loop_type"])
+        for r in races
+        if r.get("gender") and r.get("loop_type") and r.get("event_type") == "points"
+    }
+    form: list[dict] = []
+    for gender, loop_type in sorted(groups):
+        rows = _cached_rating_rows(session, gender, loop_type)
+        for point in rider_form(canonical_id, rows):
+            form.append({**point, "loop_type": loop_type})
+    form.sort(key=lambda f: (f["season"], f["event_order"], f["event_id"]))
+    return form
+
+
 @app.get("/rider/{rider_id}", response_class=HTMLResponse)
 def rider_profile(request: Request, rider_id: int):
     with get_session() as session:
         data = queries.rider_detail(session, rider_id)
-    if not data:
-        return HTMLResponse("Rider not found", status_code=404)
-    return templates.TemplateResponse("rider_detail.html", _ctx(request, **data))
+        if not data:
+            return HTMLResponse("Rider not found", status_code=404)
+        try:
+            form = _rider_form(session, data["races"], data["info"]["id"])
+        except Exception:
+            logger.exception("rider form failed for rider %s", rider_id)
+            form = []
+    return templates.TemplateResponse(
+        "rider_detail.html",
+        _ctx(request, **data, form=form, form_by_event={f["event_id"]: f for f in form}),
+    )
 
 
 @app.get("/teams", response_class=HTMLResponse)

@@ -73,19 +73,22 @@
     {% endfor %}
 </div>
 
-<!-- Charts row -->
-<div class="grid lg:grid-cols-2 gap-8 mb-8">
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 class="text-lg font-semibold text-gray-900 mb-1">Field Percentile</h2>
-        <p class="text-xs text-gray-400 mb-4">Share of the category beaten in each race (higher = better)</p>
-        <canvas id="percentileChart" height="200"></canvas>
+<!-- Form: the trend that doesn't move with who turned up -->
+{% if form %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
+    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
+        <h2 class="text-lg font-semibold text-gray-900">Form</h2>
+        <span class="text-xs text-gray-400">
+            <span class="inline-block w-2.5 h-2.5 rounded-full bg-picl-600 align-middle"></span> state race ·
+            <span class="inline-block w-2.5 h-2.5 rounded-full border-2 border-amber-500 align-middle"></span> conference race ·
+            <span class="inline-block w-5 border-t-2 border-dashed border-gray-500 align-middle"></span> rating
+        </span>
     </div>
-    <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <h2 class="text-lg font-semibold text-gray-900 mb-1">Behind the Winner</h2>
-        <p class="text-xs text-gray-400 mb-4">Finish time behind the category winner, in percent — comparable across courses and years (lower = better)</p>
-        <canvas id="behindChart" height="200"></canvas>
-    </div>
+    <p class="text-xs text-gray-400 mb-4">Each race as % faster (up) or slower than the typical rider on that loop that day &mdash; the day is judged by who was in it, so a thin conference field or a wet Sunday doesn't move the line. The dashed rating is what the forecasts use.</p>
+    <canvas id="formChart" height="200"></canvas>
+    <p class="text-[11px] text-gray-400 mt-3">Points races with clean lap times only. A smaller dot means a thin day (under 40 on the loop), which reads the day less reliably. Middle school and high school loops are separate series.</p>
 </div>
+{% endif %}
 
 {% if rivals %}
 <!-- Rivals: who finishes around this rider -->
@@ -150,6 +153,7 @@
                     <th class="px-4 py-3">Conference</th>
                     <th class="px-4 py-3 text-right">Place</th>
                     <th class="px-4 py-3 text-right" title="Share of the category beaten">Pctl</th>
+                    <th class="px-4 py-3 text-right" title="That day's ride ranked against the season ratings of every rider in the division league-wide — where it would have placed if the whole league had been there">League-wide</th>
                     <th class="px-4 py-3 text-right">Points</th>
                     <th class="px-4 py-3 text-right">Time</th>
                     <th class="px-4 py-3 text-right" title="Behind the category winner">Behind</th>
@@ -173,6 +177,8 @@
                         {% if r.place %}{{ r.place }}{% if r.field_size %}<span class="text-gray-400 font-normal">/{{ r.field_size }}</span>{% endif %}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}
                     </td>
                     <td class="px-4 py-2 text-right font-mono {% if r.percentile is not none %}{{ 'text-green-600' if r.percentile >= 50 else ('text-amber-600' if r.percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.percentile is not none %}{{ "%.0f"|format(r.percentile) }}%{% else %}—{% endif %}</td>
+                    {% set fp = form_by_event.get(r.event_id) %}
+                    <td class="px-4 py-2 text-right font-mono text-xs whitespace-nowrap" {% if fp %}title="{{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider that day"{% endif %}>{% if fp %}≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span>{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.points or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r.total_time_raw or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{% if r.pct_behind is not none %}{% if r.pct_behind == 0 %}<span class="text-green-600">won</span>{% else %}+{{ "%.1f"|format(r.pct_behind) }}%{% endif %}{% else %}—{% endif %}</td>
@@ -258,57 +264,38 @@
 
 {% block scripts %}
 <script>
-const races = {{ races | tojson }};
-
-// One colour per season the rider raced, assigned in order, so a new
-// season never falls back to grey.
-const palette = [
-    'rgb(99,102,241)', 'rgb(234,88,12)', 'rgb(16,185,129)', 'rgb(59,130,246)',
-    'rgb(217,70,239)', 'rgb(202,138,4)', 'rgb(20,184,166)', 'rgb(225,29,72)',
-];
-const seasonColors = {};
-[...new Set(races.map(r => r.season))].sort().forEach((season, i) => {
-    const rgb = palette[i % palette.length];
-    seasonColors[season] = {bg: rgb.replace('rgb(', 'rgba(').replace(')', ',0.15)'), border: rgb};
-});
-const defaultColor = {bg: 'rgba(107,114,128,0.15)', border: 'rgb(107,114,128)'};
-
-// Placed, clean, scoring races only — the same rows the season cards use.
-const scored = races.filter(r => r.percentile !== null && r.event_type === 'points');
-const labels = scored.map((r, i) => `${r.season} #${r.event_order || i+1}`);
-const bg = scored.map(r => (seasonColors[r.season] || defaultColor).bg);
-const border = scored.map(r => (seasonColors[r.season] || defaultColor).border);
-const xTicks = {ticks: {maxRotation: 45, font: {size: 10}}};
-const detail = (r) => `Place ${r.place} of ${r.field_size} in ${r.category}`;
-
-new Chart(document.getElementById('percentileChart'), {
-    type: 'bar',
-    data: {labels, datasets: [{label: 'Percentile', data: scored.map(r => r.percentile),
-        backgroundColor: bg, borderColor: border, borderWidth: 1.5, borderRadius: 4}]},
-    options: {
-        responsive: true,
-        plugins: {legend: {display: false},
-            tooltip: {callbacks: {afterLabel: (ctx) => detail(scored[ctx.dataIndex])}}},
-        scales: {y: {min: 0, max: 100, title: {display: true, text: 'Percentile'}}, x: xTicks}
-    }
-});
-
-const behind = scored.filter(r => r.pct_behind !== null);
-new Chart(document.getElementById('behindChart'), {
+{% if form %}
+const form = {{ form | tojson }};
+const formLabels = form.map(f => `${f.season} #${f.event_order}`);
+const isState = f => f.draw === null;
+new Chart(document.getElementById('formChart'), {
     type: 'line',
-    data: {labels: behind.map((r, i) => `${r.season} #${r.event_order || i+1}`),
-        datasets: [{label: '% behind winner', data: behind.map(r => r.pct_behind),
-            borderColor: 'rgb(16,32,232)', backgroundColor: 'rgba(16,32,232,0.08)', fill: true,
-            tension: 0.3, pointRadius: 5,
-            pointBackgroundColor: behind.map(r => (seasonColors[r.season] || defaultColor).border)}]},
+    // One dashed rating line per loop: an 8th grader's -20% on the MS loop and a
+    // JV3 rider's -5% on the HS loop are against different fields, not a slump.
+    data: {labels: formLabels, datasets: [
+        ...[...new Set(form.map(f => f.loop_type))].map(loop => (
+        {label: 'Rating', data: form.map(f => f.loop_type === loop ? f.rating_pct : null), borderColor: 'rgb(107,114,128)',
+         borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: false, order: 2})),
+        {label: 'Race', data: form.map(f => f.score_pct), showLine: false, order: 1,
+         pointRadius: form.map(f => f.day_field < 40 ? 5 : 6),
+         pointBackgroundColor: form.map(f => isState(f) ? 'rgb(16,32,232)' : 'rgba(245,158,11,0.15)'),
+         pointBorderColor: form.map(f => isState(f) ? 'rgb(16,32,232)' : 'rgb(217,119,6)'),
+         pointBorderWidth: form.map(f => f.day_field < 40 ? 1.5 : 2)},
+    ]},
     options: {
         responsive: true,
-        plugins: {legend: {display: false},
-            tooltip: {callbacks: {
-                label: (ctx) => ctx.parsed.y === 0 ? 'Won the category' : `+${ctx.parsed.y}% behind the winner`,
-                afterLabel: (ctx) => detail(behind[ctx.dataIndex])}}},
-        scales: {y: {reverse: true, beginAtZero: true, title: {display: true, text: '% behind winner (lower = better)'}}, x: xTicks}
+        plugins: {legend: {display: false}, tooltip: {callbacks: {
+            title: (items) => { const f = form[items[0].dataIndex]; return `${f.season} #${f.event_order} · ${f.division} · ${f.draw || 'State race'} · ${f.loop_type} loop`; },
+            label: (ctx) => { const f = form[ctx.dataIndex];
+                if (ctx.dataset.label === 'Rating') return `Rating ${f.rating_pct > 0 ? '+' : ''}${f.rating_pct}% on the ${f.loop_type} loop`;
+                return `${f.score_pct > 0 ? '+' : ''}${f.score_pct}% vs the typical rider · ${f.day_field} on the loop`; },
+            afterLabel: (ctx) => ctx.dataset.label === 'Race' ? `≈ ${form[ctx.dataIndex].league_place} of ${form[ctx.dataIndex].league_field} league-wide` : undefined,
+        }}},
+        scales: {y: {reverse: true, title: {display: true, text: '% vs typical rider (up = faster)'},
+                     ticks: {callback: v => (v > 0 ? '+' : '') + v + '%'}},
+                 x: {ticks: {maxRotation: 45, font: {size: 10}}}}
     }
 });
+{% endif %}
 </script>
 {% endblock %}
