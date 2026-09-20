@@ -40,9 +40,16 @@
         {% if invite_link %}
         <div class="mt-4 p-3 rounded bg-picl-50 border border-picl-200">
             <p class="text-xs text-gray-700 mb-1">
+                {% if link_kind == 'reset' %}
+                {% if emailed %}Password reset emailed to{% else %}Password reset link for{% endif %}
+                <span class="font-medium">{{ invite_email }}</span> — good for {{ reset_hours }} hour{{ 's' if reset_hours != 1 }}.
+                {% if not emailed %}Email is {% if email_configured %}failing{% else %}not set up{% endif %}, so pass this to them yourself (text or DM).{% endif %}
+                It is shown once; sending another retires it.
+                {% else %}
                 {% if emailed %}Emailed to{% else %}Invite for{% endif %}
                 <span class="font-medium">{{ invite_email }}</span>. This link is shown once — it
                 can't be retrieved later, but you can always send a fresh invite.
+                {% endif %}
             </p>
             <input readonly value="{{ invite_link }}" onclick="this.select()"
                    class="w-full border rounded px-2 py-1 text-xs font-mono bg-white">

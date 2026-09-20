@@ -533,6 +533,7 @@ def _users_page(
     invite_link: str = "",
     invite_email: str = "",
     emailed: bool = True,
+    link_kind: str = "invite",
     status_code: int = 200,
 ):
     return templates.TemplateResponse(
@@ -550,6 +551,8 @@ def _users_page(
             "invite_link": invite_link,
             "invite_email": invite_email,
             "emailed": emailed,
+            "link_kind": link_kind,  # 'invite' | 'reset'
+            "reset_hours": max(1, int(tokens_store.RESET_TTL.total_seconds() // 3600)),
             "email_configured": mail.is_configured(),
         },
         status_code=status_code,
@@ -980,10 +983,13 @@ async def users_invite(
     )
     link = build_link(request, f"/invite/{token}")
     days = max(1, tokens_store.INVITE_TTL.days)
-    emailed = mail.send_invite(email, link, admin.get("name"), days)
+    sent = mail.send_invite(email, link, admin.get("name"), days)
+    # Unconfigured mail "succeeds" by logging, so only claim an email went out
+    # when one really could have; the admin passes the link on otherwise.
+    emailed = sent and mail.is_configured()
 
     saved = f"Invite sent to {email}." if emailed else ""
-    error = "" if emailed else f"Invite created, but the email to {email} failed to send."
+    error = "" if sent else f"Invite created, but the email to {email} failed to send."
     return _users_page(
         request, saved=saved, error=error, invite_link=link, invite_email=email, emailed=emailed
     )
@@ -1062,13 +1068,22 @@ async def users_update(
             purpose=tokens_store.RESET, email=target["email"], user_id=user_id
         )
         hours = max(1, int(tokens_store.RESET_TTL.total_seconds() // 3600))
-        sent = mail.send_password_reset(
-            target["email"], build_link(request, f"/reset/{token}"), hours
+        link = build_link(request, f"/reset/{token}")
+        sent = mail.send_password_reset(target["email"], link, hours)
+        emailed = sent and mail.is_configured()
+        # Like an invite, render the page with the live link rather than
+        # redirecting: when email is off (or fails) the admin hands the link
+        # over themselves, and a redirect would leak the token into the URL.
+        return _users_page(
+            request,
+            saved=f"Reset link sent to {target['email']}." if emailed else "",
+            error=""
+            if sent
+            else f"Reset link created, but the email to {target['email']} failed to send.",
+            invite_link=link,
+            invite_email=target["email"],
+            emailed=emailed,
+            link_kind="reset",
         )
-        if sent:
-            return RedirectResponse(
-                "/admin/users?saved=Reset+link+sent+to+" + quote(target["email"]), status_code=303
-            )
-        return RedirectResponse("/admin/users?error=Reset+email+failed+to+send", status_code=303)
 
     return RedirectResponse("/admin/users?error=Unknown+action", status_code=303)
