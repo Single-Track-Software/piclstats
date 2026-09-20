@@ -156,19 +156,43 @@ DIVISION_ORDER = [
     "6th Grade",
 ]
 
-# Start formats: which divisions roll off the line as one start. A format is
-# the set of divisions that start *with the division above them*; anything
-# else ("custom") comes from the page's checkboxes.
-START_FORMATS: dict[str, str] = {
-    "separate": "Each division on its own",
+# PICL's staging vocabulary (from the league's "Staging Dots & Tape"
+# instructions): a WAVE is the set of categories that roll off the line
+# together (e.g. Varsity + JV1 Male); a GROUP is the start box inside the wave,
+# marked by a coloured dot on the plate; a ROW is the line within the group,
+# written on the dot. Groups are 28 riders = 4 rows of 7.
+GROUP_SIZE = 28
+ROW_SIZE = 7
+GROUP_COLORS = ["Red", "Yellow", "Green", "Blue", "Orange", "Neon Pink", "Purple", "White"]
+# Screen approximations of the dot colours, for the swatch beside a group.
+GROUP_COLOR_CSS = {
+    "Red": "#dc2626",
+    "Yellow": "#facc15",
+    "Green": "#16a34a",
+    "Blue": "#2563eb",
+    "Orange": "#f97316",
+    "Neon Pink": "#ff2d95",
+    "Purple": "#7e22ce",
+    "White": "#ffffff",
+}
+
+# Wave formats: which divisions share a wave. A format names the divisions
+# that ride *with the division above them*; "custom" comes from the page's
+# checkboxes. The league's real groupings (2026 row sheets):
+#   conference  HS boys {Varsity, JV1} {JV2, JV3}; HS girls, MS girls and
+#               MS boys each all together (MS Advanced first)
+#   state       MS boys {MS Advanced, 8th} then 7th and 6th on their own;
+#               MS girls all together. (HS at state: no sheet seen — same as
+#               a conference race until told otherwise.)
+WAVE_FORMATS: dict[str, str] = {
+    "conference": "Conference race",
     "state": "State race",
+    "separate": "Each division on its own",
     "combined": "All divisions together",
     "custom": "Custom",
 }
-# State races: MS Advanced and 8th Grade share a start (MS Advanced is wave 1,
-# 8th Grade follows a minute later as wave 2...); every other division is its
-# own race.
-_STATE_JOINS = {"8th Grade"}
+_HS_BOYS_CONFERENCE = {"JV1", "JV3"}
+_MS_BOYS_STATE = {"8th Grade"}
 
 
 def division_sort_key(division: str | None) -> tuple[int, str]:
@@ -176,14 +200,33 @@ def division_sort_key(division: str | None) -> tuple[int, str]:
     return (DIVISION_ORDER.index(name) if name in DIVISION_ORDER else len(DIVISION_ORDER), name)
 
 
-def start_joins(start_format: str, divisions: list[str], custom: list[str] | None = None) -> set:
-    """Divisions (of `divisions`, already in ladder order) that start with the one above."""
-    if start_format == "combined":
-        return set(divisions[1:])
-    if start_format == "state":
-        return _STATE_JOINS & set(divisions[1:])
-    if start_format == "custom":
-        return set(custom or []) & set(divisions[1:])
+def group_color(group: int | None) -> str:
+    """Dot colour for a group number (1 = Red ... 8 = White)."""
+    if not group:
+        return ""
+    return GROUP_COLORS[group - 1] if group <= len(GROUP_COLORS) else f"Group {group}"
+
+
+def wave_joins(
+    wave_format: str,
+    divisions: list[str],
+    custom: list[str] | None = None,
+    gender: str | None = None,
+) -> set:
+    """Divisions (of `divisions`, already in ladder order) that share a wave with the one above."""
+    below_top = set(divisions[1:])
+    if wave_format == "combined":
+        return below_top
+    if wave_format == "custom":
+        return set(custom or []) & below_top
+    is_hs = any(d in ("Varsity", "JV1", "JV2", "JV3") for d in divisions)
+    boys = gender == "Male"
+    if wave_format == "conference":
+        return (_HS_BOYS_CONFERENCE & below_top) if (is_hs and boys) else below_top
+    if wave_format == "state":
+        if is_hs:
+            return (_HS_BOYS_CONFERENCE & below_top) if boys else below_top
+        return (_MS_BOYS_STATE & below_top) if boys else below_top
     return set()
 
 
@@ -193,10 +236,11 @@ def build_grid(
     sort: str = "best",
     division: str | None = None,
     conference: str | None = None,
-    wave_size: int = 20,
-    row_size: int = 0,
-    start_format: str = "separate",
+    group_size: int = GROUP_SIZE,
+    row_size: int = ROW_SIZE,
+    wave_format: str = "conference",
     custom_joins: list[str] | None = None,
+    gender: str | None = None,
 ) -> dict:
     """Build the staging grid from per-(rider, event) z-score rows.
 
@@ -208,14 +252,15 @@ def build_grid(
     and combined.
 
     Order is always division first (down the ladder), fastest first within a
-    division, unrated riders at the back of their division with no wave or row.
-    `rank` is the position within the division. Each division is cut into
-    waves of `wave_size`; a new division always opens a new wave. The start
-    format groups divisions into starts: wave numbers run on through every
-    division of a start (MS Advanced wave 1, 8th Grade waves 2-5) and begin
-    again at 1 for the next start. With `row_size`, riders also get a grid row
-    within their wave (row 1 is the front of each wave), which is what gets
-    written on the number plate beside the wave's colour dot.
+    division, unrated riders at the back of their division with no group or
+    row. `rank` is the position within the division. Each division is cut into
+    groups of `group_size` (fill one, overflow into the next — no balancing,
+    just like the league's sheets); a new division always opens a new group.
+    The wave format says which divisions share a wave: group numbers (and
+    colours) run on through every division of a wave (MS Advanced group 1,
+    8th Grade groups 2-5) and begin again at 1 for the next wave. With
+    `row_size`, riders also get a row within their group (row 1 is the front),
+    which is what the coach writes on the coloured dot.
     """
     zkey = "z_pace" if metric == "pace" else "z_lap"
     sort_key = "best_z" if sort == "best" else "avg_z"
@@ -240,6 +285,7 @@ def build_grid(
                 "division": None,
                 "conference": None,
                 "conference_group": None,
+                "plate": None,
                 "_last": -1,
                 "per_event": {},
                 "_zs": [],
@@ -256,6 +302,7 @@ def build_grid(
             rd["division"] = r.get("division")
             rd["conference"] = r.get("conference")
             rd["conference_group"] = r.get("conference_group")
+            rd["plate"] = r.get("bib") or rd["plate"]
 
     event_list = sorted(events.values(), key=lambda e: e["event_order"])
     divisions = sorted(
@@ -296,32 +343,36 @@ def build_grid(
     )
 
     staged = sorted({r["division"] for r in grid if r["division"]}, key=division_sort_key)
-    joins = start_joins(start_format, staged, custom_joins)
+    if wave_format not in WAVE_FORMATS:
+        wave_format = "conference"
+    joins = wave_joins(wave_format, staged, custom_joins, gender)
 
-    starts: list[dict] = []
+    waves: list[dict] = []
     current = object()  # sentinel: no division yet
-    start_no = wave = 0
+    wave_no = group = 0
     for r in grid:
         if r["division"] != current:
             current = r["division"]
-            if current not in joins or not starts:
-                start_no += 1
-                wave = 0
-                starts.append({"start": start_no, "divisions": []})
-            starts[-1]["divisions"].append(current)
-            in_division = in_wave = in_row = row = 0
+            if current not in joins or not waves:
+                wave_no += 1
+                group = 0
+                waves.append({"wave": wave_no, "divisions": []})
+            waves[-1]["divisions"].append(current)
+            in_division = in_group = in_row = row = 0
         in_division += 1
         r["rank"] = in_division
-        r["start"] = start_no
+        r["wave"] = wave_no
         if r[sort_key] is None:
-            r["wave"] = r["row"] = None
+            r["group"] = r["color"] = r["color_css"] = r["row"] = None
             continue
-        if in_wave == 0 or in_wave >= wave_size:
-            wave += 1
-            in_wave = 0
-            in_row = row = 0  # rows count from 1 again in every wave
-        in_wave += 1
-        r["wave"] = wave
+        if in_group == 0 or in_group >= group_size:
+            group += 1
+            in_group = 0
+            in_row = row = 0  # rows count from 1 again in every group
+        in_group += 1
+        r["group"] = group
+        r["color"] = group_color(group)
+        r["color_css"] = GROUP_COLOR_CSS.get(r["color"], "#e5e7eb")
         if row_size > 0:
             if in_row == 0 or in_row >= row_size:
                 row += 1
@@ -339,11 +390,53 @@ def build_grid(
         "conference_groups": conference_groups,
         "metric": metric,
         "sort": sort,
-        "wave_size": wave_size,
+        "gender": gender,
+        "group_size": group_size,
         "row_size": row_size,
-        "start_format": start_format if start_format in START_FORMATS else "separate",
+        "wave_format": wave_format,
         "staged_divisions": staged,
         "joins": joins,
-        "starts": starts,
+        "waves": waves,
         "rated_count": sum(1 for r in grid if r[sort_key] is not None),
     }
+
+
+# ── Whole-race sheet ─────────────────────────────────────────────────────
+
+# The order the league's row sheet lists categories in: one document per race
+# covering every wave, HS boys first.
+SHEET_CATEGORIES = [("HS", "Male"), ("HS", "Female"), ("MS", "Female"), ("MS", "Male")]
+
+
+def build_sheet(grids: list[tuple[str, str, dict]]) -> list[dict]:
+    """Flatten per-category grids into the league's row-sheet rows.
+
+    `grids` is [(age_group, gender, build_grid(...)), ...] in sheet order.
+    Returns one dict per staged rider — Plate, Name, Team, Category, Wave,
+    Group, Color, Row — skipping unrated riders (they have no group to write
+    on a dot; the marshal adds them at the back by hand).
+    """
+    out = []
+    for age_group, gender, grid in grids:
+        for r in grid["riders"]:
+            if r["group"] is None:
+                continue
+            out.append(
+                {
+                    "age_group": age_group,
+                    "gender": gender,
+                    "canonical_id": r["canonical_id"],
+                    "plate": r["plate"] or "",
+                    "name": r["name"],
+                    "team": r["team"] or "",
+                    "division": r["division"] or "",
+                    "category": f"{r['division']} - {gender}",
+                    "wave": r["wave"],
+                    "group": r["group"],
+                    "color": r["color"],
+                    "color_css": r["color_css"],
+                    "row": r["row"],
+                    "rank": r["rank"],
+                }
+            )
+    return out

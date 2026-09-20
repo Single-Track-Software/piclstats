@@ -1243,7 +1243,7 @@ def staging_rows(
                 e.id AS event_id, e.event_name, e.event_order,
                 COALESCE(ra.canonical_id, ri.id) AS canonical_id,
                 cri.name AS name, cri.team AS team,
-                r.division,
+                r.division, r.bib,
                 tc.conference, tc.conference_group,
                 CASE WHEN r.total_time IS NOT NULL
                           AND r.dq_status <> 'excluded'
@@ -1284,7 +1284,7 @@ def staging_rows(
             FROM clean
             WINDOW w AS (PARTITION BY event_id)
         )
-        SELECT canonical_id, name, team, division, conference, conference_group,
+        SELECT canonical_id, name, team, division, bib, conference, conference_group,
                event_id, event_name, event_order,
                CASE WHEN lap_std > 0 AND lap_field >= :minf
                     THEN round(((lap_secs - lap_mean) / lap_std)::numeric, 2) END AS z_lap,

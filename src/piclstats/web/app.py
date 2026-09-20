@@ -28,6 +28,7 @@ from piclstats.web import canonical, usage
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
+from piclstats.web import staging as staging_mod
 from piclstats.web.auth import (
     LoginRequired,
     client_ip,
@@ -855,11 +856,9 @@ def rider_forecast(
 
 
 def _staging_grid(
-    session, age_group, gender, season, metric, sort, division, conference, wave,
-    row=0, start_format="separate", join=None,
+    session, age_group, gender, season, metric, sort, division, conference,
+    group=staging_mod.GROUP_SIZE, row=staging_mod.ROW_SIZE, wave_format="conference", join=None,
 ):  # fmt: skip
-    from piclstats.web import staging as staging_mod
-
     rows = queries.staging_rows(session, age_group, gender, season)
     return staging_mod.build_grid(
         rows,
@@ -867,10 +866,28 @@ def _staging_grid(
         sort=sort,
         division=division or None,
         conference=conference or None,
-        wave_size=max(1, wave),
+        group_size=max(1, group),
         row_size=max(0, row),
-        start_format=start_format,
+        wave_format=wave_format,
         custom_joins=join or [],
+        gender=gender,
+    )
+
+
+def _staging_query(season, metric, sort, conference, group, row, wave_format, join, **extra):
+    """Query string shared by the grid, the sheet and their CSVs."""
+    return urlencode(
+        [(k, v) for k, v in extra.items()]
+        + [
+            ("season", season or ""),
+            ("metric", metric),
+            ("sort", sort),
+            ("conference", conference),
+            ("group", group),
+            ("row", row),
+            ("format", wave_format),
+        ]
+        + [("join", j) for j in join]
     )
 
 
@@ -884,14 +901,12 @@ def staging_page(
     sort: str = Query("best"),
     division: str = Query(""),
     conference: str = Query(""),
-    wave: int = Query(20),
-    row: int = Query(5),
-    start_format: str = Query("separate", alias="format"),
+    group: int = Query(staging_mod.GROUP_SIZE),
+    row: int = Query(staging_mod.ROW_SIZE),
+    wave_format: str = Query("conference", alias="format"),
     join: list[str] = Query([]),
     _user: dict = Depends(require_picl),
 ):
-    from piclstats.web.staging import START_FORMATS as staging_formats
-
     with get_session() as session:
         seasons = queries.seasons_list(session)
         if season is None:
@@ -899,9 +914,13 @@ def staging_page(
         grid = None
         if season is not None:
             grid = _staging_grid(
-                session, age_group, gender, season, metric, sort, division, conference, wave,
-                row, start_format, join,
+                session, age_group, gender, season, metric, sort, division, conference,
+                group, row, wave_format, join,
             )  # fmt: skip
+    query = _staging_query(
+        season, metric, sort, conference, group, row, wave_format, join,
+        age_group=age_group, gender=gender, division=division,
+    )  # fmt: skip
     return templates.TemplateResponse(
         "staging.html",
         _ctx(
@@ -915,26 +934,119 @@ def staging_page(
             sort=sort,
             division=division,
             conference=conference,
-            wave=wave,
+            group=group,
             row=row,
-            start_format=grid["start_format"] if grid else start_format,
-            start_formats=staging_formats,
-            csv_query=urlencode(
-                [
-                    ("age_group", age_group),
-                    ("gender", gender),
-                    ("season", season or ""),
-                    ("metric", metric),
-                    ("sort", sort),
-                    ("division", division),
-                    ("conference", conference),
-                    ("wave", wave),
-                    ("row", row),
-                    ("format", start_format),
-                ]
-                + [("join", j) for j in join]
-            ),  # fmt: skip
+            wave_format=grid["wave_format"] if grid else wave_format,
+            wave_formats=staging_mod.WAVE_FORMATS,
+            csv_query=query,
+            sheet_query=_staging_query(
+                season, metric, sort, conference, group, row, wave_format, join
+            ),
         ),
+    )
+
+
+def _staging_sheet(session, season, metric, sort, conference, group, row, wave_format, join):
+    """Every category of one race in the league's row-sheet order."""
+    grids = [
+        (
+            age_group,
+            gender,
+            _staging_grid(
+                session,
+                age_group,
+                gender,
+                season,
+                metric,
+                sort,
+                "",
+                conference,
+                group,
+                row,
+                wave_format,
+                join,
+            ),  # fmt: skip
+        )
+        for age_group, gender in staging_mod.SHEET_CATEGORIES
+    ]
+    return staging_mod.build_sheet(grids)
+
+
+@app.get("/staging/sheet", response_class=HTMLResponse)
+def staging_sheet_page(
+    request: Request,
+    season: int | None = Depends(optional_season),
+    metric: str = Query("lap"),
+    sort: str = Query("best"),
+    conference: str = Query(""),
+    group: int = Query(staging_mod.GROUP_SIZE),
+    row: int = Query(staging_mod.ROW_SIZE),
+    wave_format: str = Query("conference", alias="format"),
+    join: list[str] = Query([]),
+    _user: dict = Depends(require_picl),
+):
+    with get_session() as session:
+        seasons = queries.seasons_list(session)
+        if season is None:
+            season = seasons[-1] if seasons else None
+        sheet = (
+            _staging_sheet(session, season, metric, sort, conference, group, row, wave_format, join)
+            if season is not None
+            else []
+        )
+    query = _staging_query(season, metric, sort, conference, group, row, wave_format, join)
+    return templates.TemplateResponse(
+        "staging_sheet.html",
+        _ctx(
+            request,
+            sheet=sheet,
+            season=season,
+            metric=metric,
+            conference=conference,
+            group=group,
+            row=row,
+            wave_format=wave_format,
+            wave_formats=staging_mod.WAVE_FORMATS,
+            csv_query=query,
+            grid_query=query,
+        ),
+    )
+
+
+@app.get("/staging/sheet.csv")
+def staging_sheet_csv(
+    season: int | None = Depends(optional_season),
+    metric: str = Query("lap"),
+    sort: str = Query("best"),
+    conference: str = Query(""),
+    group: int = Query(staging_mod.GROUP_SIZE),
+    row: int = Query(staging_mod.ROW_SIZE),
+    wave_format: str = Query("conference", alias="format"),
+    join: list[str] = Query([]),
+    _user: dict = Depends(require_picl_api),
+):
+    with get_session() as session:
+        seasons = queries.seasons_list(session)
+        if season is None:
+            season = seasons[-1] if seasons else None
+        if season is None:
+            return Response("No data", media_type="text/plain")
+        sheet = _staging_sheet(
+            session, season, metric, sort, conference, group, row, wave_format, join
+        )
+
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Plate", "Name", "Team", "Category", "Wave", "Group", "Color", "Row"])
+    for r in sheet:
+        w.writerow(
+            [r["plate"], r["name"], r["team"], r["category"], r["wave"], r["group"], r["color"], r["row"] or ""]
+        )  # fmt: skip
+    fname = f"staging_sheet_{season}{'_' + conference.replace(' ', '_') if conference else ''}.csv"
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
 
 
@@ -964,9 +1076,9 @@ def staging_csv(
     sort: str = Query("best"),
     division: str = Query(""),
     conference: str = Query(""),
-    wave: int = Query(20),
-    row: int = Query(5),
-    start_format: str = Query("separate", alias="format"),
+    group: int = Query(staging_mod.GROUP_SIZE),
+    row: int = Query(staging_mod.ROW_SIZE),
+    wave_format: str = Query("conference", alias="format"),
     join: list[str] = Query([]),
     _user: dict = Depends(require_picl_api),
 ):
@@ -977,15 +1089,15 @@ def staging_csv(
         if season is None:
             return Response("No data", media_type="text/plain")
         grid = _staging_grid(
-            session, age_group, gender, season, metric, sort, division, conference, wave,
-            row, start_format, join,
+            session, age_group, gender, season, metric, sort, division, conference,
+            group, row, wave_format, join,
         )  # fmt: skip
 
     buf = io.StringIO()
     w = csv.writer(buf)
     events = grid["events"]
     w.writerow(
-        ["Division", "Start", "Wave", "Row", "Rank", "Name", "Team", "Conference"]
+        ["Division", "Wave", "Group", "Color", "Row", "Rank", "Plate", "Name", "Team", "Conference"]
         + ["Best z", "Avg z", "Races"]
         + [e["event_name"] for e in events]
     )
@@ -997,10 +1109,12 @@ def staging_csv(
         w.writerow(
             [
                 r["division"] or "",
-                r["start"],
-                r["wave"] or "",
+                r["wave"],
+                r["group"] or "",
+                r["color"] or "",
                 r["row"] or "",
                 r["rank"],
+                r["plate"] or "",
                 r["name"],
                 r["team"] or "",
                 r["conference"] or "",
