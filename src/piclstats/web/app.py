@@ -374,8 +374,19 @@ def _rider_form(session, races: list[dict], canonical_id: int) -> list[dict]:
     return form
 
 
+@app.get("/api/riders")
+def rider_lookup(q: str = Query("", max_length=80)):
+    """Name lookup for the rider page's compare box: up to 10 {id, name, team}."""
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    with get_session() as session:
+        rows = queries.search_riders(session, q)[:10]
+    return [{"id": r["id"], "name": r["name"], "team": r["team"]} for r in rows]
+
+
 @app.get("/rider/{rider_id}", response_class=HTMLResponse)
-def rider_profile(request: Request, rider_id: int):
+def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
     with get_session() as session:
         data = queries.rider_detail(session, rider_id)
         if not data:
@@ -385,9 +396,32 @@ def rider_profile(request: Request, rider_id: int):
         except Exception:
             logger.exception("rider form failed for rider %s", rider_id)
             form = []
+
+        # Overlay another rider's form on the chart (?compare=<rider id>).
+        other = None
+        if compare.strip().isdigit() and int(compare) != data["info"]["id"]:
+            other_data = queries.rider_detail(session, int(compare))
+            if other_data and other_data["info"]["id"] != data["info"]["id"]:
+                try:
+                    other_form = _rider_form(session, other_data["races"], other_data["info"]["id"])
+                except Exception:
+                    logger.exception("rider form failed for rider %s", compare)
+                    other_form = []
+                other = {
+                    "id": other_data["info"]["id"],
+                    "name": other_data["info"]["name"],
+                    "team": (other_data["team_history"] or [{}])[-1].get("team"),
+                    "form": other_form,
+                }
     return templates.TemplateResponse(
         "rider_detail.html",
-        _ctx(request, **data, form=form, form_by_event={f["event_id"]: f for f in form}),
+        _ctx(
+            request,
+            **data,
+            form=form,
+            form_by_event={f["event_id"]: f for f in form},
+            compare=other,
+        ),
     )
 
 
