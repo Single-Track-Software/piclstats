@@ -859,7 +859,7 @@ def _staging_grid(
     session, age_group, gender, season, metric, sort, division, conference,
     group=staging_mod.GROUP_SIZE, row=staging_mod.ROW_SIZE, wave_format="conference", join=None,
 ):  # fmt: skip
-    rows = queries.staging_rows(session, age_group, gender, season)
+    rows = queries.staging_basis_rows(session, age_group, gender, season)
     return staging_mod.build_grid(
         rows,
         metric=metric,
@@ -871,6 +871,7 @@ def _staging_grid(
         wave_format=wave_format,
         custom_joins=join or [],
         gender=gender,
+        season=season,
     )
 
 
@@ -1098,7 +1099,7 @@ def staging_csv(
     events = grid["events"]
     w.writerow(
         ["Division", "Wave", "Group", "Color", "Row", "Rank", "Plate", "Name", "Team", "Conference"]
-        + ["Best z", "Avg z", "Races"]
+        + ["Basis", "Staged z", "Best z", "Avg z", "Races", "Prior avg z", "Prior races"]
         + [e["event_name"] for e in events]
     )
     for r in grid["riders"]:
@@ -1118,9 +1119,13 @@ def staging_csv(
                 r["name"],
                 r["team"] or "",
                 r["conference"] or "",
+                r["basis"] or "",
+                "" if r["staged_z"] is None else r["staged_z"],
                 "" if r["best_z"] is None else r["best_z"],
                 "" if r["avg_z"] is None else r["avg_z"],
                 r["n_events"],
+                "" if r["prior_avg_z"] is None else r["prior_avg_z"],
+                r["prior_n_events"],
             ]
             + per
         )

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 
 from piclstats.web.staging import (
+    PROMOTE_DIVISION,
     SHEET_CATEGORIES,
     build_grid,
     build_sheet,
@@ -351,3 +352,76 @@ def test_sheet_lists_categories_in_league_order_and_skips_unrated():
     assert {"plate", "name", "team", "category", "wave", "group", "color", "row"} <= set(sheet[0])
     assert sheet[0]["color"] == "Red" and sheet[1]["group"] == 2  # JV1 rides with Varsity
     assert SHEET_CATEGORIES == [("HS", "Male"), ("HS", "Female"), ("MS", "Female"), ("MS", "Male")]
+
+
+# ── Basis: this season first, last season as the fallback ────────────────
+
+
+def _season_rows(cid, name, division, season, per_event, bib=None):
+    rows = _grow(cid, name, division, per_event)
+    for r in rows:
+        r["season"] = season
+        r["bib"] = bib
+    return rows
+
+
+def _basis_field():
+    rows = []
+    rows += _season_rows(1, "Raced Fast", "JV3", 2026, {26: -0.5}, bib="3501")
+    rows += _season_rows(1, "Raced Fast", "JV3", 2025, {11: 1.5}, bib="3401")  # slow last year
+    rows += _season_rows(2, "Raced Slow", "JV3", 2026, {26: 2.0})
+    rows += _season_rows(3, "Last Year Only", "JV3", 2025, {10: -1.0, 11: -0.6})
+    rows += _season_rows(4, "Moved Up", "8th Grade", 2025, {10: 0.2, 11: 0.4})  # 8th grader → JV3
+    rows += _season_rows(5, "No Time", "JV3", 2026, {26: None})
+    return rows
+
+
+def test_riders_with_a_race_this_season_rank_ahead_of_last_seasons():
+    grid = build_grid(_basis_field(), metric="lap", season=2026)
+    names = [r["name"] for r in grid["riders"]]
+    # Raced Slow (z +2.0 this season) still beats Last Year Only (-0.8 last season).
+    assert names == ["Raced Fast", "Raced Slow", "Last Year Only", "Moved Up", "No Time"]
+    by = {r["name"]: r for r in grid["riders"]}
+    assert by["Raced Fast"]["basis"] == "current" and by["Raced Fast"]["staged_z"] == -0.5
+    assert by["Last Year Only"]["basis"] == "prior" and by["Last Year Only"]["staged_z"] == -0.8
+    assert by["No Time"]["basis"] is None and by["No Time"]["group"] is None
+    assert grid["rated_count"] == 2 and grid["prior_count"] == 2
+
+
+def test_prior_season_uses_the_average_not_the_best():
+    rows = _season_rows(1, "Spiky", "JV3", 2025, {10: -3.0, 11: 1.0})  # best -3, avg -1
+    rows += _season_rows(2, "Steady", "JV3", 2025, {10: -1.4, 11: -1.4})
+    grid = build_grid(rows, sort="best", season=2026)
+    assert [r["name"] for r in grid["riders"]] == ["Steady", "Spiky"]
+
+
+def test_prior_season_rows_do_not_get_event_columns_or_this_seasons_aggregates():
+    grid = build_grid(_basis_field(), metric="lap", season=2026)
+    assert [e["event_id"] for e in grid["events"]] == [26]
+    by = {r["name"]: r for r in grid["riders"]}
+    assert by["Raced Fast"]["best_z"] == -0.5  # last season's +1.5 is not in it
+    assert by["Raced Fast"]["prior_avg_z"] == 1.5 and by["Raced Fast"]["prior_n_events"] == 1
+    assert by["Last Year Only"]["best_z"] is None and by["Last Year Only"]["n_events"] == 0
+
+
+def test_last_seasons_8th_graders_are_staged_in_jv3_and_flagged():
+    by = {r["name"]: r for r in build_grid(_basis_field(), season=2026)["riders"]}
+    assert by["Moved Up"]["division"] == "JV3" and by["Moved Up"]["division_assumed"] is True
+    assert by["Raced Fast"]["division_assumed"] is False
+    # Any grade moves up a year; skill tiers stay.
+    assert PROMOTE_DIVISION["6th Grade"] == "7th Grade" and "JV2" not in PROMOTE_DIVISION
+
+
+def test_a_race_this_season_overrides_last_seasons_division_and_plate():
+    rows = _season_rows(1, "Kid", "8th Grade", 2025, {11: 0.0}, bib="5501")
+    rows += _season_rows(1, "Kid", "JV2", 2026, {26: 0.0}, bib="2501")
+    r = build_grid(rows, season=2026)["riders"][0]
+    assert r["division"] == "JV2" and r["plate"] == "2501" and r["division_assumed"] is False
+    prior_only = build_grid(rows[:1], season=2026)["riders"][0]
+    assert prior_only["plate"] is None  # last season's number is not this season's
+
+
+def test_without_a_season_every_row_is_current():
+    grid = build_grid(_basis_field(), metric="lap")
+    assert all(r["basis"] in ("current", None) for r in grid["riders"])
+    assert len(grid["events"]) == 3  # events 10, 11, 26 all get columns
