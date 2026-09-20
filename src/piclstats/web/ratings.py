@@ -388,3 +388,65 @@ def build_future_matrix(
 
     seen.sort(key=lambda d: (order.get(d, 10**6), d))
     return {"divisions": seen, "rows": rows, "rating": me["rating"]}
+
+
+# ── Rider form (the rider page's trend line) ────────────────────────────
+
+
+def rider_form(rider_id: int, rows: list[dict], config: dict | None = None) -> list[dict]:
+    """One rider's races as scores, with the rolling rating and a league-wide place.
+
+    `rows` = `queries.rating_rows()` for the rider's gender and loop (every
+    rider, every season). Percentile and %-behind-winner move with whoever
+    turned up; the score doesn't, so this is the trend to chart. Each race
+    also gets a *league place*: that day's score ranked against the season's
+    ratings of everyone who raced the division that season — "if the whole
+    league had been there". Oldest first.
+    """
+    scores = race_scores(rows, config)
+    mine = scores.get(rider_id)
+    if not mine:
+        return []
+
+    by_event: dict[int, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_event[r["event_id"]].append(r)
+    draws: dict[int, str | None] = {}
+    for event_id, members in by_event.items():
+        conferences = {_squash(m["conference"]) for m in members if m.get("conference")}
+        if len(conferences) == 1:
+            draws[event_id] = next(iter(conferences))
+        elif conferences:
+            draws[event_id] = None  # several conferences turned up: a state race
+        else:  # 2024 results carry no conference; the name says what it was
+            name = (members[0].get("event_name") or "").lower()
+            draws[event_id] = "Conference" if "conf" in name else None
+
+    rosters: dict[int, dict[str, list[float]]] = {}
+    for season in {s.season for s in mine}:
+        season_rows = [r for r in rows if r["season"] == season]
+        roster = build_roster(season_rows, scores, season, None, config)
+        rosters[season] = defaultdict(list)
+        for entry in roster:
+            if entry["rider_id"] != rider_id:
+                rosters[season][entry["division"]].append(entry["rating"].mean)
+
+    out = []
+    for i, score in enumerate(mine):
+        rating = rate(mine[: i + 1], score.season, config)
+        field = rosters[score.season].get(score.division, [])
+        out.append(
+            {
+                "event_id": score.event_id,
+                "season": score.season,
+                "event_order": score.event_order,
+                "division": score.division,
+                "draw": draws.get(score.event_id),  # conference name; None = state race
+                "score_pct": round(score.x * 100, 1),  # negative = faster than typical
+                "rating_pct": round(rating.mean * 100, 1) if rating else None,
+                "day_field": sum(1 for r in by_event[score.event_id] if r.get("lap_secs")),
+                "league_place": 1 + sum(1 for m in field if m < score.x),
+                "league_field": len(field) + 1,
+            }
+        )
+    return out

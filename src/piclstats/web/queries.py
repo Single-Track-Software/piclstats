@@ -1411,7 +1411,7 @@ def rating_rows(
     rows = session.execute(
         text(f"""
         SELECT
-            e.id AS event_id, e.season, e.event_order,
+            e.id AS event_id, e.season, e.event_order, e.event_name,
             COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
             r.division, r.gender, r.place, r.conference, r.category_order,
             ri.team,
