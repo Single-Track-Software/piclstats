@@ -6,7 +6,7 @@
     <h1 class="text-3xl font-bold text-gray-900">Staging</h1>
     <p class="mt-1 text-sm text-gray-500">
         Rank a category by speed (z-score vs the field) to set start order — division by division, fastest at the front, cut into groups of 28 (four rows of 7) with a colour per group, the way the league's row sheets do it.
-        Staging is predictive: to seed a season opener, rank from <strong>last</strong> season; mid-season, rank from this season to date.
+        Riders with a race this season rank on it; riders without one yet follow on <strong>last season's average</strong> (last year's 8th graders appear in JV3); riders with neither go to the back unrated.
     </p>
 </div>
 
@@ -28,7 +28,7 @@
             </select>
         </div>
         <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1">Rank From Season</label>
+            <label class="block text-xs font-medium text-gray-500 mb-1" title="Ranks on this season's races so far; riders without one yet rank on last season's average">Season</label>
             <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
                 {% for s in seasons %}
                 <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
@@ -114,7 +114,7 @@
 {% if grid and grid.riders %}
 <div class="flex items-center justify-between mb-3">
     <p class="text-sm text-gray-500">
-        {{ grid.rated_count }} rated rider{{ 's' if grid.rated_count != 1 }}
+        {{ grid.rated_count }} rider{{ 's' if grid.rated_count != 1 }} raced this season{% if grid.prior_count %} + {{ grid.prior_count }} on last season{% endif %}
         {% if division %}in {{ division }}{% else %}in {{ age_group }} {{ 'Boys' if gender == 'Male' else 'Girls' }}{% endif %}
         · {{ grid.waves|length }} wave{{ 's' if grid.waves|length != 1 }}
         · groups of {{ grid.group_size }}{% if grid.row_size %} · rows of {{ grid.row_size }}{% endif %}
@@ -150,10 +150,11 @@
                     <th class="px-3 py-3 text-right bg-picl-50">Best z</th>
                     <th class="px-3 py-3 text-right bg-picl-50">Avg z</th>
                     <th class="px-3 py-3 text-right">Races</th>
+                    <th class="px-3 py-3 text-right" title="Average z last season — the rank basis for riders with no race yet">Last yr</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                {% set cols = grid.events|length + (10 if grid.row_size else 9) %}
+                {% set cols = grid.events|length + (11 if grid.row_size else 10) %}
                 {% set ns = namespace(group=0, division=none, row=0) %}
                 {% for r in grid.riders %}
                 {% if r.division != ns.division %}
@@ -182,7 +183,7 @@
                 {% endif %}
                 {% set new_row = r.row and r.row != ns.row %}
                 {% if r.row %}{% set ns.row = r.row %}{% endif %}
-                <tr class="hover:bg-picl-50 {% if r.best_z is none %}text-gray-400{% endif %} {% if new_row and r.row > 1 %}border-t-2 border-gray-300{% endif %}">
+                <tr class="hover:bg-picl-50 {% if r.basis is none %}text-gray-400{% elif r.basis == 'prior' %}text-gray-600{% endif %} {% if new_row and r.row > 1 %}border-t-2 border-gray-300{% endif %}">
                     <td class="px-3 py-2 font-mono text-gray-400">{{ r.rank }}</td>
                     {% if grid.row_size %}<td class="px-3 py-2 font-mono text-gray-600">{{ r.row or '' }}</td>{% endif %}
                     <td class="px-3 py-2 font-mono text-gray-600">{{ r.plate or '' }}</td>
@@ -191,7 +192,7 @@
                     </td>
                     <td class="px-3 py-2 text-gray-500 text-xs">{{ r.team or '' }}</td>
                     <td class="px-3 py-2 text-gray-600 text-xs">{{ r.conference or '—' }}</td>
-                    <td class="px-3 py-2 text-gray-600 text-xs">{{ r.division or '—' }}</td>
+                    <td class="px-3 py-2 text-gray-600 text-xs">{{ r.division or '—' }}{% if r.division_assumed %} <span class="text-amber-600" title="Guessed from last season's division — no race or registration yet">?</span>{% endif %}</td>
                     {% for e in grid.events %}
                     {% set z = r.per_event.get(e.event_id) %}
                     <td class="px-2 py-2 text-right font-mono text-xs {% if z is not none and z < 0 %}text-green-600{% elif z is not none and z > 0 %}text-red-500{% else %}text-gray-300{% endif %}">
@@ -207,6 +208,9 @@
                         {% if r.avg_z is not none %}{{ '%+.2f'|format(r.avg_z) }}{% else %}—{% endif %}
                     </td>
                     <td class="px-3 py-2 text-right text-gray-400 text-xs">{{ r.n_events }}</td>
+                    <td class="px-3 py-2 text-right font-mono text-xs {% if r.basis == 'prior' %}font-semibold text-gray-700{% else %}text-gray-400{% endif %}">
+                        {% if r.prior_avg_z is not none %}{{ '%+.2f'|format(r.prior_avg_z) }}{% else %}—{% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -214,7 +218,8 @@
     </div>
     <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
         Negative z = faster than the field. A blank (·) means that race's field was too small for a reliable z.
-        Riders with no rating go to the back of their division with no group or row. Plate is the rider's number from their latest race this season. Click a name for their full speed-rating + division forecast.
+        Riders ranked on last season are greyed and show their basis under <em>Last yr</em>; a <span class="text-amber-600">?</span> after the division means it is guessed (last year's grade moved up, 8th graders to JV3) until they race or register.
+        Riders with no rating go to the back of their division with no group or row. A DNF still counts on the laps it completed. Plate is the rider's number from their latest race this season. Click a name for their full speed-rating + division forecast.
     </p>
 </div>
 {% elif grid %}

@@ -42,12 +42,12 @@
                 <td colspan="8" class="px-3 py-1.5 text-xs font-bold uppercase tracking-wider">{{ r.category }} <span class="font-normal normal-case tracking-normal opacity-80">· wave {{ r.wave }}</span></td>
             </tr>
             {% endif %}
-            <tr class="{% if r.group != ns.group %}border-t-2 border-gray-300{% endif %}">
+            <tr class="{% if r.group != ns.group %}border-t-2 border-gray-300{% endif %} {% if r.basis == 'prior' %}text-gray-600{% endif %}">
                 {% set ns.group = r.group %}
                 <td class="px-3 py-1 font-mono">{{ r.plate }}</td>
                 <td class="px-3 py-1"><a href="/rider/{{ r.canonical_id }}" class="text-picl-700 hover:underline print:text-gray-900">{{ r.name }}</a></td>
                 <td class="px-3 py-1 text-gray-600 text-xs">{{ r.team }}</td>
-                <td class="px-3 py-1 text-gray-600 text-xs">{{ r.category }}</td>
+                <td class="px-3 py-1 text-gray-600 text-xs">{{ r.category }}{% if r.division_assumed %} <span class="text-amber-600" title="Guessed from last season — no race or registration yet">?</span>{% endif %}</td>
                 <td class="px-3 py-1 font-mono text-right text-gray-500">{{ r.wave }}</td>
                 <td class="px-3 py-1 font-mono text-right">{{ r.group }}</td>
                 <td class="px-3 py-1">
@@ -59,7 +59,7 @@
         </tbody>
     </table>
     <p class="px-4 py-3 text-[11px] text-gray-400 border-t print:hidden">
-        {{ sheet|length }} riders. Only rated riders are listed — a rider with no timed race in the ranking season has no group yet and is added at the back of their division by hand.
+        {{ sheet|length }} riders. Riders with a race this season come first; greyed riders are staged on last season's average and a <span class="text-amber-600">?</span> marks a guessed division. Riders with no race either season have no group yet and are added at the back of their division by hand.
         Group colours: Red, Yellow, Green, Blue, Orange, Neon Pink, Purple, White; the coach writes the row number on the dot.
     </p>
 </div>

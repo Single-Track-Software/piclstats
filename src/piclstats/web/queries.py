@@ -1235,28 +1235,26 @@ def staging_rows(
     """Per-(rider, event) z-scores for a whole category (age_group + gender) in
     one season — the basis for the staging grid. Field = every rider in that
     event + category; partition is per event since the category is fixed.
+
+    A DNF with at least one recorded lap is rated on those laps, the way the
+    league's own sheets do it (a kid who pulled out after a lap still has a
+    lap time); a finisher needs the usual split-consistency gate.
     """
     rows = session.execute(
         text(f"""
         WITH base AS (
             SELECT
-                e.id AS event_id, e.event_name, e.event_order,
+                e.id AS event_id, e.event_name, e.event_order, e.season,
                 COALESCE(ra.canonical_id, ri.id) AS canonical_id,
                 cri.name AS name, cri.team AS team,
-                r.division, r.bib,
+                r.division, r.bib, r.status,
                 tc.conference, tc.conference_group,
-                CASE WHEN r.total_time IS NOT NULL
-                          AND r.dq_status <> 'excluded'
-                          AND {_LAPS_CONSISTENT}
-                     THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
+                CASE WHEN r.status = 'OK' AND r.total_time IS NOT NULL AND {_LAPS_CONSISTENT}
+                         THEN {_RIDE_SECS} / NULLIF({_ACTUAL_LAPS}, 0)
+                     WHEN r.status = 'DNF' AND {_ACTUAL_LAPS} > 0
+                         THEN EXTRACT(EPOCH FROM {_SUM_LAPS}) / {_ACTUAL_LAPS}
                 END AS lap_secs,
-                CASE WHEN r.total_time IS NOT NULL
-                          AND r.dq_status <> 'excluded'
-                          AND cl.distance_miles > 0
-                          AND {_LAPS_CONSISTENT}
-                     THEN ({_RIDE_SECS} / 60.0)
-                          / ({_ACTUAL_LAPS} * cl.distance_miles)
-                END AS min_per_mile
+                cl.distance_miles
             FROM results r
             JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
                 AND e.season = :season
@@ -1265,13 +1263,20 @@ def staging_rows(
             JOIN riders cri ON cri.id = COALESCE(ra.canonical_id, ri.id)
             LEFT JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
             {_LAP_JOINS_AGE_GROUP}
-            WHERE r.status = 'OK' AND r.place IS NOT NULL AND r.dq_status <> 'excluded' AND r.gender = :gender
+            WHERE r.dq_status <> 'excluded' AND r.gender = :gender
+              AND ((r.status = 'OK' AND r.place IS NOT NULL) OR r.status = 'DNF')
         ),
         clean AS (
             SELECT *,
+                CASE WHEN distance_miles > 0 THEN (lap_secs / 60.0) / distance_miles END
+                    AS min_per_mile
+            FROM base
+        ),
+        ranged AS (
+            SELECT *,
                 CASE WHEN min_per_mile BETWEEN {_PACE_MIN} AND {_PACE_MAX}
                      THEN min_per_mile END AS pace_ok
-            FROM base
+            FROM clean
         ),
         z AS (
             SELECT *,
@@ -1281,11 +1286,11 @@ def staging_rows(
                 avg(pace_ok) OVER w AS pace_mean,
                 stddev_samp(pace_ok) OVER w AS pace_std,
                 count(pace_ok) OVER w AS pace_field
-            FROM clean
+            FROM ranged
             WINDOW w AS (PARTITION BY event_id)
         )
-        SELECT canonical_id, name, team, division, bib, conference, conference_group,
-               event_id, event_name, event_order,
+        SELECT canonical_id, name, team, division, bib, status, conference, conference_group,
+               event_id, event_name, event_order, season,
                CASE WHEN lap_std > 0 AND lap_field >= :minf
                     THEN round(((lap_secs - lap_mean) / lap_std)::numeric, 2) END AS z_lap,
                CASE WHEN pace_std > 0 AND pace_field >= :minf
@@ -1297,6 +1302,27 @@ def staging_rows(
     ).all()
 
     return [_serialize(r._mapping) for r in rows]
+
+
+def staging_basis_rows(
+    session: Session, age_group: str, gender: str, season: int, min_field: int = 8
+) -> list[dict]:
+    """Rows for staging `season`: this season's races plus last season's as the
+    fallback for riders who have not raced yet. For a high-school category
+    that fallback also carries last season's 8th graders, who are in high
+    school now — the league stages them on their middle-school z until they
+    have a race (their division is a guess until registration says).
+    """
+    rows = staging_rows(session, age_group, gender, season, min_field)
+    prior = season - 1
+    rows += staging_rows(session, age_group, gender, prior, min_field)
+    if age_group == "HS":
+        rows += [
+            r
+            for r in staging_rows(session, "MS", gender, prior, min_field)
+            if r["division"] == "8th Grade"
+        ]
+    return rows
 
 
 def division_pace_distribution(

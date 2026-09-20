@@ -194,6 +194,17 @@ WAVE_FORMATS: dict[str, str] = {
 _HS_BOYS_CONFERENCE = {"JV1", "JV3"}
 _MS_BOYS_STATE = {"8th Grade"}
 
+# Where a rider staged on last season's data probably races this season, until
+# they have a result (or a registration) that says. Grade divisions move up a
+# year; an 8th grader is in high school now and most start in JV3. Skill-tier
+# divisions and MS Advanced stay put — no better guess without registration.
+PROMOTE_DIVISION = {
+    "5th Grade": "6th Grade",
+    "6th Grade": "7th Grade",
+    "7th Grade": "8th Grade",
+    "8th Grade": "JV3",
+}
+
 
 def division_sort_key(division: str | None) -> tuple[int, str]:
     name = division or ""
@@ -241,10 +252,19 @@ def build_grid(
     wave_format: str = "conference",
     custom_joins: list[str] | None = None,
     gender: str | None = None,
+    season: int | None = None,
 ) -> dict:
     """Build the staging grid from per-(rider, event) z-score rows.
 
     Pivots into one row per kid with a z column per race, plus Best-z and Avg-z.
+    With `season`, rows from that season are the current basis and older rows
+    are last season's fallback: a rider with a race this season ranks on it
+    (ahead of everyone without one); a rider with only last season's races
+    ranks on their prior-season *average* z behind them, in the division they
+    have probably moved up to (PROMOTE_DIVISION, flagged `division_assumed`);
+    a rider with neither is unrated. That is the order on the league's own
+    sheets. Without `season` every row is current.
+
     Ranks the category (most negative = fastest first); a division and/or
     conference filter narrows to a specific race's field. A conference filter
     value matches either the specific conference (e.g. 'Eastern Blue') or its
@@ -274,6 +294,7 @@ def build_grid(
                 "event_id": eid,
                 "event_order": r.get("event_order") or 0,
                 "event_name": r["event_name"],
+                "season": r.get("season") or 0,
             }
         cid = r["canonical_id"]
         rd = riders.setdefault(
@@ -286,24 +307,38 @@ def build_grid(
                 "conference": None,
                 "conference_group": None,
                 "plate": None,
-                "_last": -1,
+                "_last": (-1, -1),
+                "_current": False,
                 "per_event": {},
                 "_zs": [],
+                "_prior_zs": [],
             },
         )
         z = r.get(zkey)
         z = float(z) if z is not None else None
-        rd["per_event"][eid] = z
-        if z is not None:
-            rd["_zs"].append(z)
-        order = r.get("event_order") or 0
-        if order >= rd["_last"]:
-            rd["_last"] = order
+        row_season = r.get("season") or 0
+        is_current = season is None or row_season == season
+        if is_current:
+            rd["per_event"][eid] = z
+            if z is not None:
+                rd["_zs"].append(z)
+        elif z is not None:
+            rd["_prior_zs"].append(z)
+        # Latest race wins for division/team/conference; a current-season race
+        # always beats a prior one, and only a current-season plate is theirs.
+        when = (1 if is_current else 0, r.get("event_order") or 0)
+        if when >= rd["_last"]:
+            rd["_last"] = when
             rd["division"] = r.get("division")
             rd["conference"] = r.get("conference")
             rd["conference_group"] = r.get("conference_group")
-            rd["plate"] = r.get("bib") or rd["plate"]
+            rd["_current"] = is_current
+            if is_current:
+                rd["plate"] = r.get("bib") or rd["plate"]
 
+    # Only current-season races get a column; prior seasons roll up into one.
+    if season is not None:
+        events = {eid: e for eid, e in events.items() if e["season"] == season}
     event_list = sorted(events.values(), key=lambda e: e["event_order"])
     divisions = sorted(
         {r["division"] for r in riders.values() if r["division"]}, key=division_sort_key
@@ -322,10 +357,27 @@ def build_grid(
     grid = []
     for rd in riders.values():
         zs = rd.pop("_zs")
+        prior = rd.pop("_prior_zs")
         rd.pop("_last")
+        current = rd.pop("_current")
         rd["best_z"] = round(min(zs), 2) if zs else None
         rd["avg_z"] = round(sum(zs) / len(zs), 2) if zs else None
         rd["n_events"] = len(zs)
+        rd["prior_avg_z"] = round(sum(prior) / len(prior), 2) if prior else None
+        rd["prior_n_events"] = len(prior)
+        rd["division_assumed"] = False
+        if not current and rd["division"]:
+            promoted = PROMOTE_DIVISION.get(rd["division"])
+            if promoted:
+                rd["division"] = promoted
+                rd["division_assumed"] = True
+        # basis: what this rider is ranked on
+        if zs:
+            rd["basis"] = "current"
+        elif prior:
+            rd["basis"] = "prior"
+        else:
+            rd["basis"] = None
         grid.append(rd)
 
     if division:
@@ -333,12 +385,22 @@ def build_grid(
     if conference:
         grid = [r for r in grid if conference in (r["conference"], r["conference_group"])]
 
-    # Division first; then most negative (fastest) first, unrated riders last.
+    def rating(r: dict) -> float | None:
+        """The z this rider is staged on: this season's aggregate, else last season's average."""
+        if r["basis"] == "current":
+            return r[sort_key]
+        if r["basis"] == "prior":
+            return r["prior_avg_z"]
+        return None
+
+    # Division first; then everyone with a race this season fastest first, then
+    # last season's riders fastest first, then unrated riders.
+    tier = {"current": 0, "prior": 1, None: 2}
     grid.sort(
         key=lambda r: (
             division_sort_key(r["division"]),
-            r[sort_key] is None,
-            r[sort_key] if r[sort_key] is not None else 0.0,
+            tier[r["basis"]],
+            rating(r) if rating(r) is not None else 0.0,
         )
     )
 
@@ -362,7 +424,8 @@ def build_grid(
         in_division += 1
         r["rank"] = in_division
         r["wave"] = wave_no
-        if r[sort_key] is None:
+        r["staged_z"] = rating(r)
+        if r["staged_z"] is None:
             r["group"] = r["color"] = r["color_css"] = r["row"] = None
             continue
         if in_group == 0 or in_group >= group_size:
@@ -397,7 +460,9 @@ def build_grid(
         "staged_divisions": staged,
         "joins": joins,
         "waves": waves,
-        "rated_count": sum(1 for r in grid if r[sort_key] is not None),
+        "season": season,
+        "rated_count": sum(1 for r in grid if r["basis"] == "current"),
+        "prior_count": sum(1 for r in grid if r["basis"] == "prior"),
     }
 
 
@@ -437,6 +502,8 @@ def build_sheet(grids: list[tuple[str, str, dict]]) -> list[dict]:
                     "color_css": r["color_css"],
                     "row": r["row"],
                     "rank": r["rank"],
+                    "basis": r["basis"],
+                    "division_assumed": r["division_assumed"],
                 }
             )
     return out
