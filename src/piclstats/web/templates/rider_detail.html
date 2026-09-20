@@ -305,6 +305,7 @@ new Chart(document.getElementById('formChart'), {
     data: {labels: axis, datasets},
     options: {
         responsive: true,
+        aspectRatio: 2.7,  // a quarter shorter than Chart.js's 2:1 default
         plugins: {legend: {display: false}, tooltip: {callbacks: {
             title: (items) => { const f = pointAt(items[0].dataset, items[0].dataIndex); return `${f.season} #${f.event_order} · ${f.division} · ${f.draw || 'State race'} · ${f.loop_type} loop`; },
             label: (ctx) => { const f = pointAt(ctx.dataset, ctx.dataIndex); const who = ctx.dataset._points === other ? otherName : {{ info.name | tojson }};
@@ -319,25 +320,43 @@ new Chart(document.getElementById('formChart'), {
 });
 
 // Compare box: look names up as you type; the hidden field carries the id.
+// Picking a datalist entry fires another input event with "Name — Team", so
+// an exact match against what we've already found must win over a re-query.
 (() => {
     const input = document.getElementById('compareInput'), list = document.getElementById('riderOptions'),
           hidden = document.getElementById('compareId'), formEl = document.getElementById('compareForm');
     let found = [], timer = null;
+    const labelOf = r => `${r.name} — ${r.team || ''}`;
+    const matchFor = (value) => {
+        const v = value.trim().toLowerCase();
+        return found.find(r => labelOf(r).toLowerCase() === v)
+            || found.find(r => r.name.toLowerCase() === v)
+            || (found.length === 1 ? found[0] : null);
+    };
     input.addEventListener('input', () => {
+        const picked = found.find(r => labelOf(r) === input.value);
+        if (picked) { hidden.value = picked.id; return; }
         hidden.value = '';
         clearTimeout(timer);
-        const q = input.value.trim();
+        const q = input.value.split(' — ')[0].trim();
         if (q.length < 2) return;
         timer = setTimeout(async () => {
-            const res = await fetch(`/api/riders?q=${encodeURIComponent(q)}`);
-            found = res.ok ? await res.json() : [];
-            list.replaceChildren(...found.map(r => { const o = document.createElement('option'); o.value = `${r.name} — ${r.team || ''}`; return o; }));
+            try {
+                const res = await fetch(`/api/riders?q=${encodeURIComponent(q)}`);
+                found = res.ok ? await res.json() : [];
+            } catch (e) { found = []; }
+            list.replaceChildren(...found.map(r => { const o = document.createElement('option'); o.value = labelOf(r); return o; }));
+            const now = matchFor(input.value);
+            if (now) hidden.value = now.id;
         }, 200);
     });
-    formEl.addEventListener('submit', (e) => {
-        const match = found.find(r => `${r.name} — ${r.team || ''}` === input.value) || found.find(r => r.name.toLowerCase() === input.value.trim().toLowerCase()) || (found.length === 1 ? found[0] : null);
-        if (match) hidden.value = match.id;
-        if (!hidden.value) { e.preventDefault(); input.focus(); }
+    formEl.addEventListener('submit', () => {
+        if (!hidden.value) {
+            const m = matchFor(input.value);
+            // No id yet (typed and submitted before the lookup came back):
+            // send the name and let the server resolve it.
+            hidden.value = m ? m.id : input.value.split(' — ')[0].trim();
+        }
     });
 })();
 {% endif %}
