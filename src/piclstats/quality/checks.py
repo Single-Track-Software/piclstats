@@ -9,6 +9,10 @@ the row from every statistic, any *warn* keeps it but flags it, otherwise
 The checks encode the failure modes found in real scrapes: a wall-clock
 timestamp parsed as an elapsed time (24:44:02 finishes), a place of -1, a
 literal ``*`` status, splits that do not add up, bib 0.
+
+"Single Lap" categories are not races — a chance for a kid to try the
+course — so those rows are excluded up front (``try_it_out``) and no other
+check looks at them; their timing is never a data-quality signal.
 """
 
 from __future__ import annotations
@@ -25,8 +29,19 @@ from piclstats.web.queries import _ACTUAL_LAPS, _LAP_JOINS, _LAPS_CONSISTENT, _S
 
 KNOWN_STATUSES = ("OK", "DNF", "DNS", "DSQ", "DQ", "NR")
 
+# Try-it-out categories: appear in results, count for nothing.
+TRY_IT_OUT = "r.division LIKE 'Single Lap%'"
+NOT_TRY_IT_OUT = f"NOT ({TRY_IT_OUT})"
+
 # (check, severity, predicate over alias r, observed expr, expected expr)
 ROW_CHECKS: list[tuple[str, str, str, str, str]] = [
+    (
+        "try_it_out",
+        "error",
+        TRY_IT_OUT,
+        "r.division",
+        "'a race category'",
+    ),
     (
         "total_time_timestamp",
         "error",
@@ -81,16 +96,16 @@ _LAPS_NE_PROFILE = f"""
     FROM results r
     JOIN events e ON e.id = r.event_id
     {_LAP_JOINS}
-    WHERE r.event_id = :eid AND r.status = 'OK' AND r.place IS NOT NULL
+    WHERE r.event_id = :eid AND r.status = 'OK' AND r.place IS NOT NULL AND {NOT_TRY_IT_OUT}
       AND dl.lap_count IS NOT NULL AND {_ACTUAL_LAPS} > 0
       AND {_ACTUAL_LAPS} <> dl.lap_count
 """
 
 # Event level: OK places within a category should run 1..n without gaps.
-_PLACE_GAPS = """
+_PLACE_GAPS = f"""
     SELECT r.category, count(*)::text, max(r.place)::text
     FROM results r
-    WHERE r.event_id = :eid AND r.place IS NOT NULL AND r.place > 0
+    WHERE r.event_id = :eid AND r.place IS NOT NULL AND r.place > 0 AND {NOT_TRY_IT_OUT}
     GROUP BY r.category
     HAVING count(*) <> max(r.place)
 """
@@ -174,9 +189,11 @@ def run_checks(session: Session, run_id: int, event_id: int) -> CheckSummary:
         findings[check] = findings.get(check, 0) + 1
 
     for check, _sev, predicate, observed, expected in ROW_CHECKS:
+        scope = "" if check == "try_it_out" else f" AND {NOT_TRY_IT_OUT}"
         hits = session.execute(
             text(
-                f"SELECT r.id, {observed}, {expected} FROM results r WHERE r.event_id = :eid AND ({predicate})"
+                f"SELECT r.id, {observed}, {expected} FROM results r"
+                f" WHERE r.event_id = :eid{scope} AND ({predicate})"
             ),
             {"eid": event_id, "known": list(KNOWN_STATUSES)},
         ).all()

@@ -17,6 +17,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from piclstats.db.engine import rowcount
+from piclstats.quality.checks import NOT_TRY_IT_OUT
 
 GOLDEN_FLOOR = 90.0  # positive golden pass % must be at least this to publish
 GOLDEN_REGRESS_TOL = 2.0  # ...and must not drop more than this vs the previous run
@@ -209,19 +210,22 @@ def compute_metrics(session: Session, event_id: int | None = None) -> list[Metri
     m: list[Metric] = []
     one = lambda sql, **p: session.execute(text(sql), p).scalar_one()  # noqa: E731
 
-    total = one("SELECT count(*) FROM results")
-    excluded = one("SELECT count(*) FROM results WHERE dq_status = 'excluded'")
-    warned = one("SELECT count(*) FROM results WHERE dq_status = 'warn'")
+    # Try-it-out rows are excluded by design, not bad data: they are left out
+    # of every quality counter so they never move a gate.
+    races = f"FROM results r WHERE {NOT_TRY_IT_OUT}"
+    total = one(f"SELECT count(*) {races}")
+    excluded = one(f"SELECT count(*) {races} AND dq_status = 'excluded'")
+    warned = one(f"SELECT count(*) {races} AND dq_status = 'warn'")
     m.append(Metric("results_total", total, total, total))
     m.append(Metric("results_excluded_pct", _pct(excluded, total), excluded, total))
     m.append(Metric("results_warn_pct", _pct(warned, total), warned, total))
     m.append(
         Metric(
             "timestamp_totals",
-            one("SELECT count(*) FROM results WHERE total_time >= interval '12 hours'"),
+            one(f"SELECT count(*) {races} AND total_time >= interval '12 hours'"),
         )
     )
-    m.append(Metric("place_nonpositive", one("SELECT count(*) FROM results WHERE place <= 0")))
+    m.append(Metric("place_nonpositive", one(f"SELECT count(*) {races} AND place <= 0")))
 
     events = one("SELECT count(*) FROM events")
     mapped = one("SELECT count(*) FROM events WHERE course_id IS NOT NULL")
@@ -274,9 +278,9 @@ def compute_metrics(session: Session, event_id: int | None = None) -> list[Metri
     m.extend(_golden_metrics(session))
 
     if event_id is not None:
-        ev_total = one("SELECT count(*) FROM results WHERE event_id = :e", e=event_id)
+        ev_total = one(f"SELECT count(*) {races} AND event_id = :e", e=event_id)
         ev_bad = one(
-            "SELECT count(*) FROM results WHERE event_id = :e AND dq_status = 'excluded'",
+            f"SELECT count(*) {races} AND event_id = :e AND dq_status = 'excluded'",
             e=event_id,
         )
         m.append(Metric("event_excluded_pct", _pct(ev_bad, ev_total), ev_bad, ev_total))
