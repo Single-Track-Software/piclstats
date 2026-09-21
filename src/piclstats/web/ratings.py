@@ -75,21 +75,7 @@ def race_scores(rows: list[dict], config: dict | None = None) -> dict[int, list[
     riders who went the full distance for their division score: someone pulled
     at the cutoff after fewer laps has a flattering average lap.
     """
-    cfg = {**RATING_CONFIG, **(config or {})}
-    full_laps: dict[tuple, int] = defaultdict(int)
-    for r in rows:
-        key = (r["event_id"], r["division"], r["gender"])
-        full_laps[key] = max(full_laps[key], r["laps"] or 0)
-
-    fields: dict[tuple, list[dict]] = defaultdict(list)
-    for r in rows:
-        if not r.get("lap_secs") or not r.get("loop_type") or not r["laps"]:
-            continue
-        if r["laps"] == full_laps[(r["event_id"], r["division"], r["gender"])]:
-            fields[(r["event_id"], r["loop_type"], r["gender"])].append(r)
-
-    fields = {k: v for k, v in fields.items() if len(v) >= cfg["min_field"]}
-    baseline = _event_effects(fields)
+    fields, baseline = fit_event_effects(rows, config)
     scores: dict[int, list[Score]] = defaultdict(list)
     for key, members in fields.items():
         for m in members:
@@ -105,6 +91,31 @@ def race_scores(rows: list[dict], config: dict | None = None) -> dict[int, list[
     for history in scores.values():
         history.sort(key=lambda s: (s.season, s.event_order, s.event_id))
     return dict(scores)
+
+
+def fit_event_effects(
+    rows: list[dict], config: dict | None = None
+) -> tuple[dict[tuple, list[dict]], dict[tuple, float]]:
+    """The same-day fields that score, and the event effect fitted to each.
+
+    Field key = (event_id, loop_type, gender); members are full-distance
+    finishers with a lap time. Fields under `min_field` are dropped.
+    """
+    cfg = {**RATING_CONFIG, **(config or {})}
+    full_laps: dict[tuple, int] = defaultdict(int)
+    for r in rows:
+        key = (r["event_id"], r["division"], r["gender"])
+        full_laps[key] = max(full_laps[key], r["laps"] or 0)
+
+    fields: dict[tuple, list[dict]] = defaultdict(list)
+    for r in rows:
+        if not r.get("lap_secs") or not r.get("loop_type") or not r["laps"]:
+            continue
+        if r["laps"] == full_laps[(r["event_id"], r["division"], r["gender"])]:
+            fields[(r["event_id"], r["loop_type"], r["gender"])].append(r)
+
+    fields = {k: v for k, v in fields.items() if len(v) >= cfg["min_field"]}
+    return fields, _event_effects(fields)
 
 
 def _field_medians(fields: dict[tuple, list[dict]]) -> dict[tuple, float]:
@@ -393,7 +404,107 @@ def build_future_matrix(
 # ── Rider form (the rider page's trend line) ────────────────────────────
 
 
-def rider_form(rider_id: int, rows: list[dict], config: dict | None = None) -> list[dict]:
+# ── DNFs: what the laps before the problem say ─────────────────────────
+
+# A lap this much slower than the field's median for the same lap is the one
+# the mechanical (or crash) happened on; it and anything after are not form.
+BROKEN_LAP_RATIO = 1.3
+# Scored finishers needed in the category to say anything about a partial ride.
+MIN_PARTIAL_FIELD = 3
+
+
+def clean_laps(laps: list[float], field_lap_medians: list[float]) -> list[float]:
+    """The leading laps a DNF rider rode at race pace.
+
+    Stops at the first lap slower than BROKEN_LAP_RATIO times the field's
+    median for that lap (or with no field median to judge by): a kid who
+    limps in on a flat tyre records that lap, and it says nothing about form.
+    """
+    out: list[float] = []
+    for i, lap in enumerate(laps):
+        if i >= len(field_lap_medians) or lap > BROKEN_LAP_RATIO * field_lap_medians[i]:
+            break
+        out.append(lap)
+    return out
+
+
+def dnf_partials(rider_id: int, context: list[dict], scores: dict[int, list[Score]]) -> list[dict]:
+    """A partial score for each of the rider's DNFs with clean laps.
+
+    `context` is `queries.dnf_lap_context`: the rider's DNF rows and every
+    other row of the same categories, with lap splits. The rider's mean over
+    their clean laps is compared to the finishers' mean over the *same* laps
+    (lap 1 has the start loop, so lap 1 alone is only comparable to other
+    riders' lap 1), and that ratio is placed in score units through the
+    finishers' own scores for the day: ``x = log ratio + median finisher
+    score``. Never feeds a rating; it is a look, not a result.
+    """
+    by_cat: dict[tuple, list[dict]] = defaultdict(list)
+    for r in context:
+        by_cat[(r["event_id"], r["category"])].append(r)
+
+    out = []
+    for (event_id, category), rows in by_cat.items():
+        mine = next((r for r in rows if r["rider_id"] == rider_id and r["status"] == "DNF"), None)
+        if not mine or not mine["laps"]:
+            continue
+        finishers = [
+            r for r in rows if r["status"] == "OK" and r["place"] and r["rider_id"] != rider_id
+        ]
+        full = max((len(r["laps"]) for r in finishers), default=0)
+        # Median per lap over whoever rode that lap (a race cut short still
+        # has a lap 1 and 2 to judge by).
+        medians = []
+        for i in range(full):
+            times = [r["laps"][i] for r in finishers if len(r["laps"]) > i]
+            if len(times) < MIN_PARTIAL_FIELD:
+                break
+            medians.append(median(times))
+        clean = clean_laps(mine["laps"], medians)
+        if not clean:
+            continue
+        k = len(clean)
+        # Compare against the finishers who scored that day, and anchor on the
+        # same riders' scores: one population, so a slow pulled rider can't
+        # drag the yardstick while the anchor sits on the fast ones. Only
+        # full-distance finishers score, so a race cut short may have too few.
+        scored = [
+            (r, sc.x)
+            for r in finishers
+            for sc in scores.get(r["rider_id"], [])
+            if sc.event_id == event_id and len(r["laps"]) >= k
+        ]
+        if len(scored) < MIN_PARTIAL_FIELD:
+            continue
+        ratio = math.log(sum(clean) / k) - math.log(
+            median(sum(r["laps"][:k]) / k for r, _ in scored)
+        )
+        anchors = [x for _, x in scored]
+        lap1_field = [r["laps"][0] for r in rows if r["laps"]]
+        out.append(
+            {
+                "event_id": event_id,
+                "season": mine["season"],
+                "event_order": mine["event_order"] or 0,
+                "division": mine["division"],
+                "loop_type": mine["loop_type"],
+                "laps_used": k,
+                "laps_total": full,
+                "lap1_rank": 1 + sum(1 for t in lap1_field if t < mine["laps"][0]),
+                "lap1_field": len(lap1_field),
+                "x": ratio + median(anchors),
+                "day_field": len(scored) + 1,
+            }
+        )
+    return out
+
+
+def rider_form(
+    rider_id: int,
+    rows: list[dict],
+    config: dict | None = None,
+    dnf_context: list[dict] | None = None,
+) -> list[dict]:
     """One rider's races as scores, with the rolling rating and a league-wide place.
 
     `rows` = `queries.rating_rows()` for the rider's gender and loop (every
@@ -404,8 +515,9 @@ def rider_form(rider_id: int, rows: list[dict], config: dict | None = None) -> l
     league had been there". Oldest first.
     """
     scores = race_scores(rows, config)
-    mine = scores.get(rider_id)
-    if not mine:
+    mine = scores.get(rider_id) or []
+    partials = dnf_partials(rider_id, dnf_context or [], scores) if dnf_context else []
+    if not mine and not partials:
         return []
 
     by_event: dict[int, list[dict]] = defaultdict(list)
@@ -423,7 +535,7 @@ def rider_form(rider_id: int, rows: list[dict], config: dict | None = None) -> l
             draws[event_id] = "Conference" if "conf" in name else None
 
     rosters: dict[int, dict[str, list[float]]] = {}
-    for season in {s.season for s in mine}:
+    for season in {s.season for s in mine} | {p["season"] for p in partials}:
         season_rows = [r for r in rows if r["season"] == season]
         roster = build_roster(season_rows, scores, season, None, config)
         rosters[season] = defaultdict(list)
@@ -447,6 +559,34 @@ def rider_form(rider_id: int, rows: list[dict], config: dict | None = None) -> l
                 "day_field": sum(1 for r in by_event[score.event_id] if r.get("lap_secs")),
                 "league_place": 1 + sum(1 for m in field if m < score.x),
                 "league_field": len(field) + 1,
+                "partial": False,
             }
         )
+    # DNFs with clean laps: a hollow point on the chart, no effect on the
+    # rating (which is shown as it stood going into that race).
+    for p in partials:
+        when = (p["season"], p["event_order"], p["event_id"])
+        before = [sc for sc in mine if (sc.season, sc.event_order, sc.event_id) < when]
+        rating = rate(before, p["season"], config) if before else None
+        field = rosters[p["season"]].get(p["division"], [])
+        out.append(
+            {
+                "event_id": p["event_id"],
+                "season": p["season"],
+                "event_order": p["event_order"],
+                "division": p["division"],
+                "draw": draws.get(p["event_id"]),
+                "score_pct": round(p["x"] * 100, 1),
+                "rating_pct": round(rating.mean * 100, 1) if rating else None,
+                "day_field": p["day_field"],
+                "league_place": 1 + sum(1 for m in field if m < p["x"]),
+                "league_field": len(field) + 1,
+                "partial": True,
+                "laps_used": p["laps_used"],
+                "laps_total": p["laps_total"],
+                "lap1_rank": p["lap1_rank"],
+                "lap1_field": p["lap1_field"],
+            }
+        )
+    out.sort(key=lambda f: (f["season"], f["event_order"], f["event_id"]))
     return out

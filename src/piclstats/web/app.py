@@ -366,10 +366,12 @@ def _rider_form(session, races: list[dict], canonical_id: int) -> list[dict]:
         for r in races
         if r.get("gender") and r.get("loop_type") and r.get("event_type") == "points"
     }
+    context = queries.dnf_lap_context(session, canonical_id)
     form: list[dict] = []
     for gender, loop_type in sorted(groups):
         rows = _cached_rating_rows(session, gender, loop_type)
-        for point in rider_form(canonical_id, rows):
+        ctx = [c for c in context if c["gender"] == gender and c["loop_type"] == loop_type]
+        for point in rider_form(canonical_id, rows, dnf_context=ctx):
             form.append({**point, "loop_type": loop_type})
     form.sort(key=lambda f: (f["season"], f["event_order"], f["event_id"]))
     return form

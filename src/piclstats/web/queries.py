@@ -1478,6 +1478,54 @@ def rating_rows(
     return [_serialize(r._mapping) for r in rows]
 
 
+def dnf_lap_context(session: Session, rider_id: int) -> list[dict]:
+    """Every row of every category in which this rider DNF'd with a lap on the clock.
+
+    The rider's own rows and the whole category (finishers and other DNFs)
+    come back together, each with its lap splits in seconds, so
+    `ratings.dnf_partials` can judge which of the rider's laps were clean and
+    how they compared to the finishers over the same laps. Only points races.
+    """
+    rows = session.execute(
+        text(f"""
+        WITH ids AS (
+            SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
+            UNION SELECT :cid
+        ),
+        mine AS (
+            SELECT DISTINCT r.event_id, r.category
+            FROM results r
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.event_type = 'points'
+            WHERE r.rider_id IN (SELECT rider_id FROM ids)
+              AND r.status = 'DNF' AND r.lap1 IS NOT NULL AND r.dq_status <> 'excluded'
+        )
+        SELECT r.event_id, e.season, e.event_order, r.category, r.division, r.gender,
+               dl.loop_type,
+               COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
+               r.status, r.place, r.dq_status,
+               ARRAY_REMOVE(ARRAY[
+                   EXTRACT(EPOCH FROM r.lap1), EXTRACT(EPOCH FROM r.lap2),
+                   EXTRACT(EPOCH FROM r.lap3), EXTRACT(EPOCH FROM r.lap4),
+                   EXTRACT(EPOCH FROM r.lap5), EXTRACT(EPOCH FROM r.lap6)
+               ], NULL) AS laps
+        FROM results r
+        JOIN mine m ON m.event_id = r.event_id AND m.category = r.category
+        JOIN events e ON e.id = r.event_id
+        LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
+        {_LAP_JOINS}
+        WHERE r.lap1 IS NOT NULL AND r.dq_status <> 'excluded'
+        ORDER BY e.season, e.event_order, r.category, r.place NULLS LAST
+    """),
+        {"cid": rider_id},
+    ).all()
+    out = []
+    for r in rows:
+        d = _serialize(r._mapping)
+        d["laps"] = [float(x) for x in (d["laps"] or [])]
+        out.append(d)
+    return out
+
+
 def upcoming_races(session: Session, today) -> list[dict]:
     """Scheduled races from `today` on, soonest first (/admin/schedule)."""
     rows = session.execute(
