@@ -589,6 +589,21 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         season_filter = "AND e.season = :season"
         params["season"] = season
 
+    # The field a race was scored against: every placed, clean rider in that
+    # event + category, whatever their team. Percentile must be computed
+    # against this, not a window over rows already narrowed to one team (that
+    # bug once put a team's JV1 boys at -1317%).
+    whole_field = f"""
+        field AS (
+            SELECT r2.event_id, r2.category,
+                   count(*) FILTER (WHERE r2.place IS NOT NULL AND r2.dq_status <> 'excluded')
+                       AS field_size
+            FROM results r2
+            JOIN events e ON e.id = r2.event_id AND e.is_published {season_filter}
+            GROUP BY r2.event_id, r2.category
+        )
+    """
+
     # Use canonical IDs so riders who changed teams still show their full stats
     # when viewing from any of their teams
     # One row per rider: the division and gender from their latest race, so a
@@ -597,14 +612,15 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
     roster = session.execute(
         text(f"""
         WITH {_CANONICAL_CTE},
+        {whole_field},
         placed AS (
             SELECT c.cid, c.name, r.division, r.gender, r.event_id, r.place, r.points,
                    e.season, e.event_order,
-                   (1 - r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0)) * 100
-                       AS percentile
+                   (1 - r.place::numeric / NULLIF(f.field_size, 0)) * 100 AS percentile
             FROM canonical c
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON r.event_id = e.id AND e.is_published
+            JOIN field f ON f.event_id = r.event_id AND f.category = r.category
             WHERE c.team_key = :team_key {season_filter}
               AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND {_POINTS_ONLY}
@@ -630,13 +646,14 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
 
     division_summary = session.execute(
         text(f"""
-        WITH placed AS (
+        WITH {whole_field},
+        placed AS (
             SELECT r.division, r.gender, ri.id AS rider_id, r.points, r.place,
-                   (1 - r.place::numeric / NULLIF(count(*) OVER (PARTITION BY r.event_id, r.category), 0)) * 100
-                       AS percentile
+                   (1 - r.place::numeric / NULLIF(f.field_size, 0)) * 100 AS percentile
             FROM riders ri
             JOIN results r ON r.rider_id = ri.id
             JOIN events e ON r.event_id = e.id AND e.is_published
+            JOIN field f ON f.event_id = r.event_id AND f.category = r.category
             WHERE ri.team_key = :team_key {season_filter}
               AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND {_POINTS_ONLY}
