@@ -81,7 +81,8 @@
         <span class="text-xs text-gray-400">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-picl-600 align-middle"></span> state race ·
             <span class="inline-block w-2.5 h-2.5 rounded-full border-2 border-amber-500 align-middle"></span> conference race ·
-            <span class="inline-block w-5 border-t-2 border-dashed border-gray-500 align-middle"></span> rating{% if compare %} ·
+            <span class="inline-block w-5 border-t-2 border-dashed border-gray-500 align-middle"></span> rating{% if form | selectattr('partial') | list %} ·
+            <span class="inline-block w-0 h-0 align-middle" style="border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:9px solid rgb(107,114,128)"></span> DNF, laps before the problem{% endif %}{% if compare %} ·
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-rose-500 align-middle"></span> {{ compare.name }}{% endif %}
         </span>
     </div>
@@ -97,7 +98,7 @@
     </form>
     {% if compare and not compare.form %}<p class="text-xs text-amber-700 mb-3">{{ compare.name }} has no timed points races to show.</p>{% endif %}
     <canvas id="formChart" height="200"></canvas>
-    <p class="text-[11px] text-gray-400 mt-3">Points races with clean lap times only. A smaller dot means a thin day (under 40 on the loop), which reads the day less reliably. Middle school and high school loops are separate series{% if compare %}; two riders on different loops the same season are measured against different fields, so compare the trend rather than the gap{% endif %}.</p>
+    <p class="text-[11px] text-gray-400 mt-3">Points races with clean lap times only. A smaller dot means a thin day (under 40 on the loop), which reads the day less reliably. A grey triangle is a DNF judged on the laps ridden at race pace before the problem, against the finishers over the same laps &mdash; a look at form that day, never part of the rating. Middle school and high school loops are separate series{% if compare %}; two riders on different loops the same season are measured against different fields, so compare the trend rather than the gap{% endif %}.</p>
 </div>
 {% endif %}
 
@@ -185,11 +186,11 @@
                     <td class="px-4 py-2 text-gray-600">{{ r.category }}</td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ r.conference or '' }}</td>
                     <td class="px-4 py-2 text-right font-mono font-medium whitespace-nowrap">
-                        {% if r.place %}{{ r.place }}{% if r.field_size %}<span class="text-gray-400 font-normal">/{{ r.field_size }}</span>{% endif %}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}
+                        {% set fp = form_by_event.get(r.event_id) %}
+                        {% if r.place %}{{ r.place }}{% if r.field_size %}<span class="text-gray-400 font-normal">/{{ r.field_size }}</span>{% endif %}{% else %}<span class="text-red-400">{{ r.status }}</span>{% if fp and fp.partial %}<div class="text-[10px] font-normal text-gray-500" title="First-lap time ranked against everyone who rode lap 1 in the category">lap 1: {{ fp.lap1_rank }}<span class="text-gray-400">/{{ fp.lap1_field }}</span></div>{% endif %}{% endif %}
                     </td>
                     <td class="px-4 py-2 text-right font-mono {% if r.percentile is not none %}{{ 'text-green-600' if r.percentile >= 50 else ('text-amber-600' if r.percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.percentile is not none %}{{ "%.0f"|format(r.percentile) }}%{% else %}—{% endif %}</td>
-                    {% set fp = form_by_event.get(r.event_id) %}
-                    <td class="px-4 py-2 text-right font-mono text-xs whitespace-nowrap" {% if fp %}title="{{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider that day"{% endif %}>{% if fp %}≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span>{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs whitespace-nowrap" {% if fp and fp.partial %}title="Through lap {{ fp.laps_used }} of {{ fp.laps_total }} before the DNF: {{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider, judged against the finishers over the same laps. A look, not a result — it does not touch the rating."{% elif fp %}title="{{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider that day"{% endif %}>{% if fp and fp.partial %}<span class="text-gray-500">≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span> <span class="text-[10px]">thru L{{ fp.laps_used }}</span></span>{% elif fp %}≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span>{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.points or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r.total_time_raw or '—' }}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs">{% if r.pct_behind is not none %}{% if r.pct_behind == 0 %}<span class="text-green-600">won</span>{% else %}+{{ "%.1f"|format(r.pct_behind) }}%{% endif %}{% else %}—{% endif %}</td>
@@ -291,11 +292,14 @@ const loops = points => [...new Set(points.map(f => f.loop_type))];
 const ratingLines = (points, colour) => loops(points).map(loop => ({
     label: 'rating', data: at(points, f => f.loop_type === loop ? f.rating_pct : null), borderColor: colour,
     borderDash: [6, 4], borderWidth: 2, pointRadius: 0, tension: 0.3, spanGaps: false, order: 2, _points: points}));
+// A DNF's partial score is a grey triangle: laps before the problem, not a result.
+const grey = 'rgb(107,114,128)';
 const dots = (points, fill, edge, hollow) => ({
     label: 'race', data: at(points, f => f.score_pct), showLine: false, order: 1, _points: points,
-    pointRadius: at(points, f => f.day_field < 40 ? 5 : 6),
-    pointBackgroundColor: at(points, f => (!hollow || isState(f)) ? fill : fill.replace('rgb(', 'rgba(').replace(')', ',0.15)')),
-    pointBorderColor: at(points, f => (!hollow || isState(f)) ? fill : edge),
+    pointStyle: at(points, f => f.partial ? 'triangle' : 'circle'),
+    pointRadius: at(points, f => f.partial ? 6 : (f.day_field < 40 ? 5 : 6)),
+    pointBackgroundColor: at(points, f => f.partial ? 'rgba(107,114,128,0.15)' : ((!hollow || isState(f)) ? fill : fill.replace('rgb(', 'rgba(').replace(')', ',0.15)'))),
+    pointBorderColor: at(points, f => f.partial ? grey : ((!hollow || isState(f)) ? fill : edge)),
     pointBorderWidth: at(points, f => f.day_field < 40 ? 1.5 : 2)});
 const datasets = [...ratingLines(form, 'rgb(107,114,128)'), dots(form, 'rgb(16,32,232)', 'rgb(217,119,6)', true)];
 if (other.length) datasets.push(...ratingLines(other, 'rgba(225,29,72,0.6)'), dots(other, 'rgb(225,29,72)', 'rgb(225,29,72)', true));
@@ -310,6 +314,7 @@ new Chart(document.getElementById('formChart'), {
             title: (items) => { const f = pointAt(items[0].dataset, items[0].dataIndex); return `${f.season} #${f.event_order} · ${f.division} · ${f.draw || 'State race'} · ${f.loop_type} loop`; },
             label: (ctx) => { const f = pointAt(ctx.dataset, ctx.dataIndex); const who = ctx.dataset._points === other ? otherName : {{ info.name | tojson }};
                 if (ctx.dataset.label === 'rating') return `${who} rating ${f.rating_pct > 0 ? '+' : ''}${f.rating_pct}% on the ${f.loop_type} loop`;
+                if (f.partial) return `${who} DNF — through lap ${f.laps_used} of ${f.laps_total}: ${f.score_pct > 0 ? '+' : ''}${f.score_pct}% vs the typical rider · lap 1 ${f.lap1_rank} of ${f.lap1_field}`;
                 return `${who} ${f.score_pct > 0 ? '+' : ''}${f.score_pct}% vs the typical rider · ${f.day_field} on the loop`; },
             afterLabel: (ctx) => { const f = pointAt(ctx.dataset, ctx.dataIndex); return ctx.dataset.label === 'race' ? `≈ ${f.league_place} of ${f.league_field} league-wide` : undefined; },
         }}},

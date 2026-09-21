@@ -209,3 +209,81 @@ def test_rider_form_rating_follows_the_scores_and_absent_riders_get_nothing():
     assert [f["rating_pct"] for f in form] == sorted((f["rating_pct"] for f in form), reverse=True)
     assert form[-1]["rating_pct"] > form[-1]["score_pct"]  # rating lags the newest score
     assert rider_form(12345, rows) == []
+
+
+# ── DNFs: the laps before the problem ─────────────────────────────────────
+
+
+def _ctx(event_id, rider_id, laps, status="OK", place=1, order=None):
+    return {
+        "event_id": event_id,
+        "season": 2026,
+        "event_order": order if order is not None else event_id,
+        "category": "JV2 - Male",
+        "division": "JV2",
+        "gender": "Male",
+        "loop_type": "HS",
+        "rider_id": rider_id,
+        "status": status,
+        "place": place,
+        "dq_status": "ok",
+        "laps": laps,
+    }
+
+
+def test_clean_laps_stop_at_the_broken_lap():
+    from piclstats.web.ratings import clean_laps
+
+    medians = [1000.0, 1000.0, 1000.0]
+    assert clean_laps([990.0, 1010.0, 1700.0], medians) == [990.0, 1010.0]  # limped in on lap 3
+    assert clean_laps([1600.0], medians) == []  # broke on lap 1: nothing to judge
+    assert clean_laps([990.0, 1290.0], medians) == [990.0, 1290.0]  # slow but riding (< 1.3x)
+    assert clean_laps([990.0, 1010.0, 1020.0, 1030.0], medians) == [
+        990.0,
+        1010.0,
+        1020.0,
+    ]  # no median → stop
+
+
+def test_dnf_partial_scores_the_clean_laps_against_finishers_over_the_same_laps():
+    from piclstats.web.ratings import dnf_partials, rider_form
+
+    # 12 finishers, 2 laps each, lap 1 carries a start loop (10% longer for all).
+    rows = [_row(1, i, 1000 + 20 * i, order=1) for i in range(12)]
+    ctx = [_ctx(1, i, [(1000 + 20 * i) * 1.1, (1000 + 20 * i) * 0.9]) for i in range(12)]
+    # Rider 99 rode lap 1 like rider 2 (a front runner) and then flatted.
+    ctx.append(_ctx(1, 99, [(1000 + 20 * 2) * 1.1, 2500.0], status="DNF", place=None))
+    scores = race_scores(rows)
+    partials = dnf_partials(99, ctx, scores)
+    assert len(partials) == 1
+    p = partials[0]
+    assert p["laps_used"] == 1 and p["laps_total"] == 2
+    assert p["lap1_rank"] == 3 and p["lap1_field"] == 13  # riders 0 and 1 were quicker
+    # Same lap-1 time as rider 2 → the same score as rider 2's full race.
+    assert abs(p["x"] - scores[2][0].x) < 1e-3  # median in log vs linear space
+
+    form = rider_form(99, rows, dnf_context=ctx)
+    assert form == [
+        {
+            **form[0],
+            "partial": True,
+            "rating_pct": None,  # no race before it, so no rating to show
+            "league_place": 3,
+            "score_pct": round(scores[2][0].x * 100, 1),
+        }
+    ]
+    # A partial never becomes a rating: rider 99 has no scores at all.
+    assert 99 not in scores
+
+
+def test_dnf_partial_needs_scored_finishers_and_a_clean_lap():
+    from piclstats.web.ratings import dnf_partials
+
+    rows = [_row(1, i, 1000 + 20 * i, order=1) for i in range(12)]
+    scores = race_scores(rows)
+    ctx = [_ctx(1, i, [1000 + 20 * i, 1000 + 20 * i]) for i in range(12)]
+    # Broke on lap 1: no clean lap, no partial.
+    assert dnf_partials(99, ctx + [_ctx(1, 99, [1900.0], status="DNF", place=None)], scores) == []
+    # Two scored finishers is too thin to anchor on.
+    thin = [_ctx(1, i, [1000 + 20 * i, 1000 + 20 * i]) for i in range(2)]
+    assert dnf_partials(99, thin + [_ctx(1, 99, [1000.0], status="DNF", place=None)], scores) == []
