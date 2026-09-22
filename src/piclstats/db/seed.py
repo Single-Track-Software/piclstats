@@ -345,26 +345,78 @@ def normalize_divisions(session: Session) -> int:
     return total
 
 
-def classify_event_types(session: Session) -> int:
-    """Classify events as 'rally'/'exhibition' (non-scoring) by name pattern.
+# The course-season race type in effect for an event: that season's row, else
+# the course default, else NULL (fall back to the event-name pattern). Assumes
+# the events table is aliased `e`.
+COURSE_RACE_TYPE_SQL = """
+    COALESCE(
+        (SELECT t.race_type FROM course_race_types t
+          WHERE t.course_id = e.course_id AND t.season = e.season),
+        (SELECT t.race_type FROM course_race_types t
+          WHERE t.course_id = e.course_id AND t.season IS NULL)
+    )
+"""
 
-    Rallies and exhibition/short-track events do not count toward standings.
-    Idempotent: re-derives event_type for every event from its name, so newly
-    scraped events get classified on the next seed (like course mapping).
+RACE_TYPES = ("race", "rally")
+
+
+def seed_race_types(session: Session) -> int:
+    """Give every course-season with events an explicit race type.
+
+    The first value comes from the event names ('rally' if any event that
+    season at the course is named one). Rows are only ever inserted, so a
+    type set in /admin/courses is never overwritten by a re-seed.
     """
     result = session.execute(
         text("""
-        UPDATE events SET event_type =
-            CASE
-                WHEN event_name ILIKE '%exhibition%'
-                  OR event_name ILIKE '%short track%' THEN 'exhibition'
-                WHEN event_name ILIKE '%rally%'        THEN 'rally'
-                ELSE 'points'
-            END
+        INSERT INTO course_race_types (course_id, season, race_type)
+        SELECT e.course_id, e.season,
+               CASE WHEN bool_or(e.event_name ILIKE '%rally%') THEN 'rally' ELSE 'race' END
+        FROM events e
+        WHERE e.course_id IS NOT NULL AND e.season > 0
+        GROUP BY e.course_id, e.season
+        ON CONFLICT (course_id, season) DO NOTHING
     """)
     )
     n = rowcount(result)
-    logger.info("Classified event types for %d events", n)
+    logger.info("Seeded race types for %d course-seasons", n)
+    return n
+
+
+def classify_event_types(session: Session) -> int:
+    """Set events.event_type: 'exhibition', 'rally' or 'points' (scoring).
+
+    Exhibition/short-track events are matched by name — a venue can host one
+    alongside its points race in the same season. Otherwise the course-season
+    race type decides (course_race_types, edited in /admin/courses); an event
+    with no course or no flag falls back to the '%rally%' name pattern.
+    Idempotent: re-derives every event, so newly scraped events get
+    classified on the next seed (like course mapping).
+    """
+    result = session.execute(
+        text(f"""
+        UPDATE events e SET event_type =
+            CASE
+                WHEN e.event_name ILIKE '%exhibition%'
+                  OR e.event_name ILIKE '%short track%' THEN 'exhibition'
+                WHEN {COURSE_RACE_TYPE_SQL} = 'rally'    THEN 'rally'
+                WHEN {COURSE_RACE_TYPE_SQL} = 'race'     THEN 'points'
+                WHEN e.event_name ILIKE '%rally%'        THEN 'rally'
+                ELSE 'points'
+            END
+        WHERE e.event_type IS DISTINCT FROM (
+            CASE
+                WHEN e.event_name ILIKE '%exhibition%'
+                  OR e.event_name ILIKE '%short track%' THEN 'exhibition'
+                WHEN {COURSE_RACE_TYPE_SQL} = 'rally'    THEN 'rally'
+                WHEN {COURSE_RACE_TYPE_SQL} = 'race'     THEN 'points'
+                WHEN e.event_name ILIKE '%rally%'        THEN 'rally'
+                ELSE 'points'
+            END)
+    """)
+    )
+    n = rowcount(result)
+    logger.info("Reclassified event types for %d events", n)
     return n
 
 
@@ -414,6 +466,7 @@ def seed_all(session: Session) -> None:
     seed_course_loops(session, course_ids)
     seed_division_laps(session, course_ids)
     normalize_divisions(session)
+    seed_race_types(session)
     classify_event_types(session)
     seed_season_profiles(session)
     seed_conferences(session)

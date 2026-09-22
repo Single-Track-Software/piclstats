@@ -5,7 +5,8 @@
     <div class="mb-4"><a href="/admin/courses" class="text-sm text-picl-700 hover:underline">&larr; Courses</a></div>
     <h1 class="text-2xl font-bold text-gray-900 mb-2">{{ course.name }}</h1>
     <p class="text-sm text-gray-500 mb-6">
-        Lap distance, elevation gain, and lap counts drive every pace and forecast calculation.
+        Lap distance, elevation gain, and lap counts drive every pace and forecast calculation;
+        the race type decides whether a season's event counts toward standings (a rally does not).
         Each season can carry its own values; anything left blank in a season falls back to the defaults.
     </p>
 
@@ -51,6 +52,23 @@
                 {% else %}
                 <div class="text-xs text-gray-400">Blank = use default</div>
                 {% endif %}
+            </div>
+            <div class="px-6 py-4 border-b border-gray-100 flex items-center gap-4">
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Race type</label>
+                    <select name="race_type" class="rounded-md border border-gray-300 px-3 py-2 text-sm">
+                        <option value="" {{ 'selected' if not block.race_type }}>{{ 'By event name' if is_default else 'Default' }}</option>
+                        <option value="race" {{ 'selected' if block.race_type == 'race' }}>Race</option>
+                        <option value="rally" {{ 'selected' if block.race_type == 'rally' }}>Rally</option>
+                    </select>
+                </div>
+                <div class="text-xs text-gray-500 pt-4">
+                    {% if not is_default %}
+                    In effect: <span class="font-medium {{ 'text-amber-700' if block.race_type_in_effect == 'rally' else 'text-gray-700' }}">{{ block.race_type_in_effect|title if block.race_type_in_effect else '—' }}</span>
+                    <span class="text-gray-400">({{ block.race_type_from }})</span>.
+                    {% endif %}
+                    Rallies are kept out of every statistic and leaderboard.
+                </div>
             </div>
             <div class="px-6 py-4 grid grid-cols-2 gap-6">
                 {% for lt in ('MS', 'HS') %}

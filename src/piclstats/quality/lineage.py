@@ -174,7 +174,12 @@ def rebuild_team_lineage(session: Session) -> int:
 
 def rebuild_seed_lineage(session: Session) -> dict[str, int]:
     """Division, event and conference folds performed by db/seed.py."""
-    from piclstats.db.seed import CONFERENCE_LINEAGE, COURSES, DIVISION_ALIASES
+    from piclstats.db.seed import (
+        CONFERENCE_LINEAGE,
+        COURSE_RACE_TYPE_SQL,
+        COURSES,
+        DIVISION_ALIASES,
+    )
 
     div_edges: list[dict] = []
     for alias, canonical in DIVISION_ALIASES.items():
@@ -197,14 +202,17 @@ def rebuild_seed_lineage(session: Session) -> dict[str, int]:
         )
 
     event_edges: list[dict] = []
-    for eid, name, etype, course, n in session.execute(
-        text("""
+    for eid, name, etype, course, flagged, n in session.execute(
+        text(f"""
         SELECT e.id, e.event_name, e.event_type, c.name,
+               {COURSE_RACE_TYPE_SQL} IS NOT NULL AND e.event_type <> 'exhibition',
                (SELECT count(*) FROM results WHERE event_id = e.id)
         FROM events e LEFT JOIN courses c ON c.id = e.course_id
         ORDER BY e.season, e.event_order
         """)
     ).all():
+        # 'manual' when the course-season race type flag decided (admin-
+        # editable); 'pattern' when only the event name did.
         event_edges.append(
             {
                 "stage": "event_classify",
@@ -213,7 +221,7 @@ def rebuild_seed_lineage(session: Session) -> dict[str, int]:
                 "raw_id": eid,
                 "source": "raceresult",
                 "origin": "db/seed.py:classify_event_types",
-                "mechanism": "pattern",
+                "mechanism": "manual" if flagged else "pattern",
                 "match_score": 1.0,
                 "volume": n,
             }
