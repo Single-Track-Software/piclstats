@@ -2,6 +2,7 @@
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Column,
     Date,
     DateTime,
@@ -135,6 +136,23 @@ course_loops = Table(
         postgresql_nulls_not_distinct=True,
     ),
     Index("idx_course_loops_course", "course_id"),
+)
+
+# Whether a venue hosts a points race or a rally that season. NULL season is
+# the course default; no row at all falls back to the event-name pattern.
+# events.event_type is resolved from this by seed.classify_event_types.
+course_race_types = Table(
+    "course_race_types",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("course_id", Integer, ForeignKey("courses.id"), nullable=False),
+    Column("season", SmallInteger),
+    Column("race_type", Text, nullable=False),  # 'race' | 'rally'
+    CheckConstraint("race_type IN ('race', 'rally')", name="ck_course_race_type"),
+    UniqueConstraint(
+        "course_id", "season", name="uq_course_race_type", postgresql_nulls_not_distinct=True
+    ),
+    Index("idx_course_race_types_course", "course_id"),
 )
 
 division_laps = Table(

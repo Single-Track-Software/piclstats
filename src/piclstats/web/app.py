@@ -497,6 +497,10 @@ def team_profile(
     )
 
 
+# Rows the leaderboard chart shows (the table shows everyone).
+CHART_ROWS = 25
+
+
 @app.get("/leaderboard", response_class=HTMLResponse)
 def leaderboard_page(
     request: Request,
@@ -530,11 +534,23 @@ def leaderboard_page(
                 limit=None,
                 direction=direction,
             )
+        # The total-points chart stacks each rider's bar by race (or by season
+        # for "All Seasons"), so a bad week shows. Only the charted rows.
+        points_by_event: list[dict] = []
+        if view != "teams" and metric == "total_points":
+            points_by_event = queries.leaderboard_points_by_event(
+                session,
+                season,
+                division or None,
+                gender or None,
+                rider_ids=[r["rider_id"] for r in results[:CHART_ROWS]],
+            )
     return templates.TemplateResponse(
         "leaderboard.html",
         _ctx(
             request,
             results=results,
+            points_by_event=points_by_event,
             seasons=seasons,
             divisions=divisions,
             season=season,
@@ -639,7 +655,8 @@ def _future_race_matrix(session, rider_data: dict) -> dict | None:
         return None
     gender, loop_type = timed[-1]["gender"], timed[-1]["loop_type"]
 
-    races = queries.upcoming_races(session, date.today())
+    # A rally is not scored, so there is no place to forecast (course flag).
+    races = [r for r in queries.upcoming_races(session, date.today()) if r["race_type"] != "rally"]
     seasons = queries.seasons_list(session)
     season = races[0]["season"] if races else (max(seasons) if seasons else date.today().year)
     races = [r for r in races if r["season"] == season]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from piclstats.quality.keys import team_key
@@ -834,6 +834,55 @@ def leaderboard(
     return [_serialize(r._mapping) for r in rows]
 
 
+def leaderboard_points_by_event(
+    session: Session,
+    season: int | None = None,
+    division: str | None = None,
+    gender: str | None = None,
+    rider_ids: list[int] | None = None,
+) -> list[dict]:
+    """Points each rider scored in each event, for the leaderboard's stacked bars.
+
+    Same population as `leaderboard` (published points events, placed, not
+    excluded) so the segments of a rider's bar add up to their total_points.
+    Keyed by (rider_id, division, gender) like the leaderboard rows are.
+    """
+    if not rider_ids:
+        return []
+    params: dict = {"rider_ids": tuple(rider_ids)}
+    filters: list[str] = [
+        "r.place IS NOT NULL AND r.dq_status <> 'excluded'",
+        _POINTS_ONLY,
+        "c.cid IN :rider_ids",
+    ]
+    if season:
+        filters.append("e.season = :season")
+        params["season"] = season
+    if division:
+        filters.append("r.division = :division")
+        params["division"] = division
+    if gender:
+        filters.append("r.gender = :gender")
+        params["gender"] = gender
+    where = " AND ".join(filters)
+    sql = f"""
+        WITH {_CANONICAL_CTE}
+        SELECT c.cid AS rider_id, r.division, r.gender,
+               e.id AS event_id, e.season, e.event_order, e.event_name,
+               co.name AS course,
+               sum(r.points) AS points
+        FROM results r
+        JOIN canonical c ON c.rider_id = r.rider_id
+        JOIN events e ON r.event_id = e.id AND e.is_published
+        LEFT JOIN courses co ON co.id = e.course_id
+        WHERE {where}
+        GROUP BY c.cid, r.division, r.gender, e.id, e.season, e.event_order, e.event_name, co.name
+        ORDER BY e.season, e.event_order, e.id
+    """
+    rows = session.execute(text(sql).bindparams(bindparam("rider_ids", expanding=True)), params)
+    return [_serialize(r._mapping) for r in rows]
+
+
 def team_leaderboard(
     session: Session,
     season: int | None = None,
@@ -1527,11 +1576,21 @@ def dnf_lap_context(session: Session, rider_id: int) -> list[dict]:
 
 
 def upcoming_races(session: Session, today) -> list[dict]:
-    """Scheduled races from `today` on, soonest first (/admin/schedule)."""
+    """Scheduled races from `today` on, soonest first (/admin/schedule).
+
+    `race_type` is the course-season flag ('race' | 'rally'), 'race' when unset.
+    """
     rows = session.execute(
         text("""
         SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference,
-               sr.course_id, c.name AS course
+               sr.course_id, c.name AS course,
+               COALESCE(
+                   (SELECT t.race_type FROM course_race_types t
+                     WHERE t.course_id = sr.course_id AND t.season = sr.season),
+                   (SELECT t.race_type FROM course_race_types t
+                     WHERE t.course_id = sr.course_id AND t.season IS NULL),
+                   'race'
+               ) AS race_type
         FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
         WHERE sr.event_date >= :today
         ORDER BY sr.event_date, sr.name

@@ -159,7 +159,12 @@
 {% if view == 'riders' and results and metric in ('avg_points', 'total_points', 'avg_place', 'best_place', 'races') %}
 <!-- Chart: first 25 rows in the current sort -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-8">
-    <h2 class="text-lg font-semibold text-gray-900 mb-4">Top {{ [results|length, 25] | min }} Riders by {{ metric.replace('_', ' ') }}</h2>
+    <h2 class="text-lg font-semibold text-gray-900 mb-1">Top {{ [results|length, 25] | min }} Riders by {{ metric.replace('_', ' ') }}</h2>
+    {% if metric == 'total_points' and points_by_event %}
+    <p class="text-sm text-gray-400 mb-4">Each bar is split by {{ 'season' if not season else 'race' }}, oldest first, so a missed or weak week stands out. Hover a segment for the points.</p>
+    {% else %}
+    <div class="mb-3"></div>
+    {% endif %}
     <canvas id="leaderChart" height="150"></canvas>
 </div>
 {% endif %}
@@ -170,25 +175,82 @@
 <script>
 const data = {{ results[:25] | tojson }};
 const metric = '{{ metric }}';
+const byEvent = {{ points_by_event | tojson }};
+const bySeason = {{ 'false' if season else 'true' }};
+const labels = data.map(r => r.name.length > 15 ? r.name.substring(0, 15) + '…' : r.name);
+// Stack key per leaderboard row: a rider who changed division has one row per division.
+const rowKey = r => `${r.rider_id}|${r.division || ''}|${r.gender || ''}`;
+
+let datasets, stacked = false;
+if (metric === 'total_points' && byEvent.length) {
+    // One segment per race (or per season for "All Seasons"), oldest first, so a
+    // bar reads left-to-right through the season. Single-hue ordinal ramp,
+    // light -> dark; past 6 segments the ramp repeats (adjacent steps still differ).
+    const RAMP = ['#9aa1f5', '#6a75f2', '#3d4bef', '#1020e8', '#0b16a7', '#070c5a'];
+    const segKey = p => bySeason ? String(p.season) : String(p.event_id);
+    const segments = [];
+    const seen = new Set();
+    for (const p of byEvent) {
+        const k = segKey(p);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        segments.push({
+            key: k,
+            label: bySeason ? String(p.season) : `#${p.event_order} ${p.course || p.event_name}`,
+            title: bySeason ? `${p.season} season` : p.event_name,
+        });
+    }
+    const n = segments.length;
+    const colorAt = i => n <= RAMP.length
+        ? RAMP[Math.round(i * (RAMP.length - 1) / Math.max(n - 1, 1))]
+        : RAMP[i % RAMP.length];
+    const rowIndex = new Map(data.map((r, i) => [rowKey(r), i]));
+    const points = segments.map(() => data.map(() => 0));
+    for (const p of byEvent) {
+        const i = rowIndex.get(rowKey(p));
+        const j = segments.findIndex(s => s.key === segKey(p));
+        if (i !== undefined && j >= 0) points[j][i] += p.points || 0;
+    }
+    datasets = segments.map((s, j) => ({
+        label: s.label,
+        title: s.title,
+        data: points[j],
+        backgroundColor: colorAt(j),
+        borderColor: '#ffffff',
+        borderWidth: 1,
+        borderSkipped: false,
+        borderRadius: j === n - 1 ? {topRight: 4, bottomRight: 4} : 0,
+    }));
+    stacked = true;
+} else {
+    datasets = [{
+        label: metric.replace('_', ' '),
+        data: data.map(r => r[metric]),
+        backgroundColor: 'rgba(16,32,232,0.2)',
+        borderColor: 'rgb(16,32,232)',
+        borderWidth: 1.5,
+        borderRadius: 4,
+    }];
+}
 new Chart(document.getElementById('leaderChart'), {
     type: 'bar',
-    data: {
-        labels: data.map(r => r.name.length > 15 ? r.name.substring(0, 15) + '…' : r.name),
-        datasets: [{
-            label: metric.replace('_', ' '),
-            data: data.map(r => r[metric]),
-            backgroundColor: 'rgba(16,32,232,0.2)',
-            borderColor: 'rgb(16,32,232)',
-            borderWidth: 1.5,
-            borderRadius: 4,
-        }]
-    },
+    data: {labels, datasets},
     options: {
         responsive: true,
         indexAxis: 'y',
-        plugins: {legend: {display: false}},
+        plugins: {
+            legend: {display: stacked, position: 'top', labels: {boxWidth: 12, boxHeight: 12}},
+            tooltip: stacked ? {
+                callbacks: {
+                    title: items => items.length ? data[items[0].dataIndex].name : '',
+                    label: item => `${item.dataset.title}: ${item.parsed.x} pts`,
+                    footer: items => items.length ? `Total: ${data[items[0].dataIndex].total_points} pts` : '',
+                },
+            } : {},
+        },
         scales: {
-            x: {beginAtZero: true},
+            x: {beginAtZero: true, stacked},
+            y: {stacked},
         }
     }
 });

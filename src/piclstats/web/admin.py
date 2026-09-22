@@ -23,7 +23,13 @@ from starlette.datastructures import FormData
 
 from piclstats.db import tokens_store, users_store
 from piclstats.db.engine import get_session
-from piclstats.db.seed import RIDDEN_LAPS_SQL, DIVISION_PROFILES, PROFILE_KEYS
+from piclstats.db.seed import (
+    DIVISION_PROFILES,
+    PROFILE_KEYS,
+    RACE_TYPES,
+    RIDDEN_LAPS_SQL,
+    classify_event_types,
+)
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import courses, events, scheduled_races
 from piclstats.web import mail
@@ -156,6 +162,27 @@ async def forecast_save(
     return RedirectResponse("/admin/forecast?saved=1", status_code=303)
 
 
+def race_type_summary(rows: list[tuple[int | None, str]]) -> str:
+    """One line for the courses table from (season, race_type) rows, season NULL = default.
+
+    The headline is the default, or the type most seasons carry; the seasons
+    of the other type follow: "Race", "Race · rally 2023", "Rally".
+    """
+    if not rows:
+        return ""
+    seasons_of = {
+        rt: sorted(season for season, r in rows if season is not None and r == rt)
+        for rt in RACE_TYPES
+    }
+    headline = next((rt for season, rt in rows if season is None), None) or max(
+        RACE_TYPES, key=lambda rt: len(seasons_of[rt])
+    )
+    others = [
+        f"{rt} {', '.join(map(str, ss))}" for rt, ss in seasons_of.items() if rt != headline and ss
+    ]
+    return headline.title() + (" · " + "; ".join(others) if others else "")
+
+
 @router.get("/courses", response_class=HTMLResponse)
 def courses_list(request: Request, _: str = Depends(require_admin)):
     # Only the per-loop (MS/HS) distance and elevation feed pace and forecast
@@ -176,9 +203,18 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
             SELECT course_id, season FROM course_loops WHERE season IS NOT NULL
             UNION
             SELECT course_id, season FROM division_laps WHERE season IS NOT NULL
+            UNION
+            SELECT course_id, season FROM course_race_types WHERE season IS NOT NULL
             ORDER BY course_id, season
         """)
         ).all()
+        type_rows = s.execute(
+            text("SELECT course_id, season, race_type FROM course_race_types ORDER BY season")
+        ).all()
+    grouped: dict[int, list[tuple[int | None, str]]] = {}
+    for course_id, season, race_type in type_rows:
+        grouped.setdefault(course_id, []).append((season, race_type))
+    types_by_course = {cid: race_type_summary(rows_) for cid, rows_ in grouped.items()}
     by_course: dict[int, dict[str, dict]] = {}
     for course_id, loop_type, dist, elev in loops:
         by_course.setdefault(course_id, {})[loop_type] = {
@@ -193,6 +229,7 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
             **row,
             "loops": by_course.get(row["id"], {}),
             "seasons": seasons_by_course.get(row["id"], []),
+            "race_types": types_by_course.get(row["id"], ""),
         }
         for row in rows
     ]
@@ -215,14 +252,19 @@ class ProfileForm:
 
     loops: dict[str, tuple[float | None, float | None]]  # loop_type -> (miles, ft)
     laps: dict[int, int | None]  # index into PROFILE_KEYS -> lap count
+    race_type: str | None = None  # 'race' | 'rally' | None (blank = default / by name)
 
 
 def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
-    """Parse the loop and lap fields of a season block. Raises ValueError on bad input."""
+    """Parse the loop, lap and race-type fields of a season block. Raises ValueError on bad input."""
 
     def opt_float(key: str) -> float | None:
         raw = form.get(key, "").strip()
         return float(raw) if raw else None
+
+    race_type: str | None = form.get("race_type", "").strip().lower() or None
+    if race_type is not None and race_type not in RACE_TYPES:
+        raise ValueError(f"Race type must be one of {', '.join(RACE_TYPES)}, got {race_type!r}")
 
     loops: dict[str, tuple[float | None, float | None]] = {}
     for loop_type in ("MS", "HS"):
@@ -241,7 +283,7 @@ def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
         if not 1 <= count <= 6:
             raise ValueError(f"Lap count must be 1-6, got {raw}")
         laps[i] = count
-    return ProfileForm(loops=loops, laps=laps)
+    return ProfileForm(loops=loops, laps=laps, race_type=race_type)
 
 
 def _season_key(season: int | None) -> str:
@@ -267,6 +309,7 @@ def _course_seasons(s: Session, course_id: int) -> list[int]:
         SELECT season FROM events WHERE course_id = :cid AND season > 0
         UNION SELECT season FROM course_loops WHERE course_id = :cid AND season IS NOT NULL
         UNION SELECT season FROM division_laps WHERE course_id = :cid AND season IS NOT NULL
+        UNION SELECT season FROM course_race_types WHERE course_id = :cid AND season IS NOT NULL
         ORDER BY season DESC
     """),
         {"cid": course_id},
@@ -318,6 +361,36 @@ def _profile_block(
         {"cid": course_id, "season": season},
     ).all()
 
+    type_rows = s.execute(
+        text("""
+        SELECT season, race_type FROM course_race_types
+        WHERE course_id = :cid AND (season IS NULL OR season = :season)
+    """),
+        {"cid": course_id, "season": season},
+    ).all()
+    own_type = next((r[1] for r in type_rows if r[0] == season), None)
+    default_type = next((r[1] for r in type_rows if r[0] is None), None)
+    # What classify_event_types will use: the season row, else the default,
+    # else the '%rally%' name pattern. Shown beside the select.
+    if season is not None and own_type is None:
+        named_rally = s.execute(
+            text("""
+            SELECT bool_or(event_name ILIKE '%rally%') FROM events
+            WHERE course_id = :cid AND season = :season
+        """),
+            {"cid": course_id, "season": season},
+        ).scalar()
+    else:
+        named_rally = None
+    if own_type:
+        in_effect, in_effect_from = own_type, "this season"
+    elif default_type:
+        in_effect, in_effect_from = default_type, "course default"
+    elif named_rally is not None:
+        in_effect, in_effect_from = ("rally" if named_rally else "race"), "event name"
+    else:
+        in_effect, in_effect_from = None, "event name"
+
     loops: dict[str, dict] = {}
     for loop_type in ("MS", "HS"):
         own = next((r for r in loop_rows if r[0] == loop_type and r[3] == season), None)
@@ -352,7 +425,15 @@ def _profile_block(
                 ),
             }
         )
-    return {"season": season, "key": _season_key(season), "loops": loops, "laps": laps}
+    return {
+        "season": season,
+        "key": _season_key(season),
+        "race_type": own_type,
+        "race_type_in_effect": in_effect,
+        "race_type_from": in_effect_from,
+        "loops": loops,
+        "laps": laps,
+    }
 
 
 @router.get("/courses/{course_id}", response_class=HTMLResponse)
@@ -449,6 +530,24 @@ async def profile_save(
         if not exists:
             raise HTTPException(404, "Course not found")
 
+        if parsed.race_type is None:
+            s.execute(
+                text("""
+                DELETE FROM course_race_types
+                WHERE course_id = :cid AND season IS NOT DISTINCT FROM :season
+            """),
+                {"cid": course_id, "season": season},
+            )
+        else:
+            s.execute(
+                text("""
+                INSERT INTO course_race_types (course_id, season, race_type)
+                VALUES (:cid, :season, :rt)
+                ON CONFLICT (course_id, season) DO UPDATE SET race_type = :rt
+            """),
+                {"cid": course_id, "season": season, "rt": parsed.race_type},
+            )
+
         for loop_type, (dist, elev) in parsed.loops.items():
             params = {"cid": course_id, "lt": loop_type, "season": season}
             if dist is None and elev is None:
@@ -513,6 +612,7 @@ async def profile_save(
                     "lt": profile[5] if profile else None,
                 },
             )
+        classify_event_types(s)
         s.commit()
 
     return RedirectResponse(
