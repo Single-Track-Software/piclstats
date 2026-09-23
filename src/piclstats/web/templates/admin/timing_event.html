@@ -18,6 +18,7 @@
         <h2 class="text-lg font-semibold text-gray-900">Segments</h2>
         <div class="flex gap-4 text-sm">
             {% if segments %}<a href="/admin/timing/{{ event.id }}/codes" class="text-picl-700 hover:underline">Print station codes &rarr;</a>{% endif %}
+            <a href="/admin/timing/{{ event.id }}/live" class="text-picl-700 hover:underline">Live board &rarr;</a>
             <a href="/admin/timing/{{ event.id }}/crossings" class="text-picl-700 hover:underline">Crossings &rarr;</a>
             <a href="/admin/timing/{{ event.id }}/results" class="text-picl-700 hover:underline font-medium">Results &amp; flags &rarr;</a>
         </div>

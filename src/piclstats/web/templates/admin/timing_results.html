@@ -6,7 +6,10 @@
     <div class="mb-4 flex flex-wrap gap-3 text-sm">
         <a href="/admin/timing/{{ event.id }}" class="text-picl-700 hover:underline">&larr; {{ event.name }}</a>
         <a href="/admin/timing/{{ event.id }}/crossings" class="text-picl-700 hover:underline">Crossings</a>
+        <a href="/admin/timing/{{ event.id }}/live" class="text-picl-700 hover:underline">Live board</a>
         <a href="/admin/timing/{{ event.id }}/results.csv" class="text-picl-700 hover:underline">Download CSV</a>
+        <a href="/admin/timing/{{ event.id }}/audit.csv" class="text-picl-700 hover:underline" title="Every crossing, corrections included">Audit CSV</a>
+        <a href="/admin/timing/{{ event.id }}/audit.json" class="text-picl-700 hover:underline" title="Everything about this rally, for the archive">Audit JSON</a>
     </div>
     <div class="flex flex-wrap items-baseline justify-between gap-3 mb-1">
         <h1 class="text-2xl font-bold text-gray-900">Results &amp; flags</h1>

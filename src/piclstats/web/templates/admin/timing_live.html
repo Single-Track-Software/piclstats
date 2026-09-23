@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta http-equiv="refresh" content="{{ refresh }}">
+    <title>Live — {{ event.name }}</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-picl-900 text-white min-h-screen">
+<header class="px-6 py-4 border-b-4 border-gold-500 flex flex-wrap items-baseline justify-between gap-3">
+    <div>
+        <div class="text-[11px] uppercase tracking-[0.2em] text-gold-400 font-semibold">Provisional · refreshes every {{ refresh }}s</div>
+        <h1 class="text-2xl font-extrabold">{{ event.name }}</h1>
+    </div>
+    <div class="text-right text-sm text-picl-200">
+        <div class="font-mono text-lg text-white">{{ now.strftime('%H:%M:%S') }}</div>
+        <div>{% if blocking %}<span class="text-amber-300 font-semibold">{{ blocking }} flag{{ 's' if blocking != 1 }} to work</span>{% else %}<span class="text-green-300">no flags</span>{% endif %} · <a href="/admin/timing/{{ event.id }}/results" class="underline hover:text-white">results &amp; flags</a></div>
+    </div>
+</header>
+
+<!-- Stations: last sync per phone -->
+<div class="px-6 py-3 flex flex-wrap gap-2 text-xs border-b border-picl-700">
+    {% for d in stations %}
+    <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 {{ 'bg-red-900/60 text-red-200' if d.stale else 'bg-picl-800 text-picl-200' }}" title="{{ d.label or d.id }}">
+        <span class="w-2 h-2 rounded-full {{ 'bg-red-400' if d.stale else 'bg-green-400' }}"></span>
+        Seg {{ d.seq }} {{ d.kind }}{% if d.label %} · {{ d.label }}{% endif %}
+        · {% if d.age_s is none %}never{% elif d.age_s < 60 %}{{ d.age_s|int }}s ago{% else %}{{ (d.age_s / 60)|int }}m ago{% endif %}
+        {% if d.pending %}· <span class="text-amber-300">{{ d.pending }} waiting</span>{% endif %}
+    </span>
+    {% else %}
+    <span class="text-picl-200">No station has synced yet.</span>
+    {% endfor %}
+</div>
+
+<main class="px-6 py-6 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+    {% for cat, riders in by_cat.items() %}
+    <section class="bg-picl-800 rounded-xl border border-picl-700 overflow-hidden">
+        <div class="px-4 py-2 border-b border-picl-700 flex items-baseline justify-between">
+            <h2 class="font-semibold">{{ cat }}</h2>
+            <span class="text-xs text-picl-200">{{ riders | selectattr('status', 'equalto', 'OK') | list | length }} finished · {{ riders|length }} started</span>
+        </div>
+        <table class="w-full text-sm">
+            <thead class="text-[11px] uppercase tracking-wide text-picl-200">
+                <tr>
+                    <th class="text-right px-3 py-1.5">#</th>
+                    <th class="text-left px-2 py-1.5">Rider</th>
+                    {% for sg in segments %}<th class="text-right px-2 py-1.5">S{{ sg.seq }}</th>{% endfor %}
+                    <th class="text-right px-3 py-1.5">Total</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-picl-700/60">
+                {% for r in riders[:25] %}
+                <tr class="{{ 'text-picl-200' if r.status != 'OK' }}">
+                    <td class="px-3 py-1.5 text-right font-mono {{ 'text-gold-400 font-bold' if r.place == 1 }}">{{ r.place or ('DNF' if r.status == 'DNF' else '') }}</td>
+                    <td class="px-2 py-1.5 truncate max-w-[10rem]"><span class="font-mono text-xs text-picl-200 mr-1">{{ r.plate }}</span>{{ r.name }}</td>
+                    {% for sg in segments %}{% set st = r.segments.get(sg.id) %}
+                    <td class="px-2 py-1.5 text-right font-mono text-xs">{% if st is none %}<span class="text-picl-700">·</span>{% elif st.seconds is not none %}{{ fmt(st.seconds) }}{% else %}<span class="text-amber-300">…</span>{% endif %}</td>
+                    {% endfor %}
+                    <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ fmt(r.total_seconds) }}</td>
+                </tr>
+                {% endfor %}
+                {% if riders|length > 25 %}<tr><td colspan="{{ 3 + segments|length }}" class="px-3 py-1.5 text-xs text-picl-200">and {{ riders|length - 25 }} more</td></tr>{% endif %}
+            </tbody>
+        </table>
+    </section>
+    {% else %}
+    <div class="text-picl-200">Nothing recorded yet.</div>
+    {% endfor %}
+</main>
+</body>
+</html>
