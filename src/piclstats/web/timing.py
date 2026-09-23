@@ -1430,3 +1430,167 @@ def results_csv(event_id: int, _: dict = Depends(require_picl)):
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{name}-results.csv"'},
     )
+
+
+# ── Live board and audit export ────────────────────────────────────────────
+
+
+@router.get("/{event_id}/live", response_class=HTMLResponse)
+def live_board(
+    request: Request,
+    event_id: int,
+    refresh: int = 30,
+    _: dict = Depends(require_picl),
+):
+    """Provisional results during the event: refreshes itself, no interaction needed.
+
+    The same pairing as the results page, shown compactly per category with
+    each station's last sync, so the lead can leave it open on a laptop at
+    the finish and see the day take shape. Nothing here is final until the
+    flags are worked and the results approved.
+    """
+    with get_session() as s:
+        event = _load_event(s, event_id)
+        inp = _rec_inputs(s, event_id)
+        devices = _devices(s, event_id)
+    rec: tr.Reconciliation = inp["rec"]
+    by_cat: dict[str, list[tr.RiderResult]] = {}
+    for r in rec.riders:
+        if r.status == "DNS":
+            continue
+        by_cat.setdefault(r.category or "No category", []).append(r)
+    now = datetime.now(timezone.utc)
+    stations = []
+    for d in devices:
+        age = (now - d["last_seen_at"]).total_seconds() if d["last_seen_at"] else None
+        stations.append({**d, "age_s": age, "stale": age is None or age > 300})
+    refresh = refresh if 10 <= refresh <= 600 else 30
+    return templates.TemplateResponse(
+        "admin/timing_live.html",
+        {
+            "request": request,
+            "event": event,
+            "segments": inp["segments"],
+            "by_cat": by_cat,
+            "blocking": len(rec.blocking),
+            "stations": stations,
+            "refresh": refresh,
+            "now": now.astimezone(LEAGUE_TZ),
+            "fmt": tr.format_seconds,
+        },
+    )
+
+
+@router.get("/{event_id}/audit.json")
+def audit_json(event_id: int, _: dict = Depends(require_picl)):
+    """The full history of the rally: every crossing (originals, corrections, manual),
+    penalties, accepted flags, devices, roster and segments. Requirement N7."""
+    with get_session() as s:
+        event = _load_event(s, event_id)
+
+        def rows(sql: str) -> list[dict[str, Any]]:
+            return [
+                {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in dict(r).items()}
+                for r in s.execute(text(sql), {"e": event_id}).mappings()
+            ]
+
+        payload = {
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "event": {
+                k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in event.items()
+            },
+            "segments": rows(
+                "SELECT sg.id, sg.seq, sg.name, sg.distance_miles, sg.elevation_ft, sg.elevation_loss_ft, "
+                "sg.rides_hs, sg.rides_ms, p.id AS point_id, p.kind, p.station_code "
+                "FROM timing_segments sg JOIN timing_points p ON p.segment_id = sg.id "
+                "WHERE sg.timing_event_id = :e ORDER BY sg.seq, p.kind DESC"
+            ),
+            "roster": rows(
+                "SELECT plate, name, team, category, source FROM timing_roster WHERE timing_event_id = :e ORDER BY plate"
+            ),
+            "devices": rows(
+                "SELECT id, point_id, label, user_agent, joined_at, last_seen_at, offset_ms, offset_drift_ms, pending "
+                "FROM timing_devices WHERE timing_event_id = :e ORDER BY joined_at"
+            ),
+            "crossings": rows(
+                "SELECT id, point_id, device_id, device_ts, offset_ms, ts, plate, kind, supersedes, voided, note, "
+                "author, received_at FROM timing_crossings WHERE timing_event_id = :e ORDER BY received_at, id"
+            ),
+            "adjustments": rows(
+                "SELECT id, plate, segment_id, seconds, reason, author, created_at FROM timing_adjustments "
+                "WHERE timing_event_id = :e ORDER BY created_at"
+            ),
+            "accepted_flags": rows(
+                "SELECT flag_key, note, author, created_at FROM timing_flag_overrides WHERE timing_event_id = :e "
+                "ORDER BY created_at"
+            ),
+        }
+    name = re.sub(r"[^A-Za-z0-9]+", "-", f"{event['season']}-{event['name']}").strip("-").lower()
+    return Response(
+        json.dumps(payload, indent=1),
+        media_type="application/json",
+        headers={"Content-Disposition": f'attachment; filename="{name}-audit.json"'},
+    )
+
+
+@router.get("/{event_id}/audit.csv")
+def audit_csv(event_id: int, _: dict = Depends(require_picl)):
+    """Every crossing row, corrections included, one line each, for a spreadsheet."""
+    import csv
+    import io
+
+    with get_session() as s:
+        event = _load_event(s, event_id)
+        seg_rows = _segments(s, event_id)
+        points = {p["id"]: (sg["seq"], kind) for sg in seg_rows for kind, p in sg["points"].items()}
+        rows = s.execute(
+            text(
+                "SELECT id, point_id, device_id, ts, plate, kind, supersedes, voided, note, author, received_at "
+                "FROM timing_crossings WHERE timing_event_id = :e ORDER BY ts, received_at, id"
+            ),
+            {"e": event_id},
+        ).all()
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(
+        [
+            "id",
+            "segment",
+            "point",
+            "time_local",
+            "time_utc",
+            "plate",
+            "kind",
+            "supersedes",
+            "voided",
+            "note",
+            "author",
+            "device",
+            "received_at",
+        ]
+    )
+    for r in rows:
+        seq, kind = points.get(r[1], ("?", "?"))
+        w.writerow(
+            [
+                r[0],
+                seq,
+                kind,
+                r[3].astimezone(LEAGUE_TZ).strftime("%H:%M:%S.%f")[:-5],
+                r[3].isoformat(),
+                r[4] or "",
+                r[5],
+                r[6] or "",
+                "yes" if r[7] else "",
+                r[8] or "",
+                r[9],
+                r[2] or "",
+                r[10].isoformat(),
+            ]
+        )
+    name = re.sub(r"[^A-Za-z0-9]+", "-", f"{event['season']}-{event['name']}").strip("-").lower()
+    return Response(
+        buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{name}-audit.csv"'},
+    )
