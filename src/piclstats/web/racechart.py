@@ -23,7 +23,7 @@ _LAP_KEYS = ("lap1", "lap2", "lap3", "lap4", "lap5", "lap6")
 # A small, high-contrast palette cycled across riders. Lead riders (drawn last)
 # read clearest; the table beneath the chart is the authoritative key.
 _PALETTE = [
-    "#1020e8",
+    "#1e4478",
     "#e8590c",
     "#2f9e44",
     "#c2255c",

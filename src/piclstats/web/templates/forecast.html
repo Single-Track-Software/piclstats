@@ -466,8 +466,8 @@
         data: {
             labels: labels,
             datasets: [
-                {label: 'z — pace (normalized)', data: zPace, borderColor: 'rgb(16,32,232)',
-                 backgroundColor: 'rgba(16,32,232,0.1)', tension: 0.3, spanGaps: true,
+                {label: 'z — pace (normalized)', data: zPace, borderColor: 'rgb(42,90,153)',
+                 backgroundColor: 'rgba(42,90,153,0.1)', tension: 0.3, spanGaps: true,
                  pointRadius: 4, borderWidth: 2},
                 {label: 'z — lap time (PICL-exact)', data: zLap, borderColor: 'rgb(234,88,12)',
                  borderDash: [5, 5], tension: 0.3, spanGaps: true, pointRadius: 3, borderWidth: 1.5},
@@ -497,12 +497,12 @@ new Chart(document.getElementById('paceSparkline'), {
         labels: sparkLabels.map((_, i) => i + 1),
         datasets: [{
             data: sparkData,
-            borderColor: 'rgb(16,32,232)',
-            backgroundColor: 'rgba(16,32,232,0.1)',
+            borderColor: 'rgb(42,90,153)',
+            backgroundColor: 'rgba(42,90,153,0.1)',
             fill: true,
             tension: 0.3,
             pointRadius: 3,
-            pointBackgroundColor: 'rgb(16,32,232)',
+            pointBackgroundColor: 'rgb(42,90,153)',
             borderWidth: 2,
         }]
     },
@@ -550,11 +550,11 @@ const allPaces = {{ forecast | attr('predicted_min_per_mile') }};
     // Find rider's bin
     const riderBinIdx = Math.round((riderPace - minPace) / binWidth);
     const bgColors = bins.map((_, i) => {
-        if (i === riderBinIdx) return 'rgba(16,32,232,0.8)';
+        if (i === riderBinIdx) return 'rgba(42,90,153,0.8)';
         return 'rgba(148,163,184,0.3)';
     });
     const borderColors = bins.map((_, i) => {
-        if (i === riderBinIdx) return 'rgb(16,32,232)';
+        if (i === riderBinIdx) return 'rgb(42,90,153)';
         return 'rgba(148,163,184,0.5)';
     });
 
