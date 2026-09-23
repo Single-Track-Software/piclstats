@@ -126,7 +126,8 @@ course_loops = Table(
     Column("course_id", Integer, nullable=False),
     Column("loop_type", Text, nullable=False),  # 'MS' or 'HS'
     Column("distance_miles", Float),
-    Column("elevation_ft", Float),
+    Column("elevation_ft", Float),  # gain per lap
+    Column("elevation_loss_ft", Float),  # descent per lap
     Column("season", SmallInteger),  # NULL = default for every season
     UniqueConstraint(
         "course_id",
@@ -438,7 +439,8 @@ timing_segments = Table(
     Column("seq", SmallInteger, nullable=False),
     Column("name", Text, nullable=False),
     Column("distance_miles", Float),
-    Column("elevation_ft", Float),
+    Column("elevation_ft", Float),  # gain
+    Column("elevation_loss_ft", Float),  # descent
     Column("rides_hs", Boolean, nullable=False, server_default="true"),  # HS rides this segment
     Column("rides_ms", Boolean, nullable=False, server_default="true"),  # MS rides this segment
     UniqueConstraint("timing_event_id", "seq", name="uq_timing_segment_seq"),

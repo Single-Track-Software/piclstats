@@ -194,7 +194,7 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
         )
         loops = s.execute(
             text("""
-            SELECT course_id, loop_type, distance_miles, elevation_ft
+            SELECT course_id, loop_type, distance_miles, elevation_ft, elevation_loss_ft
             FROM course_loops WHERE season IS NULL
         """)
         ).all()
@@ -216,10 +216,11 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
         grouped.setdefault(course_id, []).append((season, race_type))
     types_by_course = {cid: race_type_summary(rows_) for cid, rows_ in grouped.items()}
     by_course: dict[int, dict[str, dict]] = {}
-    for course_id, loop_type, dist, elev in loops:
+    for course_id, loop_type, dist, elev, loss in loops:
         by_course.setdefault(course_id, {})[loop_type] = {
             "distance_miles": dist,
             "elevation_ft": elev,
+            "elevation_loss_ft": loss,
         }
     seasons_by_course: dict[int, list[int]] = {}
     for course_id, season in season_rows:
@@ -250,7 +251,7 @@ def courses_list(request: Request, _: str = Depends(require_admin)):
 class ProfileForm:
     """Parsed per-season profile form. None = field left blank."""
 
-    loops: dict[str, tuple[float | None, float | None]]  # loop_type -> (miles, ft)
+    loops: dict[str, tuple[float | None, float | None, float | None]]  # -> (miles, gain, loss)
     laps: dict[int, int | None]  # index into PROFILE_KEYS -> lap count
     race_type: str | None = None  # 'race' | 'rally' | None (blank = default / by name)
 
@@ -266,12 +267,13 @@ def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
     if race_type is not None and race_type not in RACE_TYPES:
         raise ValueError(f"Race type must be one of {', '.join(RACE_TYPES)}, got {race_type!r}")
 
-    loops: dict[str, tuple[float | None, float | None]] = {}
+    loops: dict[str, tuple[float | None, float | None, float | None]] = {}
     for loop_type in ("MS", "HS"):
         prefix = loop_type.lower()
         loops[loop_type] = (
             opt_float(f"{prefix}_distance_miles"),
             opt_float(f"{prefix}_elevation_ft"),
+            opt_float(f"{prefix}_elevation_loss_ft"),
         )
     laps: dict[int, int | None] = {}
     for i in range(len(PROFILE_KEYS)):
@@ -346,7 +348,7 @@ def _profile_block(
     """Everything the template needs to render one season block (or the defaults)."""
     loop_rows = s.execute(
         text("""
-        SELECT loop_type, distance_miles, elevation_ft, season
+        SELECT loop_type, distance_miles, elevation_ft, season, elevation_loss_ft
         FROM course_loops
         WHERE course_id = :cid AND (season IS NULL OR season = :season)
     """),
@@ -398,8 +400,10 @@ def _profile_block(
         loops[loop_type] = {
             "distance_miles": own[1] if own else None,
             "elevation_ft": own[2] if own else None,
+            "elevation_loss_ft": own[4] if own else None,
             "fallback_distance": default[1] if default else None,
             "fallback_elevation": default[2] if default else None,
+            "fallback_loss": default[4] if default else None,
         }
 
     laps = []
@@ -548,9 +552,9 @@ async def profile_save(
                 {"cid": course_id, "season": season, "rt": parsed.race_type},
             )
 
-        for loop_type, (dist, elev) in parsed.loops.items():
+        for loop_type, (dist, elev, loss) in parsed.loops.items():
             params = {"cid": course_id, "lt": loop_type, "season": season}
-            if dist is None and elev is None:
+            if dist is None and elev is None and loss is None:
                 if season is not None:
                     s.execute(
                         text("""
@@ -562,12 +566,14 @@ async def profile_save(
                 continue
             s.execute(
                 text("""
-                INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft, season)
-                VALUES (:cid, :lt, :dist, :elev, :season)
+                INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft,
+                    elevation_loss_ft, season)
+                VALUES (:cid, :lt, :dist, :elev, :loss, :season)
                 ON CONFLICT (course_id, loop_type, season)
-                DO UPDATE SET distance_miles = :dist, elevation_ft = :elev
+                DO UPDATE SET distance_miles = :dist, elevation_ft = :elev,
+                    elevation_loss_ft = :loss
             """),
-                {**params, "dist": dist, "elev": elev},
+                {**params, "dist": dist, "elev": elev, "loss": loss},
             )
 
         for i, (division, gender) in enumerate(PROFILE_KEYS):

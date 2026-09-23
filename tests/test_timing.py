@@ -53,9 +53,16 @@ def test_segment_form_parses_numbers_and_groups():
     from piclstats.web.timing import parse_segment_form
 
     seg = parse_segment_form(
-        {"name": " Ridge ", "distance_miles": "1.4", "elevation_ft": "210", "rides_hs": "1"}
+        {
+            "name": " Ridge ",
+            "distance_miles": "1.4",
+            "elevation_ft": "40",
+            "elevation_loss_ft": "310",
+            "rides_hs": "1",
+        }
     )
-    assert (seg.name, seg.distance_miles, seg.elevation_ft) == ("Ridge", 1.4, 210.0)
+    assert (seg.name, seg.distance_miles, seg.elevation_ft) == ("Ridge", 1.4, 40.0)
+    assert seg.elevation_loss_ft == 310.0
     assert (seg.rides_hs, seg.rides_ms) == (True, False)
     blank = parse_segment_form({"name": "Creek", "rides_hs": "1", "rides_ms": "1"})
     assert blank.distance_miles is None and blank.elevation_ft is None

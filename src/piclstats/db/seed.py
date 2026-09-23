@@ -268,8 +268,9 @@ def seed_season_profiles(session: Session) -> tuple[int, int]:
     for course_id, season in course_seasons:
         result = session.execute(
             text("""
-            INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft, season)
-            SELECT course_id, loop_type, distance_miles, elevation_ft, :season
+            INSERT INTO course_loops (course_id, loop_type, distance_miles, elevation_ft,
+                elevation_loss_ft, season)
+            SELECT course_id, loop_type, distance_miles, elevation_ft, elevation_loss_ft, :season
             FROM course_loops
             WHERE course_id = :cid AND season IS NULL
             ON CONFLICT (course_id, loop_type, season) DO NOTHING

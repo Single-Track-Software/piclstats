@@ -12,7 +12,7 @@ def _lap_key(division: str, gender: str | None) -> str:
 
 def test_blank_fields_parse_as_none():
     parsed = parse_profile_form({})
-    assert parsed.loops == {"MS": (None, None), "HS": (None, None)}
+    assert parsed.loops == {"MS": (None, None, None), "HS": (None, None, None)}
     assert all(v is None for v in parsed.laps.values())
     assert len(parsed.laps) == len(PROFILE_KEYS)
 
@@ -23,12 +23,13 @@ def test_loop_and_lap_values_round_trip():
             "ms_distance_miles": "2.1",
             "ms_elevation_ft": "245",
             "hs_distance_miles": " 3.4 ",
+            "hs_elevation_loss_ft": "410",
             _lap_key("Varsity", "Male"): "3",
             _lap_key("Single Lap High School", None): "1",
         }
     )
-    assert parsed.loops["MS"] == (2.1, 245.0)
-    assert parsed.loops["HS"] == (3.4, None)
+    assert parsed.loops["MS"] == (2.1, 245.0, None)
+    assert parsed.loops["HS"] == (3.4, None, 410.0)
     assert parsed.laps[PROFILE_KEYS.index(("Varsity", "Male"))] == 3
     assert parsed.laps[PROFILE_KEYS.index(("Single Lap High School", None))] == 1
     assert parsed.laps[PROFILE_KEYS.index(("JV1", "Female"))] is None

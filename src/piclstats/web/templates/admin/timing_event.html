@@ -18,7 +18,7 @@
         <h2 class="text-lg font-semibold text-gray-900">Segments</h2>
         {% if segments %}<a href="/admin/timing/{{ event.id }}/codes" class="text-sm text-picl-700 hover:underline">Print station codes &rarr;</a>{% endif %}
     </div>
-    <p class="text-xs text-gray-500 mb-3">Each segment gets a start station and a finish station. The code is what a volunteer scans or types to join that station; keep the sheet with the timing lead. Distance and gain give per-mile pace; HS / MS says which groups ride the segment, so a rider's total only counts the segments their group rode.</p>
+    <p class="text-xs text-gray-500 mb-3">Each segment gets a start station and a finish station. The code is what a volunteer scans or types to join that station; keep the sheet with the timing lead. Distance, gain and loss give per-mile pace and how much of a segment is descent; HS / MS says which groups ride the segment, so a rider's total only counts the segments their group rode.</p>
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-3">
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-gray-700">
@@ -27,6 +27,7 @@
                     <th class="text-left px-3 py-2">Segment</th>
                     <th class="text-right px-3 py-2">Miles</th>
                     <th class="text-right px-3 py-2">Gain (ft)</th>
+                    <th class="text-right px-3 py-2">Loss (ft)</th>
                     <th class="text-left px-3 py-2">Ridden by</th>
                     <th class="text-left px-3 py-2">Start code</th>
                     <th class="text-left px-3 py-2">Finish code</th>
@@ -40,6 +41,7 @@
                     <td class="px-3 py-2"><input form="seg-{{ sg.id }}" type="text" name="name" value="{{ sg.name }}" required class="{{ input }} w-48"></td>
                     <td class="px-3 py-2"><input form="seg-{{ sg.id }}" type="number" step="0.01" min="0" name="distance_miles" value="{{ sg.distance_miles if sg.distance_miles is not none else '' }}" class="{{ input }} w-20 text-right font-mono"></td>
                     <td class="px-3 py-2"><input form="seg-{{ sg.id }}" type="number" step="1" min="0" name="elevation_ft" value="{{ sg.elevation_ft|int if sg.elevation_ft is not none else '' }}" class="{{ input }} w-20 text-right font-mono"></td>
+                    <td class="px-3 py-2"><input form="seg-{{ sg.id }}" type="number" step="1" min="0" name="elevation_loss_ft" value="{{ sg.elevation_loss_ft|int if sg.elevation_loss_ft is not none else '' }}" class="{{ input }} w-20 text-right font-mono"></td>
                     <td class="px-3 py-2 whitespace-nowrap text-xs">
                         <label class="mr-2"><input form="seg-{{ sg.id }}" type="checkbox" name="rides_hs" value="1" {{ 'checked' if sg.rides_hs }}> HS</label>
                         <label><input form="seg-{{ sg.id }}" type="checkbox" name="rides_ms" value="1" {{ 'checked' if sg.rides_ms }}> MS</label>
@@ -54,7 +56,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="8" class="px-3 py-6 text-center text-gray-400">No segments yet. Add the first one below.</td></tr>
+                <tr><td colspan="9" class="px-3 py-6 text-center text-gray-400">No segments yet. Add the first one below.</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -66,6 +68,7 @@
         </div>
         <div><label class="block text-xs text-gray-500 mb-1">Miles</label><input type="number" step="0.01" min="0" name="distance_miles" class="{{ input }} w-20 text-right font-mono"></div>
         <div><label class="block text-xs text-gray-500 mb-1">Gain (ft)</label><input type="number" step="1" min="0" name="elevation_ft" class="{{ input }} w-20 text-right font-mono"></div>
+        <div><label class="block text-xs text-gray-500 mb-1">Loss (ft)</label><input type="number" step="1" min="0" name="elevation_loss_ft" class="{{ input }} w-20 text-right font-mono"></div>
         <div class="text-xs pb-2 whitespace-nowrap">
             <label class="mr-2"><input type="checkbox" name="rides_hs" value="1" checked> HS</label>
             <label><input type="checkbox" name="rides_ms" value="1" checked> MS</label>

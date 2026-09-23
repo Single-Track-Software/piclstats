@@ -53,7 +53,8 @@ def upgrade() -> None:
         sa.Column("seq", sa.SmallInteger, nullable=False),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("distance_miles", sa.Float),
-        sa.Column("elevation_ft", sa.Float),
+        sa.Column("elevation_ft", sa.Float),  # gain
+        sa.Column("elevation_loss_ft", sa.Float),  # descent — rally segments are mostly downhill
         # Which groups ride this segment. HS may ride more segments than MS;
         # a rider's total is the sum of the segments their group rides.
         sa.Column("rides_hs", sa.Boolean, nullable=False, server_default="true"),

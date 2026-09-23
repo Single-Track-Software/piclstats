@@ -150,7 +150,7 @@ def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
     """Segments in order, each with its distance, who rides it, and its start and finish point."""
     rows = s.execute(
         text("""
-        SELECT sg.id, sg.seq, sg.name, sg.distance_miles, sg.elevation_ft,
+        SELECT sg.id, sg.seq, sg.name, sg.distance_miles, sg.elevation_ft, sg.elevation_loss_ft,
                sg.rides_hs, sg.rides_ms, p.id AS point_id, p.kind, p.station_code
         FROM timing_segments sg
         LEFT JOIN timing_points p ON p.segment_id = sg.id
@@ -160,7 +160,7 @@ def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
         {"eid": event_id},
     ).all()
     segments: dict[int, dict[str, Any]] = {}
-    for sid, seq, name, dist, elev, hs, ms, point_id, kind, code in rows:
+    for sid, seq, name, dist, elev, loss, hs, ms, point_id, kind, code in rows:
         seg = segments.setdefault(
             sid,
             {
@@ -169,6 +169,7 @@ def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
                 "name": name,
                 "distance_miles": dist,
                 "elevation_ft": elev,
+                "elevation_loss_ft": loss,
                 "rides_hs": hs,
                 "rides_ms": ms,
                 "points": {},
@@ -183,7 +184,8 @@ def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
 class SegmentForm:
     name: str
     distance_miles: float | None
-    elevation_ft: float | None
+    elevation_ft: float | None  # gain
+    elevation_loss_ft: float | None  # descent
     rides_hs: bool
     rides_ms: bool
 
@@ -214,6 +216,7 @@ def parse_segment_form(form: Mapping[str, str]) -> SegmentForm:
         name=name,
         distance_miles=opt_float("distance_miles"),
         elevation_ft=opt_float("elevation_ft"),
+        elevation_loss_ft=opt_float("elevation_loss_ft"),
         rides_hs=rides_hs,
         rides_ms=rides_ms,
     )
@@ -236,8 +239,8 @@ def _add_segment(s: Session, event_id: int, seg: SegmentForm) -> int:
     seg_id = s.execute(
         text("""
         INSERT INTO timing_segments (timing_event_id, seq, name, distance_miles, elevation_ft,
-            rides_hs, rides_ms)
-        VALUES (:e, :seq, :name, :dist, :elev, :hs, :ms) RETURNING id
+            elevation_loss_ft, rides_hs, rides_ms)
+        VALUES (:e, :seq, :name, :dist, :elev, :loss, :hs, :ms) RETURNING id
     """),
         {
             "e": event_id,
@@ -245,6 +248,7 @@ def _add_segment(s: Session, event_id: int, seg: SegmentForm) -> int:
             "name": seg.name,
             "dist": seg.distance_miles,
             "elev": seg.elevation_ft,
+            "loss": seg.elevation_loss_ft,
             "hs": seg.rides_hs,
             "ms": seg.rides_ms,
         },
@@ -438,13 +442,14 @@ async def segment_update(
             text("""
             UPDATE timing_segments
             SET name = :n, distance_miles = :dist, elevation_ft = :elev,
-                rides_hs = :hs, rides_ms = :ms
+                elevation_loss_ft = :loss, rides_hs = :hs, rides_ms = :ms
             WHERE id = :sid AND timing_event_id = :e
         """),
             {
                 "n": seg.name,
                 "dist": seg.distance_miles,
                 "elev": seg.elevation_ft,
+                "loss": seg.elevation_loss_ft,
                 "hs": seg.rides_hs,
                 "ms": seg.rides_ms,
                 "sid": segment_id,

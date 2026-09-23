@@ -46,7 +46,7 @@ no cutoff; a rider who misses a later segment is a DNF; PICL wants CSV.
   scoring is known.
 - **No-internet transfer** is the station's export file plus AirDrop or
   Share; a last-resort import of that file on the lead's device.
-- **Segments carry distance, elevation gain, and which groups ride them**
+- **Segments carry distance, elevation gain and loss, and which groups ride them**
   (HS, MS, or both), on the timing event rather than the course profile: a
   rally's segments are that day's, and past seasons have no timing event. A
   rider's total is the sum of the segments their group rides, each segment is
