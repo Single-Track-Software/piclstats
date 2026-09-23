@@ -201,5 +201,10 @@
         </div>
         <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md text-sm">Save</button>
     </form>
+    {% if event.status != 'published' %}
+    <form method="post" action="/admin/timing/{{ event.id }}/delete" class="mb-8" onsubmit="return confirm('Delete this rally and every crossing recorded for it? This cannot be undone.')">
+        <button class="text-red-600 hover:underline text-xs">Delete this rally</button>
+    </form>
+    {% endif %}
 </div>
 {% endblock %}
