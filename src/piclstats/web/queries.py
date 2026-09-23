@@ -939,7 +939,9 @@ def courses_list(session: Session) -> list[dict]:
         text("""
         SELECT c.id, c.name, c.location, c.difficulty_score,
                ms.distance_miles AS ms_distance_miles, ms.elevation_ft AS ms_elevation_ft,
+               ms.elevation_loss_ft AS ms_elevation_loss_ft,
                hs.distance_miles AS hs_distance_miles, hs.elevation_ft AS hs_elevation_ft,
+               hs.elevation_loss_ft AS hs_elevation_loss_ft,
                count(DISTINCT e.id) AS event_count,
                count(r.id) AS result_count
         FROM courses c
@@ -949,7 +951,8 @@ def courses_list(session: Session) -> list[dict]:
             AND hs.season IS NULL
         LEFT JOIN events e ON e.course_id = c.id AND e.is_published
         LEFT JOIN results r ON r.event_id = e.id
-        GROUP BY c.id, ms.distance_miles, ms.elevation_ft, hs.distance_miles, hs.elevation_ft
+        GROUP BY c.id, ms.distance_miles, ms.elevation_ft, ms.elevation_loss_ft,
+                 hs.distance_miles, hs.elevation_ft, hs.elevation_loss_ft
         ORDER BY c.name
     """)
     ).all()
@@ -970,7 +973,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
     # Season rows win over the season-NULL defaults when a season is selected.
     loops = session.execute(
         text("""
-        SELECT DISTINCT ON (loop_type) loop_type, distance_miles, elevation_ft
+        SELECT DISTINCT ON (loop_type) loop_type, distance_miles, elevation_ft, elevation_loss_ft
         FROM course_loops
         WHERE course_id = :id AND (season IS NULL OR season = :season)
         ORDER BY loop_type, season NULLS LAST
@@ -1085,7 +1088,10 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         {"cid": course_id},
     ).all()
 
-    loops_dict = {r[0]: {"distance_miles": r[1], "elevation_ft": r[2]} for r in loops}
+    loops_dict = {
+        r[0]: {"distance_miles": r[1], "elevation_ft": r[2], "elevation_loss_ft": r[3]}
+        for r in loops
+    }
 
     return {
         "info": _serialize(info._mapping),

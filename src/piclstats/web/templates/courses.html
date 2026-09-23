@@ -27,8 +27,8 @@
         </div>
         {% if c.ms_distance_miles or c.hs_distance_miles %}
         <div class="mt-2 flex gap-3 text-xs text-gray-400">
-            {% if c.ms_distance_miles %}<span>MS {{ "%.1f"|format(c.ms_distance_miles) }} mi{% if c.ms_elevation_ft %} / {{ c.ms_elevation_ft|int }} ft{% endif %}</span>{% endif %}
-            {% if c.hs_distance_miles %}<span>HS {{ "%.1f"|format(c.hs_distance_miles) }} mi{% if c.hs_elevation_ft %} / {{ c.hs_elevation_ft|int }} ft{% endif %}</span>{% endif %}
+            {% if c.ms_distance_miles %}<span>MS {{ "%.1f"|format(c.ms_distance_miles) }} mi{% if c.ms_elevation_ft %} / +{{ c.ms_elevation_ft|int }}{% if c.ms_elevation_loss_ft %} &minus;{{ c.ms_elevation_loss_ft|int }}{% endif %} ft{% endif %}</span>{% endif %}
+            {% if c.hs_distance_miles %}<span>HS {{ "%.1f"|format(c.hs_distance_miles) }} mi{% if c.hs_elevation_ft %} / +{{ c.hs_elevation_ft|int }}{% if c.hs_elevation_loss_ft %} &minus;{{ c.hs_elevation_loss_ft|int }}{% endif %} ft{% endif %}</span>{% endif %}
         </div>
         {% endif %}
     </a>

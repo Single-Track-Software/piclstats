@@ -35,8 +35,8 @@
         <div class="text-2xl font-bold text-blue-600 mt-1">
             {% if ms.distance_miles %}{{ "%.2f"|format(ms.distance_miles) }} mi{% else %}~1.0 mi{% endif %}
         </div>
-        {% if ms.elevation_ft %}
-        <div class="text-xs text-gray-500 mt-1">{{ ms.elevation_ft|int }} ft gain</div>
+        {% if ms.elevation_ft or ms.elevation_loss_ft %}
+        <div class="text-xs text-gray-500 mt-1">{% if ms.elevation_ft %}{{ ms.elevation_ft|int }} ft gain{% endif %}{% if ms.elevation_ft and ms.elevation_loss_ft %} · {% endif %}{% if ms.elevation_loss_ft %}{{ ms.elevation_loss_ft|int }} ft loss{% endif %}</div>
         {% endif %}
         <div class="text-xs text-gray-400 mt-1">6th-8th Grade, MS Advanced</div>
     </div>
@@ -45,8 +45,8 @@
         <div class="text-2xl font-bold text-red-600 mt-1">
             {% if hs.distance_miles %}{{ "%.2f"|format(hs.distance_miles) }} mi{% else %}~1.5 mi{% endif %}
         </div>
-        {% if hs.elevation_ft %}
-        <div class="text-xs text-gray-500 mt-1">{{ hs.elevation_ft|int }} ft gain</div>
+        {% if hs.elevation_ft or hs.elevation_loss_ft %}
+        <div class="text-xs text-gray-500 mt-1">{% if hs.elevation_ft %}{{ hs.elevation_ft|int }} ft gain{% endif %}{% if hs.elevation_ft and hs.elevation_loss_ft %} · {% endif %}{% if hs.elevation_loss_ft %}{{ hs.elevation_loss_ft|int }} ft loss{% endif %}</div>
         {% endif %}
         <div class="text-xs text-gray-400 mt-1">JV3, JV2, JV1, Varsity</div>
     </div>
