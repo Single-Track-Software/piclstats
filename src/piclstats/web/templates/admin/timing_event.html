@@ -76,6 +76,45 @@
         <button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Add</button>
     </form>
 
+    <!-- Stations: every phone that has synced -->
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Stations <span class="text-sm font-normal text-gray-400">{{ devices|length }} phone{{ 's' if devices|length != 1 }} synced</span></h2>
+    <p class="text-xs text-gray-500 mb-3">Each phone that has joined a station and synced at least once. "Clock" is the phone's clock against the server; a phone whose clock moved more than {{ (drift_limit_ms / 1000)|round(1) }}s between syncs is flagged and its times need a look. A station with no signal all day appears here only after its export file is imported below.</p>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-3">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr>
+                    <th class="text-left px-3 py-2">Station</th>
+                    <th class="text-left px-3 py-2">Volunteer</th>
+                    <th class="text-left px-3 py-2">Last sync</th>
+                    <th class="text-right px-3 py-2">Received</th>
+                    <th class="text-right px-3 py-2">Waiting</th>
+                    <th class="text-right px-3 py-2">Clock</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for d in devices %}
+                <tr class="{{ 'bg-amber-50' if d.offset_drift_ms > drift_limit_ms }}">
+                    <td class="px-3 py-2">Seg {{ d.seq }} <span class="{{ 'text-green-700' if d.kind == 'start' else 'text-red-700' }} font-medium">{{ d.kind }}</span></td>
+                    <td class="px-3 py-2 text-gray-700">{{ d.label or '—' }}</td>
+                    <td class="px-3 py-2 text-gray-600 text-xs">{{ d.last_seen_at.strftime('%H:%M:%S') if d.last_seen_at else '—' }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ d.received }}</td>
+                    <td class="px-3 py-2 text-right font-mono {{ 'text-amber-700 font-semibold' if d.pending }}">{{ d.pending }}</td>
+                    <td class="px-3 py-2 text-right font-mono text-xs {{ 'text-amber-700 font-semibold' if d.offset_drift_ms > drift_limit_ms else 'text-gray-500' }}" title="offset from server clock; largest change seen between syncs">{{ '%+.1f'|format(d.offset_ms / 1000) if d.offset_ms is not none else '—' }}s{% if d.offset_drift_ms %} · drift {{ '%.1f'|format(d.offset_drift_ms / 1000) }}s{% endif %}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">No phone has synced yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <form method="post" action="/admin/timing/{{ event.id }}/import" enctype="multipart/form-data" class="flex flex-wrap items-end gap-2 mb-8">
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Import a station's export file (AirDropped or emailed from a phone that never got signal)</label>
+            <input type="file" name="file" accept="application/json,.json" required class="text-sm">
+        </div>
+        <button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Import</button>
+    </form>
+
     <!-- Roster -->
     <h2 class="text-lg font-semibold text-gray-900 mb-2">Roster <span class="text-sm font-normal text-gray-400">{{ roster|length }} plates</span></h2>
     <p class="text-xs text-gray-500 mb-3">Plates the stations validate against. Pull this season's riders from the race results (plates are stable across a season), paste a list, or add one at a time. A plate already on the roster is never overwritten.</p>

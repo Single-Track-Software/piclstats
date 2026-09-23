@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="theme-color" content="#0b1f3d">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Seg {{ station.seq }} {{ station.kind|title }} — PICL Timing</title>
+    <link rel="manifest" href="/timing/s/{{ code }}/manifest.webmanifest">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png">
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body class="bg-gray-50 text-gray-900 min-h-screen select-none">
+<script id="ctx" type="application/json">{{ ctx_json|safe }}</script>
+
+<!-- Header: what this phone is recording. Fixed so it is always visible. -->
+<header class="bg-picl-800 text-white px-4 py-3 sticky top-0 z-20 border-b-4 border-gold-500">
+    <div class="flex items-center justify-between gap-3">
+        <div class="min-w-0">
+            <div class="text-[11px] uppercase tracking-[0.2em] text-gold-400 font-semibold truncate">{{ station.event }}</div>
+            <div class="font-extrabold text-lg leading-tight truncate">Segment {{ station.seq }} · <span class="{{ 'text-green-300' if station.kind == 'start' else 'text-red-300' }}">{{ station.kind|upper }}</span></div>
+            <div class="text-xs text-picl-200 truncate">{{ station.segment }}</div>
+        </div>
+        <div class="text-right shrink-0">
+            <div id="clock" class="font-mono text-xl font-bold tabular-nums">--:--:--</div>
+            <div id="syncstate" class="text-[11px] text-picl-200">starting…</div>
+        </div>
+    </div>
+</header>
+
+<main class="px-4 py-4 pb-32 max-w-lg mx-auto">
+    <div id="closed" class="hidden mb-4 rounded-lg bg-red-50 border border-red-200 text-red-800 px-4 py-3 text-sm font-medium">This rally's results are closed. Nothing recorded here will be used.</div>
+
+    <!-- Volunteer name, asked once -->
+    <div id="who" class="hidden mb-4 bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <label class="block text-sm font-medium text-gray-700 mb-1">Your name (so the timing lead knows who ran this station)</label>
+        <div class="flex gap-2">
+            <input id="label" type="text" autocomplete="name" class="flex-1 rounded-lg border border-gray-300 px-3 py-3 text-base">
+            <button id="labelSave" class="bg-picl-700 text-white font-semibold px-4 rounded-lg">OK</button>
+        </div>
+    </div>
+
+    {% if station.kind == 'start' %}
+    <!-- START: plate first, then the countdown; the time is taken at GO. -->
+    <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <div class="flex items-center justify-between mb-2">
+            <label for="plate" class="text-sm font-medium text-gray-700">Next rider's plate</label>
+            <div class="text-xs text-gray-500">Interval
+                <select id="interval" class="ml-1 rounded border border-gray-300 px-2 py-1 text-sm font-mono">
+                    <option value="30">30s</option><option value="20">20s</option><option value="15">15s</option>
+                </select>
+            </div>
+        </div>
+        <input id="plate" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="go" placeholder="plate #"
+               class="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-3xl font-mono font-bold text-center tracking-widest focus:border-picl-500 focus:outline-none">
+        <div id="plateHint" class="mt-1 min-h-[1.25rem] text-sm text-gray-500 text-center">&nbsp;</div>
+        <button id="go" class="mt-3 w-full rounded-2xl bg-green-600 active:bg-green-700 text-white font-extrabold text-4xl py-8 shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
+            <span id="goLabel">READY</span>
+        </button>
+        <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
+            <span>Tap READY, then "Racer ready… 5-4-3-2-1-GO". The start time is taken at GO. Tap again to cancel.</span>
+        </div>
+        <div class="mt-3 flex items-center justify-between">
+            <div class="text-sm text-gray-500">Since last start</div>
+            <div id="sinceLast" class="font-mono text-2xl font-bold tabular-nums text-gray-400">—</div>
+        </div>
+        <button id="tapOnly" class="mt-3 w-full rounded-lg border-2 border-gray-300 text-gray-700 font-semibold py-3 text-base">Record now without a plate</button>
+    </section>
+    {% else %}
+    <!-- FINISH: one big button; plates attached afterwards. -->
+    <section class="mb-4">
+        <button id="record" class="w-full rounded-2xl bg-red-600 active:bg-red-700 text-white font-extrabold text-5xl py-14 shadow-md">
+            FINISH
+        </button>
+        <p class="mt-2 text-xs text-gray-500 text-center">Tap as the rider crosses. Several riders in a second: tap for each. Then type plates below, newest first.</p>
+    </section>
+    {% endif %}
+
+    <!-- Recorded crossings, newest first -->
+    <section>
+        <div class="flex items-baseline justify-between mb-2">
+            <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Recorded <span id="count" class="text-gray-400 font-normal normal-case"></span></h2>
+            <button id="showAll" class="text-xs text-picl-700 hover:underline">show all</button>
+        </div>
+        <ul id="list" class="space-y-2"></ul>
+    </section>
+</main>
+
+<!-- Footer: sync status and the last-resort export. -->
+<footer class="fixed bottom-0 inset-x-0 bg-white border-t border-gray-200 px-4 py-2 z-20">
+    <div class="max-w-lg mx-auto flex items-center justify-between gap-3 text-xs">
+        <div class="min-w-0">
+            <div id="pending" class="font-medium text-gray-800">0 waiting to sync</div>
+            <div id="lastSync" class="text-gray-500 truncate">never synced</div>
+        </div>
+        <div class="flex gap-2 shrink-0">
+            <button id="syncNow" class="border border-gray-300 rounded-lg px-3 py-2 font-medium text-gray-700">Sync</button>
+            <button id="export" class="border border-gray-300 rounded-lg px-3 py-2 font-medium text-gray-700">Export</button>
+        </div>
+    </div>
+</footer>
+
+<!-- Edit sheet for one crossing -->
+<div id="sheet" class="hidden fixed inset-0 z-30 bg-black/40 flex items-end">
+    <div class="bg-white w-full max-w-lg mx-auto rounded-t-2xl p-4 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+            <div><div id="sheetTime" class="font-mono text-2xl font-bold"></div><div class="text-xs text-gray-500">recorded time</div></div>
+            <button id="sheetClose" class="text-gray-500 text-sm px-3 py-2">Close</button>
+        </div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Plate</label>
+        <input id="sheetPlate" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done"
+               class="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-3xl font-mono font-bold text-center tracking-widest focus:border-picl-500 focus:outline-none">
+        <div id="sheetHint" class="mt-1 min-h-[1.25rem] text-sm text-gray-500 text-center">&nbsp;</div>
+        <label class="block text-sm font-medium text-gray-700 mt-3 mb-1">Note <span class="font-normal text-gray-400">(optional: "no plate visible", "DNF here", …)</span></label>
+        <input id="sheetNote" type="text" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-base">
+        <div class="mt-4 flex gap-2">
+            <button id="sheetSave" class="flex-1 bg-picl-700 text-white font-semibold rounded-lg py-3 text-base">Save</button>
+            <button id="sheetVoid" class="border border-red-300 text-red-700 font-semibold rounded-lg px-4 py-3 text-base">Void</button>
+        </div>
+        <p class="mt-2 text-[11px] text-gray-400">Changes never overwrite the original: a correction is recorded alongside it, with your name and the time.</p>
+    </div>
+</div>
+
+<script>
+(() => {
+const ctx = JSON.parse(document.getElementById('ctx').textContent);
+const CODE = ctx.code, KIND = ctx.point.kind;
+const roster = new Map(ctx.roster.map(r => [r.plate, r]));
+const $ = id => document.getElementById(id);
+
+// ── Identity and clock ─────────────────────────────────────────────────
+const ls = { get: (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } },
+             set: (k, v) => { try { localStorage.setItem(k, v); } catch {} } };
+const deviceId = ls.get('picl_timing_device') || (crypto.randomUUID ? crypto.randomUUID() : 'd-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+ls.set('picl_timing_device', deviceId);
+let label = ls.get('picl_timing_label', '');
+// offset = device clock − server clock (ms). Measured at load and every sync.
+let offset = Number(ls.get('picl_timing_offset_' + CODE, NaN));
+const loadedAt = Date.now();
+if (Number.isNaN(offset)) { offset = loadedAt - ctx.server_time_ms; ls.set('picl_timing_offset_' + CODE, String(offset)); }
+const serverNow = () => Date.now() - offset;
+const fmt = ms => { const d = new Date(ms); return d.toLocaleTimeString([], {hour12: false}) + '.' + Math.floor((ms % 1000) / 100); };
+setInterval(() => { $('clock').textContent = new Date(serverNow()).toLocaleTimeString([], {hour12: false}); tickSince(); }, 250);
+
+// ── Local store (IndexedDB) ────────────────────────────────────────────
+const DB = 'piclstats_timing', STORE = 'crossings';
+const dbp = new Promise((res, rej) => {
+    const req = indexedDB.open(DB, 1);
+    req.onupgradeneeded = () => { const s = req.result.createObjectStore(STORE, {keyPath: 'id'}); s.createIndex('code', 'code'); };
+    req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+});
+async function tx(mode, fn) { const db = await dbp; return new Promise((res, rej) => { const t = db.transaction(STORE, mode); const r = fn(t.objectStore(STORE)); t.oncomplete = () => res(r && r.result !== undefined ? r.result : r); t.onerror = () => rej(t.error); }); }
+async function allLocal() { const db = await dbp; return new Promise((res, rej) => { const r = db.transaction(STORE).objectStore(STORE).index('code').getAll(CODE); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+const put = rec => tx('readwrite', s => s.put(rec));
+
+let records = [];   // every local crossing for this station, incl. corrections
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : 'c-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 12);
+
+// The effective view: originals, each overlaid by its latest correction.
+function effective() {
+    const byId = new Map(records.map(r => [r.id, r]));
+    const latest = new Map(); // original id -> latest correction
+    for (const r of records) if (r.kind === 'correction') {
+        let root = r.supersedes; while (byId.get(root)?.supersedes) root = byId.get(root).supersedes;
+        const cur = latest.get(root); if (!cur || r.device_ts_ms_created > cur.device_ts_ms_created) latest.set(root, r);
+    }
+    return records.filter(r => r.kind !== 'correction').map(o => { const c = latest.get(o.id); return {...o, plate: c ? c.plate : o.plate, note: c ? c.note : o.note, voided: c ? c.voided : o.voided, root: o.id}; })
+        .sort((a, b) => b.device_ts_ms - a.device_ts_ms);
+}
+async function record(plate, kind = 'tap', note = null) {
+    const rec = {id: uuid(), code: CODE, kind, device_ts_ms: Date.now(), device_ts_ms_created: Date.now(), offset_ms: Math.round(offset), plate: plate ?? null, supersedes: null, voided: false, note, synced: false};
+    records.push(rec); await put(rec); render(); scheduleSync(); return rec;
+}
+async function correct(root, plate, note, voided) {
+    const rec = {id: uuid(), code: CODE, kind: 'correction', device_ts_ms: root.device_ts_ms, device_ts_ms_created: Date.now(), offset_ms: root.offset_ms, plate: plate ?? null, supersedes: root.id, voided: !!voided, note: note || null, synced: false};
+    records.push(rec); await put(rec); render(); scheduleSync();
+}
+
+// ── Plate validation ───────────────────────────────────────────────────
+function plateInfo(raw, exceptRoot) {
+    const s = String(raw || '').trim();
+    if (!s) return {ok: false, text: ''};
+    if (!/^\d{1,5}$/.test(s)) return {ok: false, text: 'Plates are numbers'};
+    const plate = Number(s), r = roster.get(plate);
+    const dup = effective().some(x => !x.voided && x.plate === plate && x.root !== exceptRoot);
+    if (dup) return {ok: true, plate, warn: true, text: `⚠ ${plate} already recorded at this station` + (r ? ` (${r.name})` : '')};
+    if (!r) return {ok: true, plate, warn: true, text: `⚠ ${plate} not on the roster — recorded anyway`};
+    return {ok: true, plate, text: `${r.name}${r.team ? ' · ' + r.team : ''}${r.category ? ' · ' + r.category : ''}`};
+}
+function hint(el, info) { el.textContent = info.text || ' '; el.className = 'mt-1 min-h-[1.25rem] text-sm text-center ' + (info.warn ? 'text-amber-700 font-medium' : info.ok ? 'text-green-700' : 'text-gray-500'); }
+
+// ── Rendering ──────────────────────────────────────────────────────────
+let showAll = false;
+function render() {
+    const eff = effective(), live = eff.filter(r => !r.voided);
+    $('count').textContent = `${live.length} rider${live.length === 1 ? '' : 's'}`;
+    const rows = showAll ? eff : eff.slice(0, 12);
+    $('list').innerHTML = rows.map(r => {
+        const info = r.plate ? roster.get(r.plate) : null;
+        const cls = r.voided ? 'opacity-40 line-through' : (!r.plate ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white');
+        return `<li data-root="${r.root}" class="rounded-xl border ${cls} px-3 py-2 flex items-center gap-3 cursor-pointer">
+            <div class="font-mono text-base tabular-nums text-gray-700 shrink-0">${fmt(r.device_ts_ms - r.offset_ms)}</div>
+            <div class="flex-1 min-w-0">
+                <div class="font-mono text-2xl font-bold ${r.plate ? 'text-gray-900' : 'text-amber-700'}">${r.plate ?? 'no plate'}</div>
+                <div class="text-xs text-gray-500 truncate">${info ? info.name : (r.plate ? 'not on roster' : 'tap to enter plate')}${r.note ? ' · ' + r.note : ''}</div>
+            </div>
+            <div class="text-[10px] ${r.synced && !records.some(x => x.supersedes === r.root && !x.synced) ? 'text-green-600' : 'text-gray-400'}">${r.synced ? '✓' : '…'}</div>
+        </li>`;
+    }).join('') || '<li class="text-sm text-gray-400 text-center py-6">Nothing recorded yet.</li>';
+    if (eff.length > 12) $('showAll').textContent = showAll ? 'show recent' : `show all ${eff.length}`; else $('showAll').textContent = '';
+    const pending = records.filter(r => !r.synced).length;
+    $('pending').textContent = `${pending} waiting to sync`;
+    tickSince();
+}
+$('showAll').onclick = () => { showAll = !showAll; render(); };
+$('list').addEventListener('click', e => { const li = e.target.closest('li[data-root]'); if (li) openSheet(li.dataset.root); });
+
+// ── Edit sheet ─────────────────────────────────────────────────────────
+let sheetRoot = null;
+function openSheet(rootId) {
+    const r = effective().find(x => x.root === rootId); if (!r) return; sheetRoot = r;
+    $('sheetTime').textContent = fmt(r.device_ts_ms - r.offset_ms);
+    $('sheetPlate').value = r.plate ?? ''; $('sheetNote').value = r.note ?? '';
+    hint($('sheetHint'), plateInfo($('sheetPlate').value, r.root));
+    $('sheetVoid').textContent = r.voided ? 'Restore' : 'Void';
+    $('sheet').classList.remove('hidden'); setTimeout(() => $('sheetPlate').focus(), 50);
+}
+const closeSheet = () => { $('sheet').classList.add('hidden'); sheetRoot = null; };
+$('sheetClose').onclick = closeSheet;
+$('sheetPlate').oninput = () => hint($('sheetHint'), plateInfo($('sheetPlate').value, sheetRoot?.root));
+$('sheetPlate').onkeydown = e => { if (e.key === 'Enter') $('sheetSave').click(); };
+$('sheetSave').onclick = async () => {
+    if (!sheetRoot) return;
+    const info = plateInfo($('sheetPlate').value, sheetRoot.root); const plate = info.ok ? info.plate : null;
+    const note = $('sheetNote').value.trim() || null;
+    if (plate === (sheetRoot.plate ?? null) && note === (sheetRoot.note ?? null)) return closeSheet();
+    await correct(sheetRoot, plate, note, sheetRoot.voided); closeSheet();
+};
+$('sheetVoid').onclick = async () => {
+    if (!sheetRoot) return;
+    const note = $('sheetNote').value.trim() || (sheetRoot.voided ? 'restored' : 'voided at station');
+    await correct(sheetRoot, sheetRoot.plate, note, !sheetRoot.voided); closeSheet();
+};
+
+// ── Start station: plate first, countdown, time at GO ──────────────────
+let lastStart = null, countdown = null;
+function tickSince() {
+    const el = $('sinceLast'); if (!el) return;
+    if (!lastStart) { el.textContent = '—'; el.className = 'font-mono text-2xl font-bold tabular-nums text-gray-400'; return; }
+    const s = Math.floor((Date.now() - lastStart) / 1000), want = Number($('interval').value);
+    el.textContent = s + 's'; el.className = 'font-mono text-2xl font-bold tabular-nums ' + (s >= want ? 'text-green-600' : 'text-amber-600');
+}
+if (KIND === 'start') {
+    $('interval').value = ls.get('picl_timing_interval', String(ctx.interval_s));
+    $('interval').onchange = () => ls.set('picl_timing_interval', $('interval').value);
+    const plateEl = $('plate');
+    plateEl.oninput = () => hint($('plateHint'), plateInfo(plateEl.value));
+    plateEl.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); $('go').click(); } };
+    const beep = (() => { let ac; return (freq, ms) => { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = freq; o.connect(g); g.connect(ac.destination); g.gain.value = 0.2; o.start(); o.stop(ac.currentTime + ms / 1000); } catch {} }; })();
+    $('go').onclick = async () => {
+        if (countdown) { clearInterval(countdown); countdown = null; $('goLabel').textContent = 'READY'; $('go').className = $('go').className.replace('bg-amber-500', 'bg-green-600'); return; }
+        const info = plateInfo(plateEl.value); const plate = info.ok ? info.plate : null;
+        let n = 5; $('goLabel').textContent = n; $('go').className = $('go').className.replace('bg-green-600', 'bg-amber-500'); beep(660, 120);
+        countdown = setInterval(async () => {
+            n -= 1;
+            if (n > 0) { $('goLabel').textContent = n; beep(660, 120); return; }
+            clearInterval(countdown); countdown = null;
+            await record(plate, 'tap', null); lastStart = Date.now(); beep(990, 400);
+            $('goLabel').textContent = 'GO!'; plateEl.value = ''; hint($('plateHint'), {text: plate ? `#${plate} started` : 'started without a plate'});
+            setTimeout(() => { $('goLabel').textContent = 'READY'; $('go').className = $('go').className.replace('bg-amber-500', 'bg-green-600'); plateEl.focus(); }, 900);
+        }, 1000);
+    };
+    $('tapOnly').onclick = async () => { await record(null); lastStart = Date.now(); };
+} else {
+    $('record').onclick = async () => { const r = await record(null); if (navigator.vibrate) navigator.vibrate(40); };
+}
+
+// ── Sync ───────────────────────────────────────────────────────────────
+let syncTimer = null, syncing = false;
+function scheduleSync(delay = 1500) { clearTimeout(syncTimer); syncTimer = setTimeout(sync, delay); }
+function setState(text, cls = 'text-picl-200') { $('syncstate').textContent = text; $('syncstate').className = 'text-[11px] ' + cls; }
+async function sync() {
+    if (syncing) return; syncing = true;
+    const batch = records.filter(r => !r.synced).slice(0, 500);
+    const t0 = Date.now();
+    try {
+        const res = await fetch(`/timing/api/s/${CODE}/sync`, {method: 'POST', headers: {"Content-Type": "application/json"}, body: JSON.stringify({
+            device: {id: deviceId, label, user_agent: navigator.userAgent, pending: batch.length, offset_ms: Math.round(offset)},
+            client_time_ms: t0,
+            crossings: batch.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note})),
+        })});
+        const t1 = Date.now();
+        if (res.status === 409) { $('closed').classList.remove('hidden'); setState('closed', 'text-red-300'); return; }
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const ack = await res.json();
+        // Re-measure the clock: midpoint of the round trip against server time.
+        const measured = (t0 + t1) / 2 - ack.server_time_ms;
+        if (Math.abs(measured - offset) > 250) { offset = measured; ls.set('picl_timing_offset_' + CODE, String(offset)); }
+        const acked = new Set(ack.acked);
+        for (const r of records) if (acked.has(r.id) && !r.synced) { r.synced = true; await put(r); }
+        ls.set('picl_timing_lastsync_' + CODE, String(Date.now()));
+        $('lastSync').textContent = 'synced ' + new Date().toLocaleTimeString([], {hour12: false});
+        setState(ack.drift_ms > ack.drift_limit_ms ? `clock drift ${(ack.drift_ms/1000).toFixed(1)}s — tell the lead` : 'online · synced', ack.drift_ms > ack.drift_limit_ms ? 'text-amber-300' : 'text-green-300');
+        if (records.some(r => !r.synced)) scheduleSync(500);
+    } catch (e) {
+        setState(navigator.onLine ? 'sync failed — will retry' : 'offline — records kept on this phone', 'text-amber-300');
+    } finally { syncing = false; render(); }
+}
+window.addEventListener('online', () => scheduleSync(200));
+setInterval(() => { if (records.some(r => !r.synced)) scheduleSync(0); }, 20000);
+$('syncNow').onclick = () => scheduleSync(0);
+
+// ── Export (last resort: AirDrop / share the file to the lead) ─────────
+$('export').onclick = async () => {
+    const data = {code: CODE, event: ctx.event, segment: ctx.segment, point: ctx.point, device: {id: deviceId, label, user_agent: navigator.userAgent, offset_ms: Math.round(offset)}, exported_at_ms: Date.now(), crossings: records.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note}))};
+    const name = `picl-timing-${CODE}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    const file = new File([JSON.stringify(data, null, 1)], name, {type: 'application/json'});
+    if (navigator.canShare && navigator.canShare({files: [file]})) { try { await navigator.share({files: [file], title: name}); return; } catch {} }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click();
+};
+
+// ── Boot ───────────────────────────────────────────────────────────────
+(async () => {
+    records = await allLocal(); render();
+    const ls2 = ls.get('picl_timing_lastsync_' + CODE); if (ls2) $('lastSync').textContent = 'last synced ' + new Date(Number(ls2)).toLocaleTimeString([], {hour12: false});
+    if (ctx.closed) $('closed').classList.remove('hidden');
+    if (!label) { $('who').classList.remove('hidden'); } 
+    $('labelSave').onclick = () => { label = $('label').value.trim(); ls.set('picl_timing_label', label); $('who').classList.add('hidden'); scheduleSync(0); };
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/timing/sw.js').catch(() => {});
+    scheduleSync(0);
+})();
+})();
+</script>
+</body>
+</html>

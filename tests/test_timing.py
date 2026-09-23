@@ -82,3 +82,67 @@ def test_segment_form_rejects_bad_input(form):
 
     with pytest.raises(ValueError):
         parse_segment_form(form)
+
+
+# ── Station sync helpers (pure) ────────────────────────────────────────────
+
+
+def test_corrected_time_subtracts_the_device_offset():
+    from datetime import datetime, timezone
+
+    from piclstats.web.timing_station import corrected_ts
+
+    # Device clock 2.5s ahead of the server: the crossing happened 2.5s earlier than it says.
+    ts = corrected_ts(1_800_000_000_000, 2_500)
+    assert ts == datetime.fromtimestamp(1_799_999_997.5, tz=timezone.utc)
+
+
+def test_device_drift_keeps_the_largest_change():
+    from piclstats.web.timing_station import device_offset_update
+
+    assert device_offset_update(None, 0, 400) == (400, 0)
+    assert device_offset_update(400, 0, 1900) == (1900, 1500)
+    assert device_offset_update(1900, 1500, 1700) == (1700, 1500)
+
+
+def test_normalize_crossing_accepts_a_tap_and_a_correction():
+    from piclstats.web.timing_station import normalize_crossing
+
+    tap = normalize_crossing(
+        {
+            "id": "3f2a9c1e-0b7d-4f3a-9c1e-0b7d4f3a9c1e",
+            "device_ts_ms": 1_800_000_000_000,
+            "offset_ms": 12,
+            "plate": "1547",
+        }
+    )
+    assert tap["kind"] == "tap" and tap["plate"] == 1547 and tap["voided"] is False
+    fix = normalize_crossing(
+        {
+            "id": "c-abcdefgh",
+            "kind": "correction",
+            "supersedes": tap["id"],
+            "device_ts_ms": 1_800_000_000_000,
+            "voided": True,
+            "note": "  ",
+        }
+    )
+    assert fix["voided"] is True and fix["note"] is None and fix["supersedes"] == tap["id"]
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        {"id": "short", "device_ts_ms": 1_800_000_000_000},
+        {"id": "3f2a9c1e0b7d4f3a", "device_ts_ms": 12},
+        {"id": "3f2a9c1e0b7d4f3a", "device_ts_ms": 1_800_000_000_000, "kind": "photo"},
+        {"id": "3f2a9c1e0b7d4f3a", "device_ts_ms": 1_800_000_000_000, "plate": "abc"},
+        {"id": "3f2a9c1e0b7d4f3a", "device_ts_ms": 1_800_000_000_000, "kind": "correction"},
+        {"id": "3f2a9c1e0b7d4f3a", "device_ts_ms": 1_800_000_000_000, "plate": True},
+    ],
+)
+def test_normalize_crossing_rejects_bad_records(raw):
+    from piclstats.web.timing_station import normalize_crossing
+
+    with pytest.raises(ValueError):
+        normalize_crossing(raw)

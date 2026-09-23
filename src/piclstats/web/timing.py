@@ -11,6 +11,7 @@ Station pages, sync, reconciliation and publishing follow in later changes.
 
 from __future__ import annotations
 
+import json
 import re
 import secrets
 from collections.abc import Mapping
@@ -28,6 +29,7 @@ from starlette.datastructures import FormData
 
 from piclstats.db.engine import get_session, rowcount
 from piclstats.web.auth import build_link, require_picl, require_same_origin
+from piclstats.web.timing_station import DRIFT_LIMIT_MS, apply_sync, load_station
 from piclstats.web.templating import Jinja2Templates
 
 from pathlib import Path
@@ -222,6 +224,24 @@ def parse_segment_form(form: Mapping[str, str]) -> SegmentForm:
     )
 
 
+def _devices(s: Session, event_id: int) -> list[dict[str, Any]]:
+    """Every phone that has synced, with its clock offset and what it has sent."""
+    rows = s.execute(
+        text("""
+        SELECT d.id, d.label, d.joined_at, d.last_seen_at, d.offset_ms, d.offset_drift_ms,
+               d.pending, sg.seq, sg.name AS segment, p.kind,
+               (SELECT count(*) FROM timing_crossings c WHERE c.device_id = d.id) AS received
+        FROM timing_devices d
+        JOIN timing_points p ON p.id = d.point_id
+        JOIN timing_segments sg ON sg.id = p.segment_id
+        WHERE d.timing_event_id = :e
+        ORDER BY sg.seq, p.kind DESC, d.joined_at
+    """),
+        {"e": event_id},
+    ).mappings()
+    return [dict(r) for r in rows]
+
+
 def _next_seq(s: Session, event_id: int) -> int:
     return (
         s.execute(
@@ -372,6 +392,7 @@ def timing_event(
             ).all()
         ]
         courses = s.execute(text("SELECT id, name FROM courses ORDER BY name")).mappings().all()
+        devices = _devices(s, event_id)
     return templates.TemplateResponse(
         "admin/timing_event.html",
         {
@@ -381,6 +402,8 @@ def timing_event(
             "roster": [dict(r) for r in roster],
             "seasons": seasons,
             "courses": [dict(c) for c in courses],
+            "devices": devices,
+            "drift_limit_ms": DRIFT_LIMIT_MS,
             "statuses": STATUSES,
             "saved": saved,
             "error": error,
@@ -632,6 +655,38 @@ def roster_clear(
         s.execute(text("DELETE FROM timing_roster WHERE timing_event_id = :e"), {"e": event_id})
         s.commit()
     return _redirect(event_id, saved="roster+cleared")
+
+
+# ── Import a station's export file (no-internet transfer) ──────────────────
+
+
+@router.post("/{event_id}/import")
+async def station_import(
+    request: Request,
+    event_id: int,
+    user: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    """Load the JSON file a station exported, through the same path as a sync."""
+    form = await request.form()
+    upload = form.get("file")
+    if upload is None or isinstance(upload, str):
+        return _redirect(event_id, error="Choose+a+station+export+file")
+    try:
+        payload = json.loads((await upload.read()).decode("utf-8"))
+        code = str(payload["code"]).upper()
+    except Exception:
+        return _redirect(event_id, error="That+is+not+a+station+export+file")
+    with get_session() as s:
+        _load_event(s, event_id)
+        station = load_station(s, code)
+        if station is None or station["event_id"] != event_id:
+            return _redirect(event_id, error=f"Station+{code}+is+not+part+of+this+rally")
+        ack = apply_sync(s, station, payload, author=f"import:{user.get('email', '?')}")
+    return _redirect(
+        event_id,
+        saved=f"{ack['inserted']}+new+crossings+from+station+{code}+({len(ack['rejected'])}+rejected)",
+    )
 
 
 # ── Station code sheet ─────────────────────────────────────────────────────
