@@ -209,11 +209,13 @@ def _bootstrap_admin() -> None:
 
 from piclstats.web.admin import router as admin_router  # noqa: E402
 from piclstats.web.timing import router as timing_router  # noqa: E402
+from piclstats.web.timing_station import router as station_router  # noqa: E402
 from piclstats.web.auth import router as auth_router  # noqa: E402
 
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(timing_router)
+app.include_router(station_router)
 
 
 def _ctx(request: Request, **kwargs) -> dict:

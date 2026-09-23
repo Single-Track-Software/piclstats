@@ -74,6 +74,7 @@ def should_log(method: str, path: str, status: int) -> bool:
     return (
         method == "GET"
         and not path.startswith("/static")
+        and not path.startswith("/timing/")  # station codes are access tokens
         and status < 500
         and path != "/favicon.ico"
     )
