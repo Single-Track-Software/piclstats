@@ -73,8 +73,8 @@
             </div>
         </div>
         <div class="text-xs text-gray-400 flex items-center gap-3">
-            <span>{{ finishers }} placed of {{ results | length }}{% if n_laps > 0 %} · {{ n_laps }} lap{{ 's' if n_laps != 1 }}{% endif %}</span>
-            <a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="text-picl-700 hover:underline" title="Official timing page">raceresult.com &nearr;</a>
+            <span>{{ finishers }} placed of {{ results | length }}{% if n_laps > 0 %} · {{ n_laps }} {{ 'segment' if event.event_type == 'rally' else 'lap' }}{{ 's' if n_laps != 1 }}{% endif %}</span>
+            {% if event.raceresult_id %}<a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="text-picl-700 hover:underline" title="Official timing page">raceresult.com &nearr;</a>{% else %}<span title="Timed by PICL volunteers on the timing stations">PICL rally timing</span>{% endif %}
         </div>
     </div>
     <div class="overflow-x-auto">
@@ -87,10 +87,10 @@
                 <th class="px-4 py-3">Team</th>
                 <th class="px-4 py-3">Conf</th>
                 <th class="px-4 py-3 text-right">Points</th>
-                <th class="px-4 py-3 text-right">Laps</th>
+                <th class="px-4 py-3 text-right">{{ 'Segs' if event.event_type == 'rally' else 'Laps' }}</th>
                 <th class="px-4 py-3 text-right">Time</th>
                 <th class="px-4 py-3 text-right">Gap</th>
-                {% for i in range(1, n_laps + 1) %}<th class="px-3 py-3 text-right">L{{ i }}</th>{% endfor %}
+                {% for i in range(1, n_laps + 1) %}<th class="px-3 py-3 text-right">{{ 'S' if event.event_type == 'rally' else 'L' }}{{ i }}</th>{% endfor %}
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">

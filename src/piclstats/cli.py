@@ -253,7 +253,7 @@ def query(kind: str, name: str | None, season: int | None) -> None:
             for r in rows:
                 click.echo(
                     f"{r.season:<7} {r.event_order:<3} {r.event_name:<40} "
-                    f"{r.raceresult_id:<10} {r.result_count}"
+                    f"{str(r.raceresult_id or '—'):<10} {r.result_count}"
                 )
 
     finally:

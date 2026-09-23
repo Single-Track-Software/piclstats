@@ -281,6 +281,10 @@ def check_event(session: Session, event_id: int, *, source: str = "backfill") ->
     rr, season = session.execute(
         text("SELECT raceresult_id, season FROM events WHERE id = :eid"), {"eid": event_id}
     ).one()
+    if rr is None:
+        # A rally published from the timing pages: the lead's reconciliation is
+        # its quality gate, and there is no scrape to attach a run to.
+        return CheckSummary(run_id=0, event_id=event_id, findings={}, excluded=0, warned=0)
     run_id = start_run(
         session, raceresult_id=rr, season=season, event_id=event_id, detail={"source": source}
     )

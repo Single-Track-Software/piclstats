@@ -26,7 +26,8 @@ events = Table(
     "events",
     metadata,
     Column("id", Integer, primary_key=True, autoincrement=True),
-    Column("raceresult_id", Integer, nullable=False, unique=True),
+    # NULL for a rally published from the timing pages (no raceresult page exists).
+    Column("raceresult_id", Integer, unique=True),
     Column("season", SmallInteger, nullable=False),
     Column("event_name", Text, nullable=False),
     Column("event_order", SmallInteger),
@@ -523,4 +524,43 @@ timing_crossings = Table(
     CheckConstraint("kind IN ('tap', 'manual', 'correction')", name="ck_timing_crossing_kind"),
     Index("idx_timing_crossings_point", "timing_event_id", "point_id"),
     Index("idx_timing_crossings_supersedes", "supersedes"),
+)
+
+# A time penalty (or credit) the lead adds to one rider, optionally for one
+# segment: HS mechanical support inside a race segment, per the handbook.
+timing_adjustments = Table(
+    "timing_adjustments",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("plate", Integer, nullable=False),
+    Column("segment_id", Integer, ForeignKey("timing_segments.id", ondelete="CASCADE")),
+    Column("seconds", Float, nullable=False),
+    Column("reason", Text, nullable=False),
+    Column("author", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_timing_adjustments_event", "timing_event_id"),
+)
+
+# A reconciliation flag the lead has looked at and accepted, with why.
+timing_flag_overrides = Table(
+    "timing_flag_overrides",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("flag_key", Text, nullable=False),
+    Column("note", Text, nullable=False),
+    Column("author", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    UniqueConstraint("timing_event_id", "flag_key", name="uq_timing_flag_override"),
 )

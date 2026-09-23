@@ -74,5 +74,15 @@ no cutoff; a rider who misses a later segment is a DNF; PICL wants CSV.
   results tables until a rally is approved.
 - Station codes are the access control for recording; the code sheet is kept
   by the lead and cut up per captain.
-- A rally has no raceresult id; publishing needs `events.raceresult_id` to
-  allow it (addressed in the publishing change).
+- A rally has no raceresult id, so `events.raceresult_id` is nullable
+  (migration 018; the unique constraint already treats NULLs as distinct).
+  The results page shows "PICL rally timing" in place of the raceresult
+  link, the data-quality checks skip events without one (the lead's
+  reconciliation is their gate), and `classify_event_types` marks any event
+  a timing rally published as `rally` regardless of name or course flag.
+- Published results put segment times in the lap columns (`lap1..lap6`, up
+  to six segments, in the order the rider's group rides them), the penalty
+  in `penalty`, and the segment ranks and adjustments in `raw_data`. The
+  results page labels them S1.. for rally events. Reopening hides the public
+  event until it is published again; publishing again rewrites the same
+  event and its results rows.
