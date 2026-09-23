@@ -301,7 +301,7 @@ const dots = (points, fill, edge, hollow) => ({
     pointBackgroundColor: at(points, f => f.partial ? 'rgba(107,114,128,0.15)' : ((!hollow || isState(f)) ? fill : fill.replace('rgb(', 'rgba(').replace(')', ',0.15)'))),
     pointBorderColor: at(points, f => f.partial ? grey : ((!hollow || isState(f)) ? fill : edge)),
     pointBorderWidth: at(points, f => f.day_field < 40 ? 1.5 : 2)});
-const datasets = [...ratingLines(form, 'rgb(107,114,128)'), dots(form, 'rgb(16,32,232)', 'rgb(217,119,6)', true)];
+const datasets = [...ratingLines(form, 'rgb(107,114,128)'), dots(form, 'rgb(42,90,153)', 'rgb(217,119,6)', true)];
 if (other.length) datasets.push(...ratingLines(other, 'rgba(225,29,72,0.6)'), dots(other, 'rgb(225,29,72)', 'rgb(225,29,72)', true));
 const pointAt = (ds, i) => ds._points.find(f => key(f) === axis[i]);
 new Chart(document.getElementById('formChart'), {

@@ -186,7 +186,7 @@ if (metric === 'total_points' && byEvent.length) {
     // One segment per race (or per season for "All Seasons"), oldest first, so a
     // bar reads left-to-right through the season. Single-hue ordinal ramp,
     // light -> dark; past 6 segments the ramp repeats (adjacent steps still differ).
-    const RAMP = ['#9aa1f5', '#6a75f2', '#3d4bef', '#1020e8', '#0b16a7', '#070c5a'];
+    const RAMP = ['#a3b3d3', '#7890bb', '#4d6ea3', '#2c548d', '#183e70', '#0b1f3d'];
     const segKey = p => bySeason ? String(p.season) : String(p.event_id);
     const segments = [];
     const seen = new Set();
@@ -226,8 +226,8 @@ if (metric === 'total_points' && byEvent.length) {
     datasets = [{
         label: metric.replace('_', ' '),
         data: data.map(r => r[metric]),
-        backgroundColor: 'rgba(16,32,232,0.2)',
-        borderColor: 'rgb(16,32,232)',
+        backgroundColor: 'rgba(42,90,153,0.2)',
+        borderColor: 'rgb(42,90,153)',
         borderWidth: 1.5,
         borderRadius: 4,
     }];

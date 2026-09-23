@@ -2,44 +2,49 @@
 {% block title %}PICL Stats — Dashboard{% endblock %}
 
 {% block content %}
-<div class="mb-8">
-    <h1 class="text-3xl font-bold text-gray-900">Dashboard</h1>
-    <p class="mt-1 text-sm text-gray-500">PA Interscholastic Cycling League — Race Results & Analytics</p>
-</div>
+<!-- Hero: brand navy with the mountain silhouette from the logo set; the latest race rides on it. -->
+<section class="relative overflow-hidden rounded-2xl bg-picl-800 text-white shadow-md mb-8">
+    <svg class="absolute inset-x-0 bottom-0 w-full h-24 md:h-32 text-gold-500" viewBox="0 0 1200 160" preserveAspectRatio="none" aria-hidden="true">
+        <path d="M0 160 L0 120 L80 70 L140 105 L210 45 L280 100 L340 75 L420 20 L500 90 L560 60 L640 110 L720 40 L800 95 L860 70 L940 15 L1020 85 L1090 55 L1200 120 L1200 160 Z" fill="currentColor" opacity="0.18"/>
+        <path d="M0 160 L0 135 L60 110 L120 130 L200 85 L270 125 L330 105 L400 60 L480 120 L540 95 L620 135 L700 80 L780 125 L850 100 L930 55 L1010 115 L1080 90 L1200 140 L1200 160 Z" fill="currentColor" opacity="0.35"/>
+    </svg>
+    <div class="relative px-6 py-8 md:px-10 md:py-10">
+        <div class="text-xs font-semibold uppercase tracking-[0.2em] text-gold-400">PA Interscholastic Cycling League</div>
+        <h1 class="mt-1 text-3xl md:text-4xl font-extrabold tracking-tight">Race Results &amp; Analytics</h1>
+        <div class="mt-3 h-1 w-16 bg-gold-500 rounded"></div>
+        {% if latest %}
+        <a href="/results?event_id={{ latest.id }}" class="mt-6 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-picl-900/70 border border-picl-700 px-4 py-3 hover:border-gold-500">
+            <span class="text-[11px] font-semibold uppercase tracking-wider text-gold-400">Latest results</span>
+            <span class="font-semibold">{% if not latest.event_name.startswith(latest.season|string) %}{{ latest.season }} · {% endif %}{{ latest.event_name }}{% if latest.course_name %} <span class="text-picl-200 font-normal">at {{ latest.course_name }}</span>{% endif %}</span>
+            <span class="text-sm text-picl-200">{{ "{:,}".format(latest.finishers) }} finishers · full results &rarr;</span>
+        </a>
+        {% endif %}
+    </div>
+</section>
 
 <!-- Stats cards -->
 <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <div class="text-2xl font-bold text-picl-700">{{ stats.seasons }}</div>
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
+        <div class="text-2xl font-bold text-picl-800">{{ stats.seasons }}</div>
         <div class="text-xs text-gray-500 mt-1">Seasons</div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <div class="text-2xl font-bold text-picl-700">{{ stats.events }}</div>
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
+        <div class="text-2xl font-bold text-picl-800">{{ stats.events }}</div>
         <div class="text-xs text-gray-500 mt-1">Events</div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <div class="text-2xl font-bold text-picl-700">{{ "{:,}".format(stats.results) }}</div>
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
+        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.results) }}</div>
         <div class="text-xs text-gray-500 mt-1">Race Results</div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <div class="text-2xl font-bold text-picl-700">{{ "{:,}".format(stats.riders) }}</div>
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
+        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.riders) }}</div>
         <div class="text-xs text-gray-500 mt-1">Riders</div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100">
-        <div class="text-2xl font-bold text-picl-700">{{ "{:,}".format(stats.teams) }}</div>
+    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
+        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.teams) }}</div>
         <div class="text-xs text-gray-500 mt-1">Teams</div>
     </div>
 </div>
-
-{% if latest %}
-<a href="/results?event_id={{ latest.id }}" class="block bg-picl-800 text-white rounded-xl shadow-sm p-5 mb-8 hover:bg-picl-700">
-    <div class="text-xs uppercase tracking-wide text-picl-200">Latest results</div>
-    <div class="flex flex-wrap items-baseline justify-between gap-2">
-        <div class="text-lg font-semibold">{{ latest.season }} · {{ latest.event_name }}{% if latest.course_name %} <span class="text-picl-200 font-normal">at {{ latest.course_name }}</span>{% endif %}</div>
-        <div class="text-sm text-picl-200">{{ "{:,}".format(latest.finishers) }} finishers · full results &rarr;</div>
-    </div>
-</a>
-{% endif %}
 
 <!-- Quick search -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">

@@ -4,30 +4,43 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PICL Stats{% endblock %}</title>
+    <meta name="theme-color" content="#0b1f3d">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ static_version }}">
+    <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v={{ static_version }}">
     <link rel="stylesheet" href="/static/app.css?v={{ static_version }}">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"
             integrity="sha384-vsrfeLOOY6KuIYKDlmVH5UiBmgIdB1oEf7p01YgWHuqmOHfZr374+odEv96n9tNC"
             crossorigin="anonymous"></script>
 </head>
 <body class="h-full">
-    <nav class="bg-picl-800 shadow-lg">
+    {#- The current section gets a gold underline: the first path segment ("/rider/12" lights up Riders). -#}
+    {% set path = request.url.path if request else '/' %}
+    {% set section = '/' if path == '/' else '/' ~ path.strip('/').split('/')[0] %}
+    {% macro nav_link(href, label) -%}
+    {%- set active = (href == section) or (href == '/riders' and section == '/rider') or (href == '/teams' and section == '/team') or (href == '/courses' and section == '/course') -%}
+    <a href="{{ href }}" class="px-3 py-2 text-sm font-medium border-b-2 {{ 'text-white border-gold-500' if active else 'text-picl-200 border-transparent hover:text-white hover:border-picl-500' }}">{{ label }}</a>
+    {%- endmacro %}
+    <nav class="bg-picl-800 border-b-4 border-gold-500 shadow-lg">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
                 <div class="flex items-center space-x-8">
-                    <a href="/" class="text-white font-bold text-xl tracking-tight">
-                        PICL Stats
+                    <a href="/" class="flex items-center gap-2.5 group" aria-label="PICL Stats home">
+                        <img src="/static/logo.svg?v={{ static_version }}" alt="" class="h-9 w-auto" width="32" height="36">
+                        <span class="font-extrabold text-xl tracking-tight uppercase leading-none">
+                            <span class="text-white">PICL</span> <span class="text-gold-500 group-hover:text-gold-400">Stats</span>
+                        </span>
                     </a>
                     {% set user = request.state.user if request and request.state else None %}
                     {% set nav_links = [('/', 'Dashboard'), ('/results', 'Results'), ('/riders', 'Riders'), ('/teams', 'Teams'), ('/leaderboard', 'Leaderboard'), ('/courses', 'Courses')] %}
-                    <div class="hidden md:flex space-x-4">
+                    <div class="hidden md:flex space-x-1 self-stretch items-stretch">
                         {% for href, label in nav_links %}
-                        <a href="{{ href }}" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">{{ label }}</a>
+                        {{ nav_link(href, label) }}
                         {% endfor %}
                         {% if user and user.role in ('picl', 'admin') %}
-                        <a href="/staging" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Staging</a>
+                        {{ nav_link('/staging', 'Staging') }}
                         {% endif %}
                         {% if user and user.role == 'admin' %}
-                        <a href="/admin" class="text-picl-200 hover:text-white px-3 py-2 rounded-md text-sm font-medium">Admin</a>
+                        {{ nav_link('/admin', 'Admin') }}
                         {% endif %}
                     </div>
                 </div>
@@ -44,7 +57,7 @@
                         <summary class="list-none cursor-pointer text-picl-200 hover:text-white p-2 -mr-2" aria-label="Open menu">
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </summary>
-                        <div class="absolute right-0 mt-2 w-48 bg-picl-800 rounded-lg shadow-lg py-1 z-50 text-sm">
+                        <div class="absolute right-0 mt-2 w-48 bg-picl-800 border border-picl-700 rounded-lg shadow-lg py-1 z-50 text-sm">
                             {% for href, label in nav_links %}
                             <a href="{{ href }}" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">{{ label }}</a>
                             {% endfor %}
@@ -68,13 +81,13 @@
         {% block content %}{% endblock %}
     </main>
 
-    <footer class="bg-gray-100 border-t mt-12">
-        <div class="max-w-7xl mx-auto px-4 py-4 text-center text-xs text-gray-400 space-y-1">
+    <footer class="bg-picl-900 border-t-2 border-gold-500 mt-12">
+        <div class="max-w-7xl mx-auto px-4 py-5 text-center text-xs text-picl-200 space-y-1">
             <div>
-                <span class="font-semibold text-gray-500">PICL Stats</span>
-                &mdash; a <a href="https://singletracksoftware.co/" target="_blank" rel="noopener noreferrer" class="font-semibold text-gray-500 hover:text-picl-600 hover:underline">Single Track Software</a> product
+                <span class="font-semibold text-white">PICL Stats</span>
+                &mdash; a <a href="https://singletracksoftware.co/" target="_blank" rel="noopener noreferrer" class="font-semibold text-white hover:text-gold-400 hover:underline">Single Track Software</a> product
                 &bull;
-                <a href="mailto:support@singletracksoftware.co" class="hover:text-picl-600 hover:underline">support@singletracksoftware.co</a>
+                <a href="mailto:support@singletracksoftware.co" class="hover:text-gold-400 hover:underline">support@singletracksoftware.co</a>
             </div>
             <div>Race data sourced from pamtb.org &bull; Not affiliated with NICA or PAMTB</div>
         </div>
