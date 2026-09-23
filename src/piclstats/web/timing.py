@@ -520,6 +520,22 @@ async def event_update(
     return _redirect(event_id, saved="details")
 
 
+@router.post("/{event_id}/delete")
+def event_delete(
+    event_id: int,
+    _: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    """Remove a rally and everything recorded for it. Refused once results are published."""
+    with get_session() as s:
+        event = _load_event(s, event_id)
+        if event["status"] == "published":
+            return _redirect(event_id, error="A+published+rally+cannot+be+deleted")
+        s.execute(text("DELETE FROM timing_events WHERE id = :e"), {"e": event_id})
+        s.commit()
+    return RedirectResponse("/admin/timing?saved=rally+deleted", status_code=303)
+
+
 # ── Roster ─────────────────────────────────────────────────────────────────
 
 
