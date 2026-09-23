@@ -13,7 +13,7 @@
         <div class="bg-white rounded-lg border-2 border-dashed border-gray-300 p-4 flex gap-4 items-center break-inside-avoid">
             <img src="{{ c.qr }}" alt="QR code for {{ c.code }}" class="w-32 h-32 shrink-0">
             <div class="min-w-0">
-                <div class="text-xs uppercase tracking-wide text-gray-500">Segment {{ c.seq }} · <span class="{{ 'text-green-700' if c.kind == 'start' else 'text-red-700' }} font-semibold">{{ c.kind }}</span></div>
+                <div class="text-xs uppercase tracking-wide text-gray-500">Segment {{ c.seq }} · <span class="{{ 'text-green-700' if c.kind == 'start' else 'text-red-700' }} font-semibold">{{ c.kind }}</span> · {{ c.groups }}</div>
                 <div class="font-semibold text-gray-900 truncate">{{ c.segment }}</div>
                 <div class="mt-2 font-mono text-2xl tracking-[0.2em] text-picl-800">{{ c.code }}</div>
                 <div class="mt-1 text-xs text-gray-500 break-all">{{ c.url }}</div>

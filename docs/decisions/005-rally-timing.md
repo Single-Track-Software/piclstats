@@ -46,6 +46,13 @@ no cutoff; a rider who misses a later segment is a DNF; PICL wants CSV.
   scoring is known.
 - **No-internet transfer** is the station's export file plus AirDrop or
   Share; a last-resort import of that file on the lead's device.
+- **Segments carry distance, elevation gain, and which groups ride them**
+  (HS, MS, or both), on the timing event rather than the course profile: a
+  rally's segments are that day's, and past seasons have no timing event. A
+  rider's total is the sum of the segments their group rides, each segment is
+  ranked on its own, and the course page for a rally season shows the
+  segments read-only. A rider's group comes from the roster category through
+  the same division-to-loop mapping the course profiles use.
 - **Roster** comes from the season's race results (plates are stable across a
   season: 97% of multi-race riders in 2025 kept one plate), a pasted list, or
   one rider at a time; the registration export can be mapped later.

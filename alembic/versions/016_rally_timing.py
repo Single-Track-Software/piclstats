@@ -52,6 +52,12 @@ def upgrade() -> None:
         ),
         sa.Column("seq", sa.SmallInteger, nullable=False),
         sa.Column("name", sa.Text, nullable=False),
+        sa.Column("distance_miles", sa.Float),
+        sa.Column("elevation_ft", sa.Float),
+        # Which groups ride this segment. HS may ride more segments than MS;
+        # a rider's total is the sum of the segments their group rides.
+        sa.Column("rides_hs", sa.Boolean, nullable=False, server_default="true"),
+        sa.Column("rides_ms", sa.Boolean, nullable=False, server_default="true"),
         sa.UniqueConstraint("timing_event_id", "seq", name="uq_timing_segment_seq"),
     )
     op.create_table(

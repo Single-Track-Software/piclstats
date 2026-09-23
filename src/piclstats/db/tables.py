@@ -437,6 +437,10 @@ timing_segments = Table(
     ),
     Column("seq", SmallInteger, nullable=False),
     Column("name", Text, nullable=False),
+    Column("distance_miles", Float),
+    Column("elevation_ft", Float),
+    Column("rides_hs", Boolean, nullable=False, server_default="true"),  # HS rides this segment
+    Column("rides_ms", Boolean, nullable=False, server_default="true"),  # MS rides this segment
     UniqueConstraint("timing_event_id", "seq", name="uq_timing_segment_seq"),
 )
 

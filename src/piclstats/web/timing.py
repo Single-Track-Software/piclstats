@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 import secrets
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
@@ -146,10 +147,11 @@ def _load_event(s: Session, event_id: int) -> dict[str, Any]:
 
 
 def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
-    """Segments in order, each with its start and finish point."""
+    """Segments in order, each with its distance, who rides it, and its start and finish point."""
     rows = s.execute(
         text("""
-        SELECT sg.id, sg.seq, sg.name, p.id AS point_id, p.kind, p.station_code
+        SELECT sg.id, sg.seq, sg.name, sg.distance_miles, sg.elevation_ft,
+               sg.rides_hs, sg.rides_ms, p.id AS point_id, p.kind, p.station_code
         FROM timing_segments sg
         LEFT JOIN timing_points p ON p.segment_id = sg.id
         WHERE sg.timing_event_id = :eid
@@ -158,11 +160,63 @@ def _segments(s: Session, event_id: int) -> list[dict[str, Any]]:
         {"eid": event_id},
     ).all()
     segments: dict[int, dict[str, Any]] = {}
-    for sid, seq, name, point_id, kind, code in rows:
-        seg = segments.setdefault(sid, {"id": sid, "seq": seq, "name": name, "points": {}})
+    for sid, seq, name, dist, elev, hs, ms, point_id, kind, code in rows:
+        seg = segments.setdefault(
+            sid,
+            {
+                "id": sid,
+                "seq": seq,
+                "name": name,
+                "distance_miles": dist,
+                "elevation_ft": elev,
+                "rides_hs": hs,
+                "rides_ms": ms,
+                "points": {},
+            },
+        )
         if point_id is not None:
             seg["points"][kind] = {"id": point_id, "code": code}
     return list(segments.values())
+
+
+@dataclass(frozen=True)
+class SegmentForm:
+    name: str
+    distance_miles: float | None
+    elevation_ft: float | None
+    rides_hs: bool
+    rides_ms: bool
+
+
+def parse_segment_form(form: Mapping[str, str]) -> SegmentForm:
+    """Parse a segment's fields. Raises ValueError on a missing name, a bad number, or no group."""
+    name = form.get("name", "").strip()
+    if not name:
+        raise ValueError("Segment name is required")
+
+    def opt_float(key: str) -> float | None:
+        raw = form.get(key, "").strip()
+        if not raw:
+            return None
+        try:
+            value = float(raw)
+        except ValueError:
+            raise ValueError(f"{key.replace('_', ' ')} must be a number") from None
+        if value < 0:
+            raise ValueError(f"{key.replace('_', ' ')} cannot be negative")
+        return value
+
+    rides_hs = form.get("rides_hs") is not None
+    rides_ms = form.get("rides_ms") is not None
+    if not (rides_hs or rides_ms):
+        raise ValueError("A segment must be ridden by HS, MS, or both")
+    return SegmentForm(
+        name=name,
+        distance_miles=opt_float("distance_miles"),
+        elevation_ft=opt_float("elevation_ft"),
+        rides_hs=rides_hs,
+        rides_ms=rides_ms,
+    )
 
 
 def _next_seq(s: Session, event_id: int) -> int:
@@ -177,14 +231,23 @@ def _next_seq(s: Session, event_id: int) -> int:
     )
 
 
-def _add_segment(s: Session, event_id: int, name: str) -> int:
+def _add_segment(s: Session, event_id: int, seg: SegmentForm) -> int:
     """Create a segment with a start and a finish point, each with a fresh code."""
     seg_id = s.execute(
         text("""
-        INSERT INTO timing_segments (timing_event_id, seq, name)
-        VALUES (:e, :seq, :name) RETURNING id
+        INSERT INTO timing_segments (timing_event_id, seq, name, distance_miles, elevation_ft,
+            rides_hs, rides_ms)
+        VALUES (:e, :seq, :name, :dist, :elev, :hs, :ms) RETURNING id
     """),
-        {"e": event_id, "seq": _next_seq(s, event_id), "name": name},
+        {
+            "e": event_id,
+            "seq": _next_seq(s, event_id),
+            "name": seg.name,
+            "dist": seg.distance_miles,
+            "elev": seg.elevation_ft,
+            "hs": seg.rides_hs,
+            "ms": seg.rides_ms,
+        },
     ).scalar_one()
     for kind in POINT_KINDS:
         s.execute(
@@ -329,12 +392,13 @@ async def segment_add(
     __: None = Depends(require_same_origin),
 ):
     form = await request.form()
-    name = _form_str(form, "name")
-    if not name:
-        return _redirect(event_id, error="Segment+name+is+required")
+    try:
+        seg = parse_segment_form({k: v for k, v in form.items() if isinstance(v, str)})
+    except ValueError as exc:
+        return _redirect(event_id, error=str(exc).replace(" ", "+"))
     with get_session() as s:
         _load_event(s, event_id)
-        _add_segment(s, event_id, name)
+        _add_segment(s, event_id, seg)
         s.commit()
     return _redirect(event_id, saved="segment")
 
@@ -366,12 +430,26 @@ async def segment_update(
                 )
             s.commit()
             return _redirect(event_id, saved="deleted")
-        name = _form_str(form, "name")
-        if not name:
-            return _redirect(event_id, error="Segment+name+is+required")
+        try:
+            seg = parse_segment_form({k: v for k, v in form.items() if isinstance(v, str)})
+        except ValueError as exc:
+            return _redirect(event_id, error=str(exc).replace(" ", "+"))
         s.execute(
-            text("UPDATE timing_segments SET name = :n WHERE id = :sid AND timing_event_id = :e"),
-            {"n": name, "sid": segment_id, "e": event_id},
+            text("""
+            UPDATE timing_segments
+            SET name = :n, distance_miles = :dist, elevation_ft = :elev,
+                rides_hs = :hs, rides_ms = :ms
+            WHERE id = :sid AND timing_event_id = :e
+        """),
+            {
+                "n": seg.name,
+                "dist": seg.distance_miles,
+                "elev": seg.elevation_ft,
+                "hs": seg.rides_hs,
+                "ms": seg.rides_ms,
+                "sid": segment_id,
+                "e": event_id,
+            },
         )
         s.commit()
     return _redirect(event_id, saved="segment")
@@ -567,10 +645,12 @@ def code_sheet(request: Request, event_id: int, _: dict = Depends(require_picl))
             if not point:
                 continue
             url = build_link(request, station_path(point["code"]))
+            groups = [g for g, on in (("HS", seg["rides_hs"]), ("MS", seg["rides_ms"])) if on]
             cards.append(
                 {
                     "segment": seg["name"],
                     "seq": seg["seq"],
+                    "groups": " + ".join(groups),
                     "kind": kind,
                     "code": point["code"],
                     "url": url,

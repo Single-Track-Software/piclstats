@@ -47,3 +47,31 @@ def test_station_codes_are_unambiguous_and_unique():
         assert len(code) == CODE_LENGTH
         assert not set(code) & set("0O1I")
     assert station_path("ABCD2345") == "/timing/s/ABCD2345"
+
+
+def test_segment_form_parses_numbers_and_groups():
+    from piclstats.web.timing import parse_segment_form
+
+    seg = parse_segment_form(
+        {"name": " Ridge ", "distance_miles": "1.4", "elevation_ft": "210", "rides_hs": "1"}
+    )
+    assert (seg.name, seg.distance_miles, seg.elevation_ft) == ("Ridge", 1.4, 210.0)
+    assert (seg.rides_hs, seg.rides_ms) == (True, False)
+    blank = parse_segment_form({"name": "Creek", "rides_hs": "1", "rides_ms": "1"})
+    assert blank.distance_miles is None and blank.elevation_ft is None
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        {"name": "", "rides_hs": "1"},
+        {"name": "X"},  # no group
+        {"name": "X", "rides_ms": "1", "distance_miles": "two"},
+        {"name": "X", "rides_ms": "1", "elevation_ft": "-5"},
+    ],
+)
+def test_segment_form_rejects_bad_input(form):
+    from piclstats.web.timing import parse_segment_form
+
+    with pytest.raises(ValueError):
+        parse_segment_form(form)
