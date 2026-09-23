@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}Crossings — {{ event.name }}{% endblock %}
+{% block content %}
+{% set input = "rounded border border-gray-300 px-2 py-1 text-sm" %}
+<div class="max-w-6xl">
+    <div class="mb-4 flex flex-wrap gap-3 text-sm">
+        <a href="/admin/timing/{{ event.id }}" class="text-picl-700 hover:underline">&larr; {{ event.name }}</a>
+        <a href="/admin/timing/{{ event.id }}/results" class="text-picl-700 hover:underline">Results &amp; flags</a>
+    </div>
+    <h1 class="text-2xl font-bold text-gray-900 mb-1">Crossings</h1>
+    <p class="text-sm text-gray-500 mb-4">Every crossing the stations recorded, with corrections applied. Fixing a plate, voiding or restoring writes a correction alongside the original; nothing is ever changed in place.</p>
+
+    {% if saved %}<div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">Saved ({{ saved }}).</div>{% endif %}
+    {% if error %}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ error }}</div>{% endif %}
+
+    <form method="get" class="bg-white rounded-lg shadow border border-gray-200 p-3 mb-4 flex flex-wrap items-end gap-3 text-sm">
+        <div><label class="block text-xs text-gray-500 mb-1">Station</label>
+            <select name="point_id" class="{{ input }}" onchange="this.form.submit()">
+                <option value="">all</option>
+                {% for pid, p in points.items() %}<option value="{{ pid }}" {{ 'selected' if pid == point_id }}>Seg {{ p.seq }} {{ p.kind }} — {{ p.segment }}</option>{% endfor %}
+            </select></div>
+        <div><label class="block text-xs text-gray-500 mb-1">Plate</label><input type="number" name="plate" value="{{ plate or '' }}" class="{{ input }} w-24 font-mono"></div>
+        <label class="flex items-center gap-1 pb-1.5"><input type="checkbox" name="unassigned" value="1" {{ 'checked' if unassigned }} onchange="this.form.submit()"> no plate only</label>
+        <button class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-3 py-1 rounded-md">Filter</button>
+        <a href="/admin/timing/{{ event.id }}/crossings" class="text-picl-700 hover:underline">clear</a>
+    </form>
+
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-6">
+        <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700 text-xs">
+                <tr>
+                    <th class="text-left px-3 py-2">Time</th>
+                    <th class="text-left px-3 py-2">Station</th>
+                    <th class="text-left px-3 py-2">Plate</th>
+                    <th class="text-left px-3 py-2">Rider</th>
+                    <th class="text-left px-3 py-2">Note</th>
+                    <th class="text-left px-3 py-2">Recorded by</th>
+                    <th class="px-3 py-2"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for c in rows %}
+                {% set p = points.get(c.point_id) %}
+                {% set rider = roster.get(c.plate) if c.plate else none %}
+                <tr class="{{ 'opacity-50' if c.voided }} {{ 'bg-amber-50' if not c.plate and not c.voided }}">
+                    <td class="px-3 py-1.5 font-mono whitespace-nowrap">{{ c.ts.astimezone(tz).strftime('%H:%M:%S') }}<span class="text-gray-400">.{{ (c.ts.microsecond // 100000) }}</span></td>
+                    <td class="px-3 py-1.5 whitespace-nowrap">Seg {{ p.seq if p else '?' }} <span class="{{ 'text-green-700' if p and p.kind == 'start' else 'text-red-700' }} font-medium">{{ p.kind if p else '' }}</span></td>
+                    <td class="px-3 py-1.5"><input form="c-{{ c.id }}" type="number" name="plate" value="{{ c.plate or '' }}" min="1" class="{{ input }} w-20 font-mono"></td>
+                    <td class="px-3 py-1.5 text-xs {{ 'text-amber-700' if c.plate and not rider }}">{{ rider.name if rider and rider.name != 'Plate ' ~ c.plate else ('not on roster' if c.plate else '') }}</td>
+                    <td class="px-3 py-1.5"><input form="c-{{ c.id }}" type="text" name="note" value="{{ c.note or '' }}" class="{{ input }} w-40"></td>
+                    <td class="px-3 py-1.5 text-xs text-gray-500">{{ c.kind }}{% if c.device_id %} · {{ c.device_id[:8] }}{% endif %}{% if history.get(c.id) %} · <span title="{% for h in history[c.id] %}{{ h.author }}: {{ h.note or '' }}&#10;{% endfor %}">{{ history[c.id]|length }} correction{{ 's' if history[c.id]|length != 1 }}</span>{% endif %}</td>
+                    <td class="px-3 py-1.5 text-right whitespace-nowrap">
+                        <form id="c-{{ c.id }}" method="post" action="/admin/timing/{{ event.id }}/crossings/{{ c.id }}/correct" class="inline">
+                            <input type="hidden" name="point_id" value="{{ point_id or '' }}"><input type="hidden" name="plate_filter" value="{{ plate or '' }}"><input type="hidden" name="unassigned" value="{{ unassigned or '' }}">
+                            <button name="action" value="save" class="text-picl-700 hover:underline text-sm font-medium">Save</button>
+                            {% if c.voided %}<button name="action" value="restore" class="text-green-700 hover:underline text-sm ml-2">Restore</button>{% else %}<button name="action" value="void" class="text-red-600 hover:underline text-sm ml-2">Void</button>{% endif %}
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">No crossings match.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Add from a backup sheet</h2>
+    <p class="text-xs text-gray-500 mb-2">A crossing a station wrote on paper. Wall-clock time on the event day ({{ event.event_date or 'today' }}, Eastern); it is recorded as manual with your name.</p>
+    <form method="post" action="/admin/timing/{{ event.id }}/crossings/manual" class="bg-white rounded-lg shadow border border-gray-200 p-4 flex flex-wrap items-end gap-2 mb-8">
+        <div><label class="block text-xs text-gray-500 mb-1">Station</label>
+            <select name="manual_point_id" required class="{{ input }}">{% for pid, p in points.items() %}<option value="{{ pid }}">Seg {{ p.seq }} {{ p.kind }} — {{ p.segment }}</option>{% endfor %}</select></div>
+        <div><label class="block text-xs text-gray-500 mb-1">Plate</label><input type="number" name="manual_plate" min="1" required class="{{ input }} w-20 font-mono"></div>
+        <div><label class="block text-xs text-gray-500 mb-1">Time (HH:MM:SS.t)</label><input type="text" name="time" placeholder="10:32:05.4" required class="{{ input }} w-32 font-mono"></div>
+        <div class="flex-1 min-w-[10rem]"><label class="block text-xs text-gray-500 mb-1">Note</label><input type="text" name="manual_note" placeholder="from backup sheet" class="{{ input }} w-full"></div>
+        <button class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Add</button>
+    </form>
+</div>
+{% endblock %}

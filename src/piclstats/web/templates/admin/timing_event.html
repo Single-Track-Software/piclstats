@@ -16,7 +16,11 @@
     <!-- Segments and stations -->
     <div class="flex items-baseline justify-between mb-2">
         <h2 class="text-lg font-semibold text-gray-900">Segments</h2>
-        {% if segments %}<a href="/admin/timing/{{ event.id }}/codes" class="text-sm text-picl-700 hover:underline">Print station codes &rarr;</a>{% endif %}
+        <div class="flex gap-4 text-sm">
+            {% if segments %}<a href="/admin/timing/{{ event.id }}/codes" class="text-picl-700 hover:underline">Print station codes &rarr;</a>{% endif %}
+            <a href="/admin/timing/{{ event.id }}/crossings" class="text-picl-700 hover:underline">Crossings &rarr;</a>
+            <a href="/admin/timing/{{ event.id }}/results" class="text-picl-700 hover:underline font-medium">Results &amp; flags &rarr;</a>
+        </div>
     </div>
     <p class="text-xs text-gray-500 mb-3">Each segment gets a start station and a finish station. The code is what a volunteer scans or types to join that station; keep the sheet with the timing lead. Distance, gain and loss give per-mile pace and how much of a segment is descent; HS / MS says which groups ride the segment, so a rider's total only counts the segments their group rode.</p>
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-3">

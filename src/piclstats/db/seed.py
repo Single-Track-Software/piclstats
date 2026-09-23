@@ -388,7 +388,8 @@ def classify_event_types(session: Session) -> int:
     """Set events.event_type: 'exhibition', 'rally' or 'points' (scoring).
 
     Exhibition/short-track events are matched by name — a venue can host one
-    alongside its points race in the same season. Otherwise the course-season
+    alongside its points race in the same season. A rally published from the
+    timing pages is always a rally. Otherwise the course-season
     race type decides (course_race_types, edited in /admin/courses); an event
     with no course or no flag falls back to the '%rally%' name pattern.
     Idempotent: re-derives every event, so newly scraped events get
@@ -400,6 +401,8 @@ def classify_event_types(session: Session) -> int:
             CASE
                 WHEN e.event_name ILIKE '%exhibition%'
                   OR e.event_name ILIKE '%short track%' THEN 'exhibition'
+                WHEN EXISTS (SELECT 1 FROM timing_events t WHERE t.published_event_id = e.id)
+                                                         THEN 'rally'
                 WHEN {COURSE_RACE_TYPE_SQL} = 'rally'    THEN 'rally'
                 WHEN {COURSE_RACE_TYPE_SQL} = 'race'     THEN 'points'
                 WHEN e.event_name ILIKE '%rally%'        THEN 'rally'
@@ -409,6 +412,8 @@ def classify_event_types(session: Session) -> int:
             CASE
                 WHEN e.event_name ILIKE '%exhibition%'
                   OR e.event_name ILIKE '%short track%' THEN 'exhibition'
+                WHEN EXISTS (SELECT 1 FROM timing_events t WHERE t.published_event_id = e.id)
+                                                         THEN 'rally'
                 WHEN {COURSE_RACE_TYPE_SQL} = 'rally'    THEN 'rally'
                 WHEN {COURSE_RACE_TYPE_SQL} = 'race'     THEN 'points'
                 WHEN e.event_name ILIKE '%rally%'        THEN 'rally'

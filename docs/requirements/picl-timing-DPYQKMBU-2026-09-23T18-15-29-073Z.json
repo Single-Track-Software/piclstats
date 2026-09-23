@@ -1,0 +1,106 @@
+{
+ "code": "DPYQKMBU",
+ "event": {
+  "id": 2,
+  "name": "Test Rally",
+  "season": 2026,
+  "date": "2026-09-26"
+ },
+ "segment": {
+  "seq": 1,
+  "name": "Segment 1"
+ },
+ "point": {
+  "id": 4,
+  "kind": "finish"
+ },
+ "device": {
+  "id": "478a7dc4-32ec-4a25-973a-e0294d6e167c",
+  "label": "Chris Martin",
+  "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+  "offset_ms": 27
+ },
+ "exported_at_ms": 1790187329073,
+ "crossings": [
+  {
+   "id": "c83adde5-a32c-4fdd-b37e-403d4850fd08",
+   "kind": "tap",
+   "device_ts_ms": 1790187016699,
+   "offset_ms": 27,
+   "plate": null,
+   "supersedes": null,
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "a558c258-61b6-4b04-b55f-cf14e2b69a76",
+   "kind": "correction",
+   "device_ts_ms": 1790187016699,
+   "offset_ms": 27,
+   "plate": 1,
+   "supersedes": "c83adde5-a32c-4fdd-b37e-403d4850fd08",
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "44d7cf25-decd-45e5-9b8e-dd548ddca36c",
+   "kind": "tap",
+   "device_ts_ms": 1790187074782,
+   "offset_ms": 27,
+   "plate": null,
+   "supersedes": null,
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "c326b912-e12e-4d7d-8215-1076770d9b17",
+   "kind": "correction",
+   "device_ts_ms": 1790187074782,
+   "offset_ms": 27,
+   "plate": null,
+   "supersedes": "44d7cf25-decd-45e5-9b8e-dd548ddca36c",
+   "voided": true,
+   "note": "voided at station"
+  },
+  {
+   "id": "e266044a-a9e5-45de-938c-f780c2c6ace6",
+   "kind": "tap",
+   "device_ts_ms": 1790187134591,
+   "offset_ms": 27,
+   "plate": null,
+   "supersedes": null,
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "0d1596e7-fa3c-4644-9942-4b5f082550e3",
+   "kind": "correction",
+   "device_ts_ms": 1790187134591,
+   "offset_ms": 27,
+   "plate": 566,
+   "supersedes": "e266044a-a9e5-45de-938c-f780c2c6ace6",
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "24db90bd-08b1-4fde-8759-5f39eab76fcb",
+   "kind": "tap",
+   "device_ts_ms": 1790187321923,
+   "offset_ms": 27,
+   "plate": null,
+   "supersedes": null,
+   "voided": false,
+   "note": null
+  },
+  {
+   "id": "5ffa1507-549e-4254-91a3-7cc3463eaa09",
+   "kind": "correction",
+   "device_ts_ms": 1790187321923,
+   "offset_ms": 27,
+   "plate": 6,
+   "supersedes": "24db90bd-08b1-4fde-8759-5f39eab76fcb",
+   "voided": false,
+   "note": null
+  }
+ ]
+}
