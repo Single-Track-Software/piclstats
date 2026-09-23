@@ -402,3 +402,119 @@ scheduled_races = Table(
     UniqueConstraint("season", "event_date", "name", name="uq_scheduled_race"),
     Index("idx_scheduled_races_date", "event_date"),
 )
+
+
+# ---------------------------------------------------------------------------
+# Rally timing (ADR 005). A timing lead sets up an event with segments, each
+# with a start and a finish point; volunteers join a point by its station
+# code and record crossings on their phones. Crossings are append-only: a
+# correction is a new row that supersedes the old one.
+
+timing_events = Table(
+    "timing_events",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("season", SmallInteger, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("event_date", Date),
+    Column("course_id", Integer, ForeignKey("courses.id")),
+    Column("status", Text, nullable=False, server_default="setup"),  # setup|live|approved|published
+    Column("created_by", Integer),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("published_event_id", Integer, ForeignKey("events.id")),
+    UniqueConstraint("season", "name", name="uq_timing_event"),
+)
+
+timing_segments = Table(
+    "timing_segments",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("seq", SmallInteger, nullable=False),
+    Column("name", Text, nullable=False),
+    UniqueConstraint("timing_event_id", "seq", name="uq_timing_segment_seq"),
+)
+
+timing_points = Table(
+    "timing_points",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "segment_id", Integer, ForeignKey("timing_segments.id", ondelete="CASCADE"), nullable=False
+    ),
+    Column("kind", Text, nullable=False),  # 'start' | 'finish'
+    Column("station_code", Text, nullable=False, unique=True),
+    CheckConstraint("kind IN ('start', 'finish')", name="ck_timing_point_kind"),
+    UniqueConstraint("segment_id", "kind", name="uq_timing_point"),
+)
+
+timing_roster = Table(
+    "timing_roster",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("plate", Integer, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("team", Text),
+    Column("category", Text),
+    Column("source", Text, nullable=False),  # 'paste' | 'season' | 'manual'
+    UniqueConstraint("timing_event_id", "plate", name="uq_timing_roster_plate"),
+)
+
+timing_devices = Table(
+    "timing_devices",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("point_id", Integer, ForeignKey("timing_points.id"), nullable=False),
+    Column("label", Text),
+    Column("user_agent", Text),
+    Column("joined_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("last_seen_at", DateTime(timezone=True)),
+    Column("offset_ms", Integer),
+    Column("offset_drift_ms", Integer, nullable=False, server_default="0"),
+    Column("pending", Integer, nullable=False, server_default="0"),
+    Index("idx_timing_devices_event", "timing_event_id"),
+)
+
+timing_crossings = Table(
+    "timing_crossings",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("point_id", Integer, ForeignKey("timing_points.id"), nullable=False),
+    Column("device_id", Text),
+    Column("device_ts", DateTime(timezone=True), nullable=False),
+    Column("offset_ms", Integer, nullable=False, server_default="0"),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("plate", Integer),
+    Column("kind", Text, nullable=False),  # 'tap' | 'manual' | 'correction'
+    Column("supersedes", Text),
+    Column("voided", Boolean, nullable=False, server_default="false"),
+    Column("note", Text),
+    Column("author", Text, nullable=False),
+    Column("received_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    CheckConstraint("kind IN ('tap', 'manual', 'correction')", name="ck_timing_crossing_kind"),
+    Index("idx_timing_crossings_point", "timing_event_id", "point_id"),
+    Index("idx_timing_crossings_supersedes", "supersedes"),
+)

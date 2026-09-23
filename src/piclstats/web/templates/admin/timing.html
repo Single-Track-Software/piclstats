@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Rally timing — Admin{% endblock %}
+{% block content %}
+{% set input = "rounded border border-gray-300 px-2 py-1 text-sm" %}
+<div class="max-w-4xl">
+    <div class="mb-4"><a href="/admin" class="text-sm text-picl-700 hover:underline">&larr; Admin</a></div>
+    <h1 class="text-2xl font-bold text-gray-900 mb-1">Rally timing</h1>
+    <p class="text-sm text-gray-500 mb-6">A rally is timed across segments, each with a start and a finish station. Set the event up here, print the station codes, and load the plate roster. Volunteers join a station by scanning its code; no account needed.</p>
+
+    {% if saved %}<div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">Saved ({{ saved }}).</div>{% endif %}
+    {% if error %}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ error }}</div>{% endif %}
+
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-6">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr>
+                    <th class="text-left px-3 py-2">Season</th>
+                    <th class="text-left px-3 py-2">Rally</th>
+                    <th class="text-left px-3 py-2">Date</th>
+                    <th class="text-left px-3 py-2">Course</th>
+                    <th class="text-right px-3 py-2">Segments</th>
+                    <th class="text-right px-3 py-2">Roster</th>
+                    <th class="text-left px-3 py-2">Status</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for e in events %}
+                <tr class="hover:bg-gray-50">
+                    <td class="px-3 py-2 font-mono text-gray-500">{{ e.season }}</td>
+                    <td class="px-3 py-2"><a href="/admin/timing/{{ e.id }}" class="text-picl-700 font-medium hover:underline">{{ e.name }}</a></td>
+                    <td class="px-3 py-2 text-gray-600">{{ e.event_date or '—' }}</td>
+                    <td class="px-3 py-2 text-gray-600">{{ e.course or '—' }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ e.segments }}</td>
+                    <td class="px-3 py-2 text-right font-mono">{{ e.roster }}</td>
+                    <td class="px-3 py-2"><span class="inline-block px-2 py-0.5 rounded text-xs font-medium {{ 'bg-green-50 text-green-700' if e.status == 'live' else 'bg-gray-100 text-gray-600' }}">{{ e.status }}</span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">No rallies set up yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">New rally</h2>
+    <form method="post" action="/admin/timing/create" class="bg-white rounded-lg shadow border border-gray-200 p-4 flex flex-wrap items-end gap-3">
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Season</label>
+            <input type="number" name="season" value="{{ this_year }}" min="2000" max="2100" required class="{{ input }} w-24 font-mono">
+        </div>
+        <div class="flex-1 min-w-[16rem]">
+            <label class="block text-xs text-gray-500 mb-1">Name</label>
+            <input type="text" name="name" placeholder="Central #1 — Birdsboro Rally" required class="{{ input }} w-full">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Date</label>
+            <input type="date" name="event_date" class="{{ input }}">
+        </div>
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Course</label>
+            <select name="course_id" class="{{ input }}">
+                <option value="">—</option>
+                {% for c in courses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md text-sm">Create</button>
+    </form>
+</div>
+{% endblock %}
