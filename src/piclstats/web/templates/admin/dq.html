@@ -64,7 +64,7 @@
             <td class="px-4 py-1.5"><span class="text-gray-800">{{ d.season }} {{ d.name or '' }}</span> <a href="https://my.raceresult.com/{{ d.raceresult_id }}/" target="_blank" rel="noopener" class="text-[11px] text-picl-700 hover:underline">{{ d.raceresult_id }}</a></td>
             <td class="px-2 py-1.5 text-gray-500 whitespace-nowrap">{{ d.found_at.strftime('%Y-%m-%d') if d.found_at else '' }}</td>
             <td class="px-2 py-1.5 text-center"><span class="px-1.5 py-0.5 rounded text-[10px] font-medium {{ 'bg-green-50 text-green-700' if d.status == 'published' else ('bg-red-50 text-red-600' if d.status in ('blocked', 'failed') else 'bg-gray-100 text-gray-500') }}">{{ d.status }}</span></td>
-            <td class="px-2 py-1.5 text-xs text-gray-500">{{ (d.note or '')[:120] }}</td>
+            <td class="px-2 py-1.5 text-xs text-gray-500">{% if d.note and d.status == 'published' and 'by hand' not in d.note %}<span class="text-gray-400" title="The gate held this race when it loaded; it was published by hand afterwards">held at load, then published · {{ d.note[:100] }}</span>{% else %}{{ (d.note or '')[:120] }}{% endif %}</td>
             <td class="px-2 py-1.5 text-right whitespace-nowrap">{% if d.event_id and d.is_published %}<form method="post" action="/admin/dq/publish" class="inline"><input type="hidden" name="event_id" value="{{ d.event_id }}"><input type="hidden" name="publish" value="0"><button class="text-xs text-gray-500 hover:text-red-600">hide</button></form>{% endif %}</td>
         </tr>
         {% else %}
