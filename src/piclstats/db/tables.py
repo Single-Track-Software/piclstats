@@ -421,10 +421,32 @@ timing_events = Table(
     Column("event_date", Date),
     Column("course_id", Integer, ForeignKey("courses.id")),
     Column("status", Text, nullable=False, server_default="setup"),  # setup|live|approved|published
+    Column("kind", Text, nullable=False, server_default="rally"),  # 'rally' | 'localdirt'
+    Column("laps", SmallInteger, nullable=False, server_default="1"),  # local dirt: course laps
+    Column("public_code", Text, unique=True),  # local dirt: shareable results link
     Column("created_by", Integer),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("published_event_id", Integer, ForeignKey("events.id")),
     UniqueConstraint("season", "name", name="uq_timing_event"),
+    CheckConstraint("kind IN ('rally', 'localdirt')", name="ck_timing_event_kind"),
+)
+
+# Local dirt: a wave is everyone who starts on one countdown. The start
+# station records one crossing per wave (plate NULL, wave_id set).
+timing_waves = Table(
+    "timing_waves",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("seq", SmallInteger, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("categories", Text),  # comma-separated roster categories this wave holds
+    UniqueConstraint("timing_event_id", "seq", name="uq_timing_wave_seq"),
 )
 
 timing_segments = Table(
@@ -475,6 +497,7 @@ timing_roster = Table(
     Column("team", Text),
     Column("category", Text),
     Column("source", Text, nullable=False),  # 'paste' | 'season' | 'manual'
+    Column("wave_id", Integer, ForeignKey("timing_waves.id", ondelete="SET NULL")),
     UniqueConstraint("timing_event_id", "plate", name="uq_timing_roster_plate"),
 )
 
@@ -521,6 +544,7 @@ timing_crossings = Table(
     Column("note", Text),
     Column("author", Text, nullable=False),
     Column("received_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("wave_id", Integer, ForeignKey("timing_waves.id", ondelete="SET NULL")),
     CheckConstraint("kind IN ('tap', 'manual', 'correction')", name="ck_timing_crossing_kind"),
     Index("idx_timing_crossings_point", "timing_event_id", "point_id"),
     Index("idx_timing_crossings_supersedes", "supersedes"),

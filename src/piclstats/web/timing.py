@@ -39,6 +39,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 
 STATUSES = ("setup", "live", "approved", "published")
 POINT_KINDS = ("start", "finish")
+EVENT_KINDS = ("rally", "localdirt")
 
 # Station codes: 8 characters from an alphabet without 0/O/1/I, so a code read
 # off a printed sheet or spoken over a radio is never ambiguous.
@@ -80,12 +81,16 @@ _HEADER_WORDS = {
 }
 
 
-def parse_roster_lines(raw: str) -> list[RosterRow]:
+def parse_roster_lines(
+    raw: str, *, names_only: bool = False, next_plate: int = 1
+) -> list[RosterRow]:
     """Parse pasted roster lines: plate, name, team, category (comma, tab or | separated).
 
     Blank lines are skipped and so is a header line (first field "plate",
     "bib" or the like). Team and category are optional. Raises ValueError listing every
-    bad line by number, and on a plate given twice.
+    bad line by number, and on a plate given twice. With `names_only` (local
+    dirt: no plates) each line is name, team, category and plates are
+    assigned from `next_plate` up.
     """
     rows: list[RosterRow] = []
     errors: list[str] = []
@@ -94,8 +99,13 @@ def parse_roster_lines(raw: str) -> list[RosterRow]:
         if not line.strip():
             continue
         parts = [p.strip() for p in _SPLIT.split(line.strip())]
-        if n == 1 and parts[0].lower() in _HEADER_WORDS:
+        if n == 1 and parts[0].lower() in _HEADER_WORDS | {"name", "rider"}:
             continue  # header
+        if names_only:
+            if not parts[0]:
+                errors.append(f"Line {n}: expected name[, team[, category]]")
+                continue
+            parts = [str(next_plate + len(rows)), *parts]
         if len(parts) < 2 or not parts[0].isdigit() or not parts[1]:
             errors.append(f"Line {n}: expected plate, name[, team[, category]]")
             continue
@@ -242,6 +252,31 @@ def _devices(s: Session, event_id: int) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
+def _next_plate(s: Session, event_id: int) -> int:
+    """Local dirt riders have no plates; give each an internal number."""
+    return (
+        s.execute(
+            text(
+                "SELECT COALESCE(max(plate), 0) + 1 FROM timing_roster WHERE timing_event_id = :e"
+            ),
+            {"e": event_id},
+        ).scalar()
+        or 1
+    )
+
+
+def _waves(s: Session, event_id: int) -> list[dict[str, Any]]:
+    rows = s.execute(
+        text("""
+        SELECT w.id, w.seq, w.name, w.categories,
+               (SELECT count(*) FROM timing_roster r WHERE r.wave_id = w.id) AS riders
+        FROM timing_waves w WHERE w.timing_event_id = :e ORDER BY w.seq
+    """),
+        {"e": event_id},
+    ).mappings()
+    return [dict(r) for r in rows]
+
+
 def _next_seq(s: Session, event_id: int) -> int:
     return (
         s.execute(
@@ -295,7 +330,7 @@ def timing_index(
         events = (
             s.execute(
                 text("""
-                SELECT t.id, t.season, t.name, t.event_date, t.status, c.name AS course,
+                SELECT t.id, t.season, t.name, t.event_date, t.status, t.kind, c.name AS course,
                        (SELECT count(*) FROM timing_segments WHERE timing_event_id = t.id) AS segments,
                        (SELECT count(*) FROM timing_roster WHERE timing_event_id = t.id) AS roster
                 FROM timing_events t LEFT JOIN courses c ON c.id = t.course_id
@@ -336,12 +371,18 @@ async def timing_create(
         event_date = date.fromisoformat(date_raw) if date_raw else None
     except ValueError:
         return RedirectResponse("/admin/timing?error=Date+must+be+YYYY-MM-DD", status_code=303)
+    kind = _form_str(form, "kind") or "rally"
+    if kind not in EVENT_KINDS:
+        return RedirectResponse("/admin/timing?error=Unknown+event+type", status_code=303)
+    laps_raw = _form_str(form, "laps") or "1"
+    if not laps_raw.isdigit() or not 1 <= int(laps_raw) <= 20:
+        return RedirectResponse("/admin/timing?error=Laps+must+be+1-20", status_code=303)
     with get_session() as s:
         try:
             event_id = s.execute(
                 text("""
-                INSERT INTO timing_events (season, name, event_date, course_id, created_by)
-                VALUES (:season, :name, :d, :course, :by) RETURNING id
+                INSERT INTO timing_events (season, name, event_date, course_id, created_by, kind, laps)
+                VALUES (:season, :name, :d, :course, :by, :kind, :laps) RETURNING id
             """),
                 {
                     "season": int(season_raw),
@@ -349,8 +390,13 @@ async def timing_create(
                     "d": event_date,
                     "course": int(course_raw) if course_raw.isdigit() else None,
                     "by": user.get("id"),
+                    "kind": kind,
+                    "laps": int(laps_raw),
                 },
             ).scalar_one()
+            if kind == "localdirt":
+                # One course, one start, one finish: the stations a local dirt race has.
+                _add_segment(s, event_id, SegmentForm("Course", None, None, None, True, True))
             s.commit()
         except IntegrityError as exc:
             s.rollback()
@@ -377,7 +423,7 @@ def timing_event(
         roster = (
             s.execute(
                 text("""
-                SELECT id, plate, name, team, category, source
+                SELECT id, plate, name, team, category, source, wave_id
                 FROM timing_roster WHERE timing_event_id = :e ORDER BY plate
             """),
                 {"e": event_id},
@@ -393,13 +439,20 @@ def timing_event(
         ]
         courses = s.execute(text("SELECT id, name FROM courses ORDER BY name")).mappings().all()
         devices = _devices(s, event_id)
+        waves = _waves(s, event_id)
+        roster_rows = [dict(r) for r in roster]
+        if event["kind"] == "localdirt":
+            wave_names = {w["id"]: w["name"] for w in waves}
+            for r in roster_rows:
+                r["wave"] = wave_names.get(r["wave_id"])
     return templates.TemplateResponse(
         "admin/timing_event.html",
         {
             "request": request,
             "event": event,
             "segments": segments,
-            "roster": [dict(r) for r in roster],
+            "roster": roster_rows,
+            "waves": waves,
             "seasons": seasons,
             "courses": [dict(c) for c in courses],
             "devices": devices,
@@ -495,17 +548,21 @@ async def event_update(
     date_raw = _form_str(form, "event_date")
     course_raw = _form_str(form, "course_id")
     status = _form_str(form, "status")
+    laps_raw = _form_str(form, "laps")
     if not name or status not in STATUSES:
         return _redirect(event_id, error="Name+and+status+are+required")
+    if laps_raw and (not laps_raw.isdigit() or not 1 <= int(laps_raw) <= 20):
+        return _redirect(event_id, error="Laps+must+be+1-20")
     try:
         event_date = date.fromisoformat(date_raw) if date_raw else None
     except ValueError:
         return _redirect(event_id, error="Date+must+be+YYYY-MM-DD")
     with get_session() as s:
-        _load_event(s, event_id)
+        event = _load_event(s, event_id)
         s.execute(
             text("""
-            UPDATE timing_events SET name = :n, event_date = :d, course_id = :c, status = :st
+            UPDATE timing_events SET name = :n, event_date = :d, course_id = :c, status = :st,
+                laps = :laps
             WHERE id = :e
         """),
             {
@@ -513,6 +570,7 @@ async def event_update(
                 "d": event_date,
                 "c": int(course_raw) if course_raw.isdigit() else None,
                 "st": status,
+                "laps": int(laps_raw) if laps_raw else event["laps"],
                 "e": event_id,
             },
         )
@@ -569,13 +627,18 @@ async def roster_paste(
     __: None = Depends(require_same_origin),
 ):
     form = await request.form()
-    try:
-        rows = parse_roster_lines(_form_str(form, "lines"))
-    except ValueError as exc:
-        return _redirect(event_id, error=str(exc).replace(" ", "+"))
     with get_session() as s:
-        _load_event(s, event_id)
+        event = _load_event(s, event_id)
+        names_only = event["kind"] == "localdirt"
+        try:
+            rows = parse_roster_lines(
+                _form_str(form, "lines"), names_only=names_only, next_plate=_next_plate(s, event_id)
+            )
+        except ValueError as exc:
+            return _redirect(event_id, error=str(exc).replace(" ", "+"))
         added = _insert_roster(s, event_id, rows, "paste")
+        if names_only:
+            _assign_waves_by_category(s, event_id)
         s.commit()
     return _redirect(
         event_id, saved=f"{added}+riders+added,+{len(rows) - added}+already+on+the+roster"
@@ -628,17 +691,21 @@ async def roster_add(
     form = await request.form()
     plate = _form_str(form, "plate")
     name = _form_str(form, "name")
-    if not plate.isdigit() or not name:
-        return _redirect(event_id, error="Plate+(a+number)+and+name+are+required")
-    row = RosterRow(
-        plate=int(plate),
-        name=name,
-        team=_form_str(form, "team") or None,
-        category=_form_str(form, "category") or None,
-    )
     with get_session() as s:
-        _load_event(s, event_id)
+        event = _load_event(s, event_id)
+        if event["kind"] == "localdirt" and not plate:
+            plate = str(_next_plate(s, event_id))
+        if not plate.isdigit() or not name:
+            return _redirect(event_id, error="Plate+(a+number)+and+name+are+required")
+        row = RosterRow(
+            plate=int(plate),
+            name=name,
+            team=_form_str(form, "team") or None,
+            category=_form_str(form, "category") or None,
+        )
         added = _insert_roster(s, event_id, [row], "manual")
+        if event["kind"] == "localdirt":
+            _assign_waves_by_category(s, event_id)
         s.commit()
     if not added:
         return _redirect(event_id, error=f"Plate+{plate}+is+already+on+the+roster")
@@ -671,6 +738,137 @@ def roster_clear(
         s.execute(text("DELETE FROM timing_roster WHERE timing_event_id = :e"), {"e": event_id})
         s.commit()
     return _redirect(event_id, saved="roster+cleared")
+
+
+# ── Waves (local dirt) ─────────────────────────────────────────────────────
+
+
+def parse_categories(raw: str) -> list[str]:
+    """'JV1 - Male, JV2 - Male' -> ['JV1 - Male', 'JV2 - Male'] (deduplicated, order kept)."""
+    out: list[str] = []
+    for part in raw.split(","):
+        c = " ".join(part.split())
+        if c and c.lower() not in {x.lower() for x in out}:
+            out.append(c)
+    return out
+
+
+def _assign_waves_by_category(s: Session, event_id: int) -> int:
+    """Put every unassigned roster rider into the wave that lists their category."""
+    n = 0
+    for w in _waves(s, event_id):
+        cats = parse_categories(w["categories"] or "")
+        if not cats:
+            continue
+        result = s.execute(
+            text("""
+            UPDATE timing_roster SET wave_id = :w
+            WHERE timing_event_id = :e AND wave_id IS NULL
+              AND lower(coalesce(category, '')) = ANY(:cats)
+        """),
+            {"w": w["id"], "e": event_id, "cats": [c.lower() for c in cats]},
+        )
+        n += rowcount(result)
+    return n
+
+
+@router.post("/{event_id}/waves/add")
+async def wave_add(
+    request: Request,
+    event_id: int,
+    _: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    name = _form_str(form, "name")
+    if not name:
+        return _redirect(event_id, error="Wave+name+is+required")
+    cats = parse_categories(_form_str(form, "categories"))
+    with get_session() as s:
+        _load_event(s, event_id)
+        seq = (
+            s.execute(
+                text(
+                    "SELECT COALESCE(max(seq), 0) + 1 FROM timing_waves WHERE timing_event_id = :e"
+                ),
+                {"e": event_id},
+            ).scalar()
+            or 1
+        )
+        s.execute(
+            text(
+                "INSERT INTO timing_waves (timing_event_id, seq, name, categories) "
+                "VALUES (:e, :seq, :n, :c)"
+            ),
+            {"e": event_id, "seq": seq, "n": name, "c": ", ".join(cats) or None},
+        )
+        assigned = _assign_waves_by_category(s, event_id)
+        s.commit()
+    return _redirect(event_id, saved=f"wave+added,+{assigned}+riders+assigned")
+
+
+@router.post("/{event_id}/waves/{wave_id}")
+async def wave_update(
+    request: Request,
+    event_id: int,
+    wave_id: int,
+    _: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    form = await request.form()
+    action = _form_str(form, "action")
+    with get_session() as s:
+        _load_event(s, event_id)
+        if action == "delete":
+            s.execute(
+                text("DELETE FROM timing_waves WHERE id = :w AND timing_event_id = :e"),
+                {"w": wave_id, "e": event_id},
+            )
+            s.commit()
+            return _redirect(event_id, saved="wave+deleted")
+        name = _form_str(form, "name")
+        if not name:
+            return _redirect(event_id, error="Wave+name+is+required")
+        cats = parse_categories(_form_str(form, "categories"))
+        s.execute(
+            text(
+                "UPDATE timing_waves SET name = :n, categories = :c "
+                "WHERE id = :w AND timing_event_id = :e"
+            ),
+            {"n": name, "c": ", ".join(cats) or None, "w": wave_id, "e": event_id},
+        )
+        if action == "reassign":
+            s.execute(
+                text("UPDATE timing_roster SET wave_id = NULL WHERE timing_event_id = :e"),
+                {"e": event_id},
+            )
+        assigned = _assign_waves_by_category(s, event_id)
+        s.commit()
+    return _redirect(event_id, saved=f"wave+saved,+{assigned}+riders+assigned")
+
+
+@router.post("/{event_id}/roster/{roster_id}/wave")
+async def roster_wave(
+    request: Request,
+    event_id: int,
+    roster_id: int,
+    _: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    """Put one rider in a wave by hand (or take them out with a blank)."""
+    form = await request.form()
+    raw = _form_str(form, "wave_id")
+    with get_session() as s:
+        _load_event(s, event_id)
+        s.execute(
+            text(
+                "UPDATE timing_roster SET wave_id = :w WHERE id = :r AND timing_event_id = :e "
+                "AND (:w IS NULL OR EXISTS (SELECT 1 FROM timing_waves WHERE id = :w AND timing_event_id = :e))"
+            ),
+            {"w": int(raw) if raw.isdigit() else None, "r": roster_id, "e": event_id},
+        )
+        s.commit()
+    return _redirect(event_id, saved="rider+moved")
 
 
 # ── Import a station's export file (no-internet transfer) ──────────────────
@@ -780,7 +978,7 @@ def _rec_inputs(s: Session, event_id: int) -> dict[str, Any]:
         for r in s.execute(
             text("""
             SELECT id, point_id, ts, plate, kind, supersedes, voided, note, received_at, device_id,
-                   author
+                   author, wave_id
             FROM timing_crossings WHERE timing_event_id = :e
         """),
             {"e": event_id},
@@ -1027,6 +1225,11 @@ def crossings_page(
     with get_session() as s:
         event = _load_event(s, event_id)
         inp = _rec_inputs(s, event_id)
+        waves = (
+            {w["id"]: w["name"] for w in _waves(s, event_id)}
+            if event["kind"] == "localdirt"
+            else {}
+        )
     points: dict[int, dict[str, Any]] = {}
     for sg in inp["seg_rows"]:
         for kind, p in sg["points"].items():
@@ -1056,6 +1259,7 @@ def crossings_page(
             "point_id": point_id,
             "plate": plate,
             "unassigned": unassigned,
+            "waves": waves,
             "tz": LEAGUE_TZ,
             "saved": saved,
             "error": error,

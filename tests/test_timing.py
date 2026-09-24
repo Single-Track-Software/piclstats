@@ -153,3 +153,33 @@ def test_slow_round_trip_is_not_a_clock_sample():
     from piclstats.web.timing_station import MAX_SAMPLE_RTT_MS
 
     assert MAX_SAMPLE_RTT_MS == 1500
+
+
+def test_roster_names_only_assigns_numbers():
+    rows = parse_roster_lines(
+        "Name, Team\nAVA AYERS, Parkland, JV1 - Female\nBEN CHO\n", names_only=True, next_plate=7
+    )
+    assert [(r.plate, r.name, r.team, r.category) for r in rows] == [
+        (7, "AVA AYERS", "Parkland", "JV1 - Female"),
+        (8, "BEN CHO", None, None),
+    ]
+
+
+def test_parse_categories_dedupes_and_trims():
+    from piclstats.web.timing import parse_categories
+
+    assert parse_categories(" JV1 - Male ,jv1 - male, JV2 -  Male,, ") == [
+        "JV1 - Male",
+        "JV2 - Male",
+    ]
+
+
+def test_normalize_crossing_wave_id():
+    from piclstats.web.timing_station import normalize_crossing
+
+    ok = normalize_crossing({"id": "w1-000000000", "device_ts_ms": 1_800_000_000_000, "wave_id": 3})
+    assert ok["wave_id"] == 3 and ok["plate"] is None
+    with pytest.raises(ValueError):
+        normalize_crossing(
+            {"id": "w1-000000000", "device_ts_ms": 1_800_000_000_000, "wave_id": "a"}
+        )

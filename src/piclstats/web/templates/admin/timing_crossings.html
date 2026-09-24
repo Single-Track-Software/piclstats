@@ -43,11 +43,11 @@
                 {% for c in rows %}
                 {% set p = points.get(c.point_id) %}
                 {% set rider = roster.get(c.plate) if c.plate else none %}
-                <tr class="{{ 'opacity-50' if c.voided }} {{ 'bg-amber-50' if not c.plate and not c.voided }}">
+                <tr class="{{ 'opacity-50' if c.voided }} {{ 'bg-green-50' if c.wave_id else ('bg-amber-50' if not c.plate and not c.voided) }}">
                     <td class="px-3 py-1.5 font-mono whitespace-nowrap">{{ c.ts.astimezone(tz).strftime('%H:%M:%S') }}<span class="text-gray-400">.{{ (c.ts.microsecond // 100000) }}</span></td>
                     <td class="px-3 py-1.5 whitespace-nowrap">Seg {{ p.seq if p else '?' }} <span class="{{ 'text-green-700' if p and p.kind == 'start' else 'text-red-700' }} font-medium">{{ p.kind if p else '' }}</span></td>
-                    <td class="px-3 py-1.5"><input form="c-{{ c.id }}" type="number" name="plate" value="{{ c.plate or '' }}" min="1" class="{{ input }} w-20 font-mono"></td>
-                    <td class="px-3 py-1.5 text-xs {{ 'text-amber-700' if c.plate and not rider }}">{{ rider.name if rider and rider.name != 'Plate ' ~ c.plate else ('not on roster' if c.plate else '') }}</td>
+                    <td class="px-3 py-1.5">{% if c.wave_id %}<span class="text-green-800 font-medium text-sm">Wave start</span><input form="c-{{ c.id }}" type="hidden" name="plate" value="">{% else %}<input form="c-{{ c.id }}" type="number" name="plate" value="{{ c.plate or '' }}" min="1" class="{{ input }} w-20 font-mono">{% endif %}</td>
+                    <td class="px-3 py-1.5 text-xs {{ 'text-amber-700' if c.plate and not rider }}">{% if c.wave_id %}{{ waves.get(c.wave_id, 'wave ' ~ c.wave_id) }}{% else %}{{ rider.name if rider and rider.name != 'Plate ' ~ c.plate else ('not on roster' if c.plate else '') }}{% endif %}</td>
                     <td class="px-3 py-1.5"><input form="c-{{ c.id }}" type="text" name="note" value="{{ c.note or '' }}" class="{{ input }} w-40"></td>
                     <td class="px-3 py-1.5 text-xs text-gray-500">{{ c.kind }}{% if c.device_id %} · {{ c.device_id[:8] }}{% endif %}{% if history.get(c.id) %} · <span title="{% for h in history[c.id] %}{{ h.author }}: {{ h.note or '' }}&#10;{% endfor %}">{{ history[c.id]|length }} correction{{ 's' if history[c.id]|length != 1 }}</span>{% endif %}</td>
                     <td class="px-3 py-1.5 text-right whitespace-nowrap">

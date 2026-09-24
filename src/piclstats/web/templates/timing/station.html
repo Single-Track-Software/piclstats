@@ -20,8 +20,8 @@
     <div class="flex items-center justify-between gap-3">
         <div class="min-w-0">
             <div class="text-[11px] uppercase tracking-[0.2em] text-gold-400 font-semibold truncate">{{ station.event }}</div>
-            <div class="font-extrabold text-lg leading-tight truncate">Segment {{ station.seq }} · <span class="{{ 'text-green-300' if station.kind == 'start' else 'text-red-300' }}">{{ station.kind|upper }}</span></div>
-            <div class="text-xs text-picl-200 truncate">{{ station.segment }}</div>
+            <div class="font-extrabold text-lg leading-tight truncate">{{ 'Course' if station.event_kind == 'localdirt' else 'Segment ' ~ station.seq }} · <span class="{{ 'text-green-300' if station.kind == 'start' else 'text-red-300' }}">{{ station.kind|upper }}</span></div>
+            <div class="text-xs text-picl-200 truncate">{% if station.event_kind == 'localdirt' %}{{ station.laps }} lap{{ 's' if station.laps != 1 }}{% else %}{{ station.segment }}{% endif %}</div>
         </div>
         <div class="text-right shrink-0">
             <div id="clock" class="font-mono text-xl font-bold tabular-nums">--:--:--</div>
@@ -42,7 +42,18 @@
         </div>
     </div>
 
-    {% if station.kind == 'start' %}
+    {% if station.kind == 'start' and station.event_kind == 'localdirt' %}
+    <!-- WAVE START: pick the wave, run the countdown; everyone in it starts at GO. -->
+    <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
+        <label for="wave" class="block text-sm font-medium text-gray-700 mb-1">Wave on the line</label>
+        <select id="wave" class="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-2xl font-bold focus:border-picl-500 focus:outline-none"></select>
+        <div id="waveHint" class="mt-1 min-h-[1.25rem] text-sm text-gray-500 text-center">&nbsp;</div>
+        <button id="go" class="mt-3 w-full rounded-2xl bg-green-600 active:bg-green-700 text-white font-extrabold text-4xl py-8 shadow-md disabled:opacity-40 disabled:cursor-not-allowed">
+            <span id="goLabel">READY</span>
+        </button>
+        <p class="mt-2 text-xs text-gray-500">Tap READY, then "Riders ready… 5-4-3-2-1-GO". The whole wave's start time is taken at GO. Tap again to cancel. Start each wave once; a second start for the same wave is flagged for the lead.</p>
+    </section>
+    {% elif station.kind == 'start' %}
     <!-- START: plate first, then the countdown; the time is taken at GO. -->
     <section class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-4">
         <div class="flex items-center justify-between mb-2">
@@ -74,7 +85,7 @@
         <button id="record" class="w-full rounded-2xl bg-red-600 active:bg-red-700 text-white font-extrabold text-5xl py-14 shadow-md">
             FINISH
         </button>
-        <p class="mt-2 text-xs text-gray-500 text-center">Tap as the rider crosses. Several riders in a second: tap for each. Then type plates below, newest first.</p>
+        <p class="mt-2 text-xs text-gray-500 text-center">{% if station.event_kind == 'localdirt' %}Tap as each rider crosses; the big number is their lollipop stick. At the table, tap the row and pick the rider's name.{% else %}Tap as the rider crosses. Several riders in a second: tap for each. Then type plates below, newest first.{% endif %}</p>
     </section>
     {% endif %}
 
@@ -109,9 +120,17 @@
             <div><div id="sheetTime" class="font-mono text-2xl font-bold"></div><div class="text-xs text-gray-500">recorded time</div></div>
             <button id="sheetClose" class="text-gray-500 text-sm px-3 py-2">Close</button>
         </div>
+        {% if station.event_kind == 'localdirt' %}
+        <label class="block text-sm font-medium text-gray-700 mb-1">Rider</label>
+        <input id="sheetName" type="text" list="riders" autocomplete="off" enterkeyhint="done" placeholder="start typing a name…"
+               class="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-xl font-semibold focus:border-picl-500 focus:outline-none">
+        <datalist id="riders"></datalist>
+        <input id="sheetPlate" type="hidden">
+        {% else %}
         <label class="block text-sm font-medium text-gray-700 mb-1">Plate</label>
         <input id="sheetPlate" type="text" inputmode="numeric" pattern="[0-9]*" autocomplete="off" enterkeyhint="done"
                class="w-full rounded-lg border-2 border-gray-300 px-4 py-3 text-3xl font-mono font-bold text-center tracking-widest focus:border-picl-500 focus:outline-none">
+        {% endif %}
         <div id="sheetHint" class="mt-1 min-h-[1.25rem] text-sm text-gray-500 text-center">&nbsp;</div>
         <label class="block text-sm font-medium text-gray-700 mt-3 mb-1">Note <span class="font-normal text-gray-400">(optional: "no plate visible", "DNF here", …)</span></label>
         <input id="sheetNote" type="text" class="w-full rounded-lg border border-gray-300 px-3 py-2 text-base">
@@ -126,8 +145,10 @@
 <script>
 (() => {
 const ctx = JSON.parse(document.getElementById('ctx').textContent);
-const CODE = ctx.code, KIND = ctx.point.kind;
+const CODE = ctx.code, KIND = ctx.point.kind, LOCAL = ctx.kind === 'localdirt', LAPS = ctx.laps || 1;
 const roster = new Map(ctx.roster.map(r => [r.plate, r]));
+const byName = new Map(ctx.roster.map(r => [r.name.trim().toLowerCase(), r]));
+const waveName = id => (ctx.waves.find(w => w.id === id) || {}).name || ('wave ' + id);
 const $ = id => document.getElementById(id);
 
 // ── Identity and clock ─────────────────────────────────────────────────
@@ -166,11 +187,14 @@ function effective() {
         let root = r.supersedes; while (byId.get(root)?.supersedes) root = byId.get(root).supersedes;
         const cur = latest.get(root); if (!cur || r.device_ts_ms_created > cur.device_ts_ms_created) latest.set(root, r);
     }
-    return records.filter(r => r.kind !== 'correction').map(o => { const c = latest.get(o.id); return {...o, plate: c ? c.plate : o.plate, note: c ? c.note : o.note, voided: c ? c.voided : o.voided, root: o.id}; })
+    return records.filter(r => r.kind !== 'correction').map(o => { const c = latest.get(o.id); return {...o, plate: c ? c.plate : o.plate, note: c ? c.note : o.note, voided: c ? c.voided : o.voided, wave_id: o.wave_id ?? null, tap: o.tap ?? null, root: o.id}; })
         .sort((a, b) => b.device_ts_ms - a.device_ts_ms);
 }
-async function record(plate, kind = 'tap', note = null) {
-    const rec = {id: uuid(), code: CODE, kind, device_ts_ms: Date.now(), device_ts_ms_created: Date.now(), offset_ms: Math.round(offset), plate: plate ?? null, supersedes: null, voided: false, note, synced: false};
+async function record(plate, kind = 'tap', note = null, waveId = null) {
+    // Local dirt finish: the tap number is the lollipop stick, so it is part of the record.
+    let tap = null;
+    if (LOCAL && KIND === 'finish') { tap = records.filter(r => r.kind !== 'correction').length + 1; note = note || `tap ${tap}`; }
+    const rec = {id: uuid(), code: CODE, kind, device_ts_ms: Date.now(), device_ts_ms_created: Date.now(), offset_ms: Math.round(offset), plate: plate ?? null, supersedes: null, voided: false, note, wave_id: waveId, tap, synced: false};
     records.push(rec); await put(rec); render(); scheduleSync(); return rec;
 }
 async function correct(root, plate, note, voided) {
@@ -184,8 +208,8 @@ function plateInfo(raw, exceptRoot) {
     if (!s) return {ok: false, text: ''};
     if (!/^\d{1,5}$/.test(s)) return {ok: false, text: 'Plates are numbers'};
     const plate = Number(s), r = roster.get(plate);
-    const dup = effective().some(x => !x.voided && x.plate === plate && x.root !== exceptRoot);
-    if (dup) return {ok: true, plate, warn: true, text: `⚠ ${plate} already recorded at this station` + (r ? ` (${r.name})` : '')};
+    const seen = effective().filter(x => !x.voided && x.plate === plate && x.root !== exceptRoot).length;
+    if (seen >= LAPS) return {ok: true, plate, warn: true, text: LOCAL ? `⚠ ${r ? r.name : plate} already has ${seen} crossing${seen === 1 ? '' : 's'} here` : `⚠ ${plate} already recorded at this station` + (r ? ` (${r.name})` : '')};
     if (!r) return {ok: true, plate, warn: true, text: `⚠ ${plate} not on the roster — recorded anyway`};
     return {ok: true, plate, text: `${r.name}${r.team ? ' · ' + r.team : ''}${r.category ? ' · ' + r.category : ''}`};
 }
@@ -200,11 +224,15 @@ function render() {
     $('list').innerHTML = rows.map(r => {
         const info = r.plate ? roster.get(r.plate) : null;
         const cls = r.voided ? 'opacity-40 line-through' : (!r.plate ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white');
-        return `<li data-root="${r.root}" class="rounded-xl border ${cls} px-3 py-2 flex items-center gap-3 cursor-pointer">
+        const isWave = r.wave_id != null;
+        const head = isWave ? `Wave: ${waveName(r.wave_id)}` : LOCAL ? (r.tap != null ? `#${r.tap}` : (info ? info.name : 'no name')) : (r.plate ?? 'no plate');
+        const sub = isWave ? 'wave start' : LOCAL ? (info ? `${info.name}${info.team ? ' · ' + info.team : ''}` : 'tap to pick the rider') : (info ? info.name : (r.plate ? 'not on roster' : 'tap to enter plate'));
+        const cls2 = isWave ? 'border-green-300 bg-green-50' : cls;
+        return `<li data-root="${r.root}" class="rounded-xl border ${(LOCAL && !r.voided && !isWave && !r.plate) ? 'border-amber-300 bg-amber-50' : cls2} px-3 py-2 flex items-center gap-3 cursor-pointer">
             <div class="font-mono text-base tabular-nums text-gray-700 shrink-0">${fmt(r.device_ts_ms - r.offset_ms)}</div>
             <div class="flex-1 min-w-0">
-                <div class="font-mono text-2xl font-bold ${r.plate ? 'text-gray-900' : 'text-amber-700'}">${r.plate ?? 'no plate'}</div>
-                <div class="text-xs text-gray-500 truncate">${info ? info.name : (r.plate ? 'not on roster' : 'tap to enter plate')}${r.note ? ' · ' + r.note : ''}</div>
+                <div class="${isWave ? 'text-lg font-bold text-green-800' : 'font-mono text-2xl font-bold'} ${(r.plate || isWave || LOCAL) ? 'text-gray-900' : 'text-amber-700'}">${head}</div>
+                <div class="text-xs text-gray-500 truncate">${sub}${r.note && !(LOCAL && /^tap \d+$/.test(r.note)) ? ' · ' + r.note : ''}</div>
             </div>
             <div class="text-[10px] ${r.synced && !records.some(x => x.supersedes === r.root && !x.synced) ? 'text-green-600' : 'text-gray-400'}">${r.synced ? '✓' : '…'}</div>
         </li>`;
@@ -221,8 +249,9 @@ $('list').addEventListener('click', e => { const li = e.target.closest('li[data-
 let sheetRoot = null;
 function openSheet(rootId) {
     const r = effective().find(x => x.root === rootId); if (!r) return; sheetRoot = r;
-    $('sheetTime').textContent = fmt(r.device_ts_ms - r.offset_ms);
+    $('sheetTime').textContent = fmt(r.device_ts_ms - r.offset_ms) + (r.tap != null ? `  ·  #${r.tap}` : '') + (r.wave_id != null ? `  ·  ${waveName(r.wave_id)}` : '');
     $('sheetPlate').value = r.plate ?? ''; $('sheetNote').value = r.note ?? '';
+    if (LOCAL) { const info = r.plate ? roster.get(r.plate) : null; $('sheetName').value = info ? info.name : ''; }
     hint($('sheetHint'), plateInfo($('sheetPlate').value, r.root));
     $('sheetVoid').textContent = r.voided ? 'Restore' : 'Void';
     $('sheet').classList.remove('hidden'); setTimeout(() => $('sheetPlate').focus(), 50);
@@ -231,10 +260,19 @@ const closeSheet = () => { $('sheet').classList.add('hidden'); sheetRoot = null;
 $('sheetClose').onclick = closeSheet;
 $('sheetPlate').oninput = () => hint($('sheetHint'), plateInfo($('sheetPlate').value, sheetRoot?.root));
 $('sheetPlate').onkeydown = e => { if (e.key === 'Enter') $('sheetSave').click(); };
+if (LOCAL) {
+    // Name picker: the datalist holds every roster name; a match sets the internal number.
+    $('riders').innerHTML = ctx.roster.map(r => `<option value="${r.name.replace(/"/g, '&quot;')}">${r.team || ''}${r.category ? ' · ' + r.category : ''}</option>`).join('');
+    const resolve = () => { const r = byName.get($('sheetName').value.trim().toLowerCase()); $('sheetPlate').value = r ? r.plate : ''; hint($('sheetHint'), r ? plateInfo(String(r.plate), sheetRoot?.root) : {ok: false, text: $('sheetName').value.trim() ? 'Not on the roster — saved as a note for the lead' : ''}); };
+    $('sheetName').oninput = resolve; $('sheetName').onchange = resolve;
+    $('sheetName').onkeydown = e => { if (e.key === 'Enter') $('sheetSave').click(); };
+}
 $('sheetSave').onclick = async () => {
     if (!sheetRoot) return;
     const info = plateInfo($('sheetPlate').value, sheetRoot.root); const plate = info.ok ? info.plate : null;
-    const note = $('sheetNote').value.trim() || null;
+    let note = $('sheetNote').value.trim() || null;
+    if (LOCAL && !plate && $('sheetName').value.trim()) note = `name: ${$('sheetName').value.trim()}` + (note ? ' · ' + note : '');
+    if (LOCAL && plate && sheetRoot.tap != null && !note) note = `tap ${sheetRoot.tap}`;
     if (plate === (sheetRoot.plate ?? null) && note === (sheetRoot.note ?? null)) return closeSheet();
     await correct(sheetRoot, plate, note, sheetRoot.voided); closeSheet();
 };
@@ -249,10 +287,31 @@ let lastStart = null, countdown = null;
 function tickSince() {
     const el = $('sinceLast'); if (!el) return;
     if (!lastStart) { el.textContent = '—'; el.className = 'font-mono text-2xl font-bold tabular-nums text-gray-400'; return; }
-    const s = Math.floor((Date.now() - lastStart) / 1000), want = Number($('interval').value);
+    const s = Math.floor((Date.now() - lastStart) / 1000), want = Number(($('interval') || {value: 30}).value);
     el.textContent = s + 's'; el.className = 'font-mono text-2xl font-bold tabular-nums ' + (s >= want ? 'text-green-600' : 'text-amber-600');
 }
-if (KIND === 'start') {
+if (KIND === 'start' && LOCAL) {
+    const sel = $('wave');
+    sel.innerHTML = ctx.waves.map(w => `<option value="${w.id}">${w.name}</option>`).join('') || '<option value="">no waves set up</option>';
+    const started = () => effective().filter(r => !r.voided && r.wave_id != null).map(r => r.wave_id);
+    const waveHint = () => { const id = Number(sel.value); const n = started().filter(x => x === id).length; $('waveHint').textContent = n ? `⚠ ${waveName(id)} already started ${n} time${n === 1 ? '' : 's'}` : (ctx.roster.filter(r => r.wave_id === id).length + ' riders in this wave'); $('waveHint').className = 'mt-1 min-h-[1.25rem] text-sm text-center ' + (n ? 'text-amber-700 font-medium' : 'text-gray-500'); };
+    sel.onchange = waveHint; waveHint();
+    const beep = (() => { let ac; return (freq, ms) => { try { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); const o = ac.createOscillator(), g = ac.createGain(); o.frequency.value = freq; o.connect(g); g.connect(ac.destination); g.gain.value = 0.2; o.start(); o.stop(ac.currentTime + ms / 1000); } catch {} }; })();
+    $('go').onclick = async () => {
+        if (!sel.value) return;
+        if (countdown) { clearInterval(countdown); countdown = null; $('goLabel').textContent = 'READY'; $('go').className = $('go').className.replace('bg-amber-500', 'bg-green-600'); return; }
+        const id = Number(sel.value);
+        let n = 5; $('goLabel').textContent = n; $('go').className = $('go').className.replace('bg-green-600', 'bg-amber-500'); beep(660, 120);
+        countdown = setInterval(async () => {
+            n -= 1;
+            if (n > 0) { $('goLabel').textContent = n; beep(660, 120); return; }
+            clearInterval(countdown); countdown = null;
+            await record(null, 'tap', `wave start: ${waveName(id)}`, id); beep(990, 400);
+            $('goLabel').textContent = 'GO!';
+            setTimeout(() => { $('goLabel').textContent = 'READY'; $('go').className = $('go').className.replace('bg-amber-500', 'bg-green-600'); const next = ctx.waves[ctx.waves.findIndex(w => w.id === id) + 1]; if (next) sel.value = next.id; waveHint(); }, 900);
+        }, 1000);
+    };
+} else if (KIND === 'start') {
     $('interval').value = ls.get('picl_timing_interval', String(ctx.interval_s));
     $('interval').onchange = () => ls.set('picl_timing_interval', $('interval').value);
     const plateEl = $('plate');
@@ -290,7 +349,7 @@ async function sync() {
         const res = await fetch(`/timing/api/s/${CODE}/sync`, {method: 'POST', headers: {"Content-Type": "application/json"}, body: JSON.stringify({
             device: {id: deviceId, label, user_agent: navigator.userAgent, pending: batch.length, offset_ms: Math.round(offset), last_rtt_ms: lastRtt},
             client_time_ms: t0,
-            crossings: batch.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note})),
+            crossings: batch.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note, wave_id: r.wave_id ?? null})),
         })});
         const t1 = Date.now();
         if (res.status === 409) { $('closed').classList.remove('hidden'); setState('closed', 'text-red-300'); return; }
@@ -321,7 +380,7 @@ $('syncNow').onclick = () => scheduleSync(0);
 
 // ── Export (last resort: AirDrop / share the file to the lead) ─────────
 $('export').onclick = async () => {
-    const data = {code: CODE, event: ctx.event, segment: ctx.segment, point: ctx.point, device: {id: deviceId, label, user_agent: navigator.userAgent, offset_ms: Math.round(offset)}, exported_at_ms: Date.now(), crossings: records.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note}))};
+    const data = {code: CODE, event: ctx.event, segment: ctx.segment, point: ctx.point, device: {id: deviceId, label, user_agent: navigator.userAgent, offset_ms: Math.round(offset)}, exported_at_ms: Date.now(), crossings: records.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note, wave_id: r.wave_id ?? null}))};
     const name = `picl-timing-${CODE}-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
     const file = new File([JSON.stringify(data, null, 1)], name, {type: 'application/json'});
     if (navigator.canShare && navigator.canShare({files: [file]})) { try { await navigator.share({files: [file], title: name}); return; } catch {} }
