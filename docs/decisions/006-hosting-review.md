@@ -1,7 +1,7 @@
 # 006 — Hosting: stay on Fly, harden the database
 
 **Date:** 2026-09-23  
-**Status:** Proposed (Chris to decide)
+**Status:** Accepted 2026-09-24 (Chris); step 1 done the same day
 
 ## Context
 
@@ -73,6 +73,19 @@ Steps, in order, each its own PR or runbook entry:
    gap; today one warm machine and auto-start is enough.
 3. Photos (phase 2b): Tigris bucket, presigned uploads from the station page,
    keys stored on the crossing, retention job per the release-form policy.
+
+## Done 2026-09-24
+
+Cluster `piclstats-pg` (Managed Postgres Basic, `ord`, Postgres 17, 10 GB)
+created; data copied with `pg_dump`/`pg_restore` from the old machine over
+the private network and every table's count verified; the app's
+`DATABASE_URL` secret switched to the cluster's direct host (not the
+pgbouncer host: the app sets `statement_timeout` as a startup option, which
+a transaction-mode pooler rejects); pages verified; no writes had landed on
+the old database in the window. The old `piclstats-db` app is stopped, not
+destroyed, for a week in case a restore point is wanted; destroy after.
+Backups and failover are the cluster's (`fly mpg backup`, `fly mpg
+restore`). The NAS copy for local verification is refreshed the usual way.
 
 ## Consequences
 
