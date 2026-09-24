@@ -980,12 +980,21 @@ async def dq_publish(
             text("UPDATE events SET is_published = :p WHERE id = :id"),
             {"p": publish, "id": event_id},
         )
+        # Keep the gate's reason as history, but say what happened to it, so the
+        # page never reads as if the race were still held.
         s.execute(
             text("""
-            UPDATE discovered_events SET status = :st, updated_at = now()
+            UPDATE discovered_events SET status = :st, updated_at = now(),
+                note = CASE WHEN note IS NULL OR note = '' THEN :what
+                            WHEN note LIKE '%by hand%' THEN note
+                            ELSE :what || ' (gate said: ' || note || ')' END
             WHERE raceresult_id = (SELECT raceresult_id FROM events WHERE id = :id)
             """),
-            {"st": "published" if publish else "blocked", "id": event_id},
+            {
+                "st": "published" if publish else "blocked",
+                "id": event_id,
+                "what": ("published" if publish else "hidden") + " by hand",
+            },
         )
         s.commit()
     return RedirectResponse("/admin/dq", status_code=303)
