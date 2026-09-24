@@ -53,6 +53,7 @@ _ROUTES: list[tuple[re.Pattern[str], str, int | None]] = [
     (re.compile(r"^/racechart$"), "results", None),
     (re.compile(r"^/course/(\d+)$"), "course", 1),
     (re.compile(r"^/courses$"), "courses", None),
+    (re.compile(r"^/local(/.*)?$"), "local", None),
     (re.compile(r"^/staging(/sheet)?(\.csv)?$"), "staging", None),
     (re.compile(r"^/login$"), "login", None),
     (re.compile(r"^/(forgot|reset|invite)(/.*)?$"), "auth", None),

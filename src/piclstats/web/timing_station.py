@@ -392,6 +392,101 @@ async def station_sync(request: Request, code: str):
         return apply_sync(s, station, payload, author=author)
 
 
+# ── Public local dirt results ──────────────────────────────────────────────
+
+
+def published_local_events(s: Session) -> list[dict[str, Any]]:
+    rows = s.execute(
+        text("""
+        SELECT t.id, t.name, t.season, t.event_date, t.public_code, c.name AS course,
+               (SELECT count(*) FROM local_results lr WHERE lr.timing_event_id = t.id) AS riders
+        FROM timing_events t LEFT JOIN courses c ON c.id = t.course_id
+        WHERE t.kind = 'localdirt' AND t.status = 'published' AND t.public_code IS NOT NULL
+        ORDER BY t.event_date DESC NULLS LAST, t.id DESC
+    """)
+    ).mappings()
+    return [dict(r) for r in rows]
+
+
+def rider_local_results(s: Session, canonical_id: int) -> list[dict[str, Any]]:
+    """A rider's published local dirt results, across every merged alias, newest first."""
+    rows = s.execute(
+        text("""
+        SELECT lr.name, lr.team, lr.category, lr.wave, lr.place_wave, lr.place_category, lr.laps,
+               lr.elapsed_seconds, lr.status, t.name AS event, t.season, t.event_date, t.public_code,
+               (SELECT count(*) FROM local_results x WHERE x.timing_event_id = lr.timing_event_id
+                  AND x.wave IS NOT DISTINCT FROM lr.wave AND x.status = 'OK') AS wave_size
+        FROM local_results lr JOIN timing_events t ON t.id = lr.timing_event_id
+        WHERE t.status = 'published'
+          AND (lr.rider_id = :cid
+               OR lr.rider_id IN (SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid))
+        ORDER BY t.event_date DESC NULLS LAST, t.id DESC
+    """),
+        {"cid": canonical_id},
+    ).mappings()
+    return [dict(r) for r in rows]
+
+
+@router.get("/local", response_class=HTMLResponse)
+def local_list(request: Request):
+    with get_session() as s:
+        events = published_local_events(s)
+    return templates.TemplateResponse(
+        "timing/local_list.html", {"request": request, "events": events}
+    )
+
+
+@router.get("/local/{code}", response_class=HTMLResponse)
+def local_results_page(request: Request, code: str):
+    from piclstats.web.timing_results import format_seconds
+
+    with get_session() as s:
+        event = (
+            s.execute(
+                text("""
+                SELECT t.id, t.name, t.season, t.event_date, t.laps, c.name AS course
+                FROM timing_events t LEFT JOIN courses c ON c.id = t.course_id
+                WHERE t.public_code = :c AND t.kind = 'localdirt' AND t.status = 'published'
+            """),
+                {"c": code.upper()},
+            )
+            .mappings()
+            .first()
+        )
+        if event is None:
+            raise HTTPException(404, "No published results at this link")
+        rows = [
+            dict(r)
+            for r in s.execute(
+                text("""
+                SELECT lr.*, COALESCE(ra.canonical_id, lr.rider_id) AS canonical_id
+                FROM local_results lr LEFT JOIN rider_aliases ra ON ra.rider_id = lr.rider_id
+                WHERE lr.timing_event_id = :e
+                ORDER BY lr.wave, lr.status <> 'OK', lr.place_wave NULLS LAST, lr.name
+            """),
+                {"e": event["id"]},
+            ).mappings()
+        ]
+    by_wave: dict[str, list[dict[str, Any]]] = {}
+    for r in rows:
+        by_wave.setdefault(r["wave"] or "No wave", []).append(r)
+    by_cat: dict[str, list[dict[str, Any]]] = {}
+    for r in sorted(
+        (r for r in rows if r["status"] == "OK"), key=lambda r: r["place_category"] or 10_000
+    ):
+        by_cat.setdefault(r["category"] or "No category", []).append(r)
+    return templates.TemplateResponse(
+        "timing/local_results.html",
+        {
+            "request": request,
+            "event": dict(event),
+            "by_wave": by_wave,
+            "by_cat": by_cat,
+            "fmt": format_seconds,
+        },
+    )
+
+
 @router.get("/timing/api/s/{code}/roster")
 def station_roster(code: str):
     with get_session() as s:

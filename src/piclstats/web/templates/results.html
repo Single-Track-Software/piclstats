@@ -7,6 +7,7 @@
     <p class="mt-1 text-sm text-gray-500">
         {% if tab == 'position' %}How positions changed lap by lap. Each line is a rider; lower is better (1 = leading). A line that ends early means the rider was pulled or lapped before the finish.
         {% else %}Finish order, points, and times for one race, as published by the league.{% endif %}
+        {% if local_count %}<span class="ml-2 text-picl-700"><a href="/local" class="hover:underline">Local dirt results &rarr;</a></span>{% endif %}
     </p>
 </div>
 

@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Results — {{ event.name }}{% endblock %}
+{% block content %}
+{% set input = "rounded border border-gray-300 px-2 py-1 text-sm" %}
+<div class="max-w-6xl">
+    <div class="mb-4 flex flex-wrap gap-3 text-sm">
+        <a href="/admin/timing/{{ event.id }}" class="text-picl-700 hover:underline">&larr; {{ event.name }}</a>
+        <a href="/admin/timing/{{ event.id }}/crossings" class="text-picl-700 hover:underline">Crossings</a>
+        <a href="/admin/timing/{{ event.id }}/live" class="text-picl-700 hover:underline">Live board</a>
+        <a href="/admin/timing/{{ event.id }}/results.csv" class="text-picl-700 hover:underline">Download CSV</a>
+        <a href="/admin/timing/{{ event.id }}/audit.csv" class="text-picl-700 hover:underline">Audit CSV</a>
+        <a href="/admin/timing/{{ event.id }}/audit.json" class="text-picl-700 hover:underline">Audit JSON</a>
+    </div>
+    <div class="flex flex-wrap items-baseline justify-between gap-3 mb-1">
+        <h1 class="text-2xl font-bold text-gray-900">Results &amp; flags <span class="text-sm font-normal text-gray-400">local dirt</span></h1>
+        <span class="inline-block px-2 py-0.5 rounded text-xs font-medium {{ 'bg-green-50 text-green-700' if event.status in ('approved', 'published') else 'bg-gray-100 text-gray-600' }}">{{ event.status }}</span>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">Riders are placed by finish order within their wave (the stick order) and timed from the wave's start. Fix what is under "Needs a look" on the crossings page or accept it with a note, approve, then publish to a shareable page. Local dirt results never enter the official PICL results.</p>
+
+    {% if saved %}<div class="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">Saved ({{ saved }}).</div>{% endif %}
+    {% if error %}<div class="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ error }}</div>{% endif %}
+
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6 flex flex-wrap items-center gap-3">
+        {% set ok = rec.riders | selectattr('status', 'equalto', 'OK') | list | length %}
+        {% set dnf = rec.riders | selectattr('status', 'equalto', 'DNF') | list | length %}
+        <div class="text-sm text-gray-700 mr-auto">
+            <span class="font-mono font-semibold">{{ ok }}</span> finished · <span class="font-mono font-semibold">{{ dnf }}</span> DNF · <span class="font-mono font-semibold {{ 'text-red-700' if flags_block else 'text-green-700' }}">{{ flags_block|length }}</span> need a look
+            {% if event.public_code %} · public page <a href="/local/{{ event.public_code }}" class="text-picl-700 hover:underline">/local/{{ event.public_code }}</a>{% if event.status != 'published' %} <span class="text-amber-700">(hidden until published)</span>{% endif %}{% endif %}
+        </div>
+        {% if event.status in ('setup', 'live') %}
+        <form method="post" action="/admin/timing/{{ event.id }}/approve"><button class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-2 rounded-md text-sm disabled:opacity-40" {{ 'disabled' if flags_block }}>Approve results</button></form>
+        {% endif %}
+        {% if event.status in ('approved', 'published') %}
+        <form method="post" action="/admin/timing/{{ event.id }}/publish" onsubmit="return confirm('Publish these results to the shareable page?')"><button class="bg-gold-500 hover:bg-gold-600 text-picl-900 font-semibold px-4 py-2 rounded-md text-sm">{{ 'Publish again' if event.public_code else 'Publish' }}</button></form>
+        <form method="post" action="/admin/timing/{{ event.id }}/reopen" onsubmit="return confirm('Reopen for corrections? The public page is hidden until you publish again.')"><button class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-md text-sm">Reopen</button></form>
+        {% endif %}
+    </div>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Needs a look <span class="text-sm font-normal text-gray-400">{{ flags_block|length }}</span></h2>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-6">
+        <ul class="divide-y divide-gray-100">
+            {% for f in flags_block %}
+            <li class="px-4 py-3 flex flex-wrap items-center gap-3">
+                <span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-red-50 text-red-700 shrink-0">{{ f.kind.replace('_', ' ') }}</span>
+                <span class="text-sm text-gray-800 flex-1 min-w-[16rem]">{{ f.text }}</span>
+                <a href="/admin/timing/{{ event.id }}/crossings?{% if f.plate %}plate={{ f.plate }}{% elif f.crossing_id %}unassigned=1{% endif %}{% if f.point_id and not f.plate %}&point_id={{ f.point_id }}{% endif %}" class="text-xs text-picl-700 hover:underline">fix &rarr;</a>
+                <form method="post" action="/admin/timing/{{ event.id }}/flags/accept" class="flex items-center gap-1">
+                    <input type="hidden" name="flag_key" value="{{ f.key }}">
+                    <input type="text" name="note" placeholder="accept with a note…" required class="{{ input }} w-44">
+                    <button class="text-xs border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">Accept</button>
+                </form>
+            </li>
+            {% else %}
+            <li class="px-4 py-6 text-center text-sm text-gray-400">Nothing outstanding.</li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    {% if flags_info %}
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">For information <span class="font-normal text-gray-400 normal-case">{{ flags_info|length }}</span></h2>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-6"><ul class="divide-y divide-gray-100">
+        {% for f in flags_info %}<li class="px-4 py-2 flex items-center gap-3 text-sm"><span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-gray-100 text-gray-600 shrink-0">{{ f.kind.replace('_', ' ') }}</span><span class="text-gray-700">{{ f.text }}</span></li>{% endfor %}
+    </ul></div>
+    {% endif %}
+    {% if flags_accepted %}
+    <h2 class="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Accepted <span class="font-normal text-gray-400 normal-case">{{ flags_accepted|length }}</span></h2>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-6"><ul class="divide-y divide-gray-100">
+        {% for f in flags_accepted %}{% set a = accepted.get(f.key) %}
+        <li class="px-4 py-2 flex flex-wrap items-center gap-3 text-sm"><span class="inline-block px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide bg-green-50 text-green-700 shrink-0">{{ f.kind.replace('_', ' ') }}</span><span class="text-gray-700 flex-1">{{ f.text }}</span><span class="text-xs text-gray-500">{{ a.note }} — {{ a.author }}</span>
+        <form method="post" action="/admin/timing/{{ event.id }}/flags/unaccept"><input type="hidden" name="flag_key" value="{{ f.key }}"><button class="text-xs text-red-600 hover:underline">reopen</button></form></li>
+        {% endfor %}
+    </ul></div>
+    {% endif %}
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Wave starts</h2>
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6 flex flex-wrap gap-4 text-sm">
+        {% for w in waves %}{% set st = rec.wave_starts.get(w.id) %}
+        <div><span class="font-medium">{{ w.name }}</span> · {% if st %}<span class="font-mono">{{ st.ts.astimezone(tz).strftime('%H:%M:%S') }}</span>{% else %}<span class="text-amber-700">not started</span>{% endif %}</div>
+        {% else %}<span class="text-gray-400">No waves.</span>{% endfor %}
+    </div>
+
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">By wave <span class="text-sm font-normal text-gray-400">finish order</span></h2>
+    {% for wave, riders in by_wave.items() %}
+    <h3 class="text-sm font-semibold text-gray-700 mt-3 mb-1">{{ wave }} <span class="font-normal text-gray-400">{{ riders|length }}</span></h3>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700 text-xs"><tr><th class="text-right px-3 py-2">Place</th><th class="text-left px-3 py-2">Rider</th><th class="text-left px-3 py-2">Team</th><th class="text-left px-3 py-2">Category</th><th class="text-right px-3 py-2">Cat. place</th><th class="text-right px-3 py-2">Laps</th><th class="text-right px-3 py-2">Finish</th><th class="text-right px-3 py-2">Time</th><th class="text-left px-3 py-2">Status</th></tr></thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for r in riders %}
+                <tr class="{{ 'text-gray-400' if r.status != 'OK' }}">
+                    <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ r.place_wave or '' }}</td>
+                    <td class="px-3 py-1.5">{{ r.name }}</td>
+                    <td class="px-3 py-1.5 text-gray-600 text-xs">{{ r.team or '' }}</td>
+                    <td class="px-3 py-1.5 text-gray-600 text-xs">{{ r.category or '' }}</td>
+                    <td class="px-3 py-1.5 text-right font-mono">{{ r.place_category or '' }}</td>
+                    <td class="px-3 py-1.5 text-right font-mono">{{ r.laps }}</td>
+                    <td class="px-3 py-1.5 text-right font-mono text-xs">{{ r.final_ts.astimezone(tz).strftime('%H:%M:%S') if r.final_ts else '' }}</td>
+                    <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ fmt(r.elapsed_seconds) }}</td>
+                    <td class="px-3 py-1.5 text-xs">{{ r.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}<div class="text-sm text-gray-400 py-6 text-center">Nothing recorded yet.</div>{% endfor %}
+
+    {% if by_cat %}
+    <h2 class="text-lg font-semibold text-gray-900 mt-6 mb-2">By category</h2>
+    <div class="grid md:grid-cols-2 gap-4">
+    {% for cat, riders in by_cat.items() %}
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <div class="px-3 py-2 bg-gray-50 text-sm font-semibold text-gray-700">{{ cat }}</div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+            {% for r in riders %}<tr><td class="px-3 py-1 text-right font-mono font-semibold w-10">{{ r.place_category }}</td><td class="px-3 py-1">{{ r.name }} <span class="text-xs text-gray-400">{{ r.team or '' }}</span></td><td class="px-3 py-1 text-right font-mono">{{ fmt(r.elapsed_seconds) }}</td></tr>{% endfor %}
+        </tbody></table>
+    </div>
+    {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

@@ -103,6 +103,34 @@
 {% endif %}
 
 {% if rivals %}
+{% if local_races %}
+<!-- Local dirt: informal team races timed with the stations; not league results -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-900">Local Dirt <span class="text-sm font-normal text-gray-400">informal team races · not league results</span></h2>
+        <a href="/local" class="text-sm text-picl-700 hover:underline">All local dirt &rarr;</a>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b"><th class="pb-2">Date</th><th class="pb-2">Event</th><th class="pb-2">Wave</th><th class="pb-2 text-right">Place</th><th class="pb-2 text-right">Cat.</th><th class="pb-2 text-right">Laps</th><th class="pb-2 text-right">Time</th></tr></thead>
+        <tbody class="divide-y divide-gray-50">
+            {% for lr in local_races %}
+            <tr>
+                <td class="py-2 font-mono text-xs text-gray-500">{{ lr.event_date or lr.season }}</td>
+                <td class="py-2"><a href="/local/{{ lr.public_code }}" class="text-picl-700 hover:underline">{{ lr.event }}</a></td>
+                <td class="py-2 text-gray-600 text-xs">{{ lr.wave or '' }}</td>
+                <td class="py-2 text-right font-mono">{% if lr.place_wave %}{{ lr.place_wave }}<span class="text-gray-400 text-xs"> / {{ lr.wave_size }}</span>{% else %}<span class="text-red-400 text-xs">{{ lr.status }}</span>{% endif %}</td>
+                <td class="py-2 text-right font-mono">{{ lr.place_category or '' }}</td>
+                <td class="py-2 text-right font-mono">{{ lr.laps }}</td>
+                <td class="py-2 text-right font-mono">{% if lr.elapsed_seconds %}{{ (lr.elapsed_seconds // 60)|int }}:{{ '%04.1f'|format(lr.elapsed_seconds % 60) }}{% else %}—{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- Rivals: who finishes around this rider -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
     <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">

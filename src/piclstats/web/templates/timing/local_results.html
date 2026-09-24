@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}{{ event.name }} — Local dirt{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <div class="mb-2"><a href="/local" class="text-sm text-picl-700 hover:underline">&larr; Local dirt results</a></div>
+    <h1 class="text-3xl font-bold text-gray-900">{{ event.name }}</h1>
+    <p class="mt-1 text-sm text-gray-500">{{ event.event_date or event.season }}{% if event.course %} · {{ event.course }}{% endif %} · {{ event.laps }} lap{{ 's' if event.laps != 1 }} · <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle">local dirt · not a league event</span></p>
+</div>
+
+<h2 class="text-lg font-semibold text-gray-900 mb-2">By wave <span class="text-sm font-normal text-gray-400">finish order</span></h2>
+{% for wave, riders in by_wave.items() %}
+<h3 class="text-sm font-semibold text-gray-700 mt-4 mb-1">{{ wave }}</h3>
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50"><th class="px-4 py-2 text-right w-14">Place</th><th class="px-4 py-2">Rider</th><th class="px-4 py-2">Team</th><th class="px-4 py-2">Category</th><th class="px-4 py-2 text-right">Laps</th><th class="px-4 py-2 text-right">Time</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for r in riders %}
+            <tr class="{{ 'text-gray-400' if r.status != 'OK' }}">
+                <td class="px-4 py-2 text-right font-mono font-medium">{% if r.place_wave %}{{ r.place_wave }}{% else %}<span class="text-red-400">{{ r.status }}</span>{% endif %}</td>
+                <td class="px-4 py-2"><a href="/rider/{{ r.canonical_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a></td>
+                <td class="px-4 py-2 text-gray-600 text-xs">{{ r.team or '' }}</td>
+                <td class="px-4 py-2 text-gray-500 text-xs">{{ r.category or '' }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.laps }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ fmt(r.elapsed_seconds) or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endfor %}
+
+{% if by_cat %}
+<h2 class="text-lg font-semibold text-gray-900 mt-8 mb-2">By category</h2>
+<div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for cat, riders in by_cat.items() %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-2 bg-gray-50 text-sm font-semibold text-gray-700 border-b">{{ cat }}</div>
+        <table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+            {% for r in riders %}<tr><td class="px-4 py-1.5 text-right font-mono font-medium w-10">{{ r.place_category }}</td><td class="px-4 py-1.5"><a href="/rider/{{ r.canonical_id }}" class="text-picl-700 hover:underline">{{ r.name }}</a> <span class="text-xs text-gray-400">{{ r.team or '' }}</span></td><td class="px-4 py-1.5 text-right font-mono text-xs">{{ fmt(r.elapsed_seconds) or '—' }}</td></tr>{% endfor %}
+        </tbody></table>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
