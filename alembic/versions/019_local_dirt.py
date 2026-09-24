@@ -28,8 +28,12 @@ def upgrade() -> None:
     op.add_column(
         "timing_events", sa.Column("kind", sa.Text, nullable=False, server_default="rally")
     )
-    op.create_check_constraint("ck_timing_event_kind", "timing_events", "kind IN ('rally', 'localdirt')")
-    op.add_column("timing_events", sa.Column("laps", sa.SmallInteger, nullable=False, server_default="1"))
+    op.create_check_constraint(
+        "ck_timing_event_kind", "timing_events", "kind IN ('rally', 'localdirt')"
+    )
+    op.add_column(
+        "timing_events", sa.Column("laps", sa.SmallInteger, nullable=False, server_default="1")
+    )
     op.add_column("timing_events", sa.Column("public_code", sa.Text, unique=True))
     op.create_table(
         "timing_waves",
