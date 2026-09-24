@@ -893,6 +893,7 @@ def _staging_grid(
     rows = queries.staging_basis_rows(session, age_group, gender, season)
     return staging_mod.build_grid(
         rows,
+        age_group=age_group,
         metric=metric,
         sort=sort,
         division=division or None,
