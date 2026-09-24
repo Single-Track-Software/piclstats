@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Local dirt results — PICL Stats{% endblock %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Local Dirt Results</h1>
+    <p class="mt-1 text-sm text-gray-500">Informal team races timed with the PICL Stats stations. Not league events: they do not count toward standings and are kept apart from the official race results.</p>
+</div>
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50"><th class="px-4 py-3">Date</th><th class="px-4 py-3">Event</th><th class="px-4 py-3">Course</th><th class="px-4 py-3 text-right">Riders</th></tr></thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for e in events %}
+            <tr class="hover:bg-picl-50">
+                <td class="px-4 py-3 text-gray-600 font-mono text-xs">{{ e.event_date or e.season }}</td>
+                <td class="px-4 py-3"><a href="/local/{{ e.public_code }}" class="text-picl-700 font-medium hover:underline">{{ e.name }}</a></td>
+                <td class="px-4 py-3 text-gray-600">{{ e.course or '' }}</td>
+                <td class="px-4 py-3 text-right font-mono">{{ e.riders }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="4" class="px-4 py-12 text-center text-gray-400">No local dirt results published yet.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

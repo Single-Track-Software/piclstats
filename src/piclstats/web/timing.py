@@ -1053,6 +1053,120 @@ def _rec_inputs(s: Session, event_id: int) -> dict[str, Any]:
     }
 
 
+def _local_inputs(s: Session, event_id: int, event: dict[str, Any]) -> dict[str, Any]:
+    """Everything reconcile_local() needs: the course's two points, waves, roster, crossings."""
+    seg_rows = _segments(s, event_id)
+    course = next(
+        (sg for sg in seg_rows if "start" in sg["points"] and "finish" in sg["points"]), None
+    )
+    if course is None:
+        raise HTTPException(409, "This event has no course with a start and a finish station")
+    waves = [tr.Wave(w["id"], w["seq"], w["name"]) for w in _waves(s, event_id)]
+    roster = [
+        tr.LocalRider(r[0], r[1], r[2], r[3], r[4])
+        for r in s.execute(
+            text(
+                "SELECT plate, name, team, category, wave_id FROM timing_roster "
+                "WHERE timing_event_id = :e ORDER BY plate"
+            ),
+            {"e": event_id},
+        ).all()
+    ]
+    crossing_rows = [
+        dict(r)
+        for r in s.execute(
+            text("""
+            SELECT id, point_id, ts, plate, kind, supersedes, voided, note, received_at, device_id,
+                   author, wave_id
+            FROM timing_crossings WHERE timing_event_id = :e
+        """),
+            {"e": event_id},
+        ).mappings()
+    ]
+    accepted = {
+        r[0]: {"note": r[1], "author": r[2], "at": r[3]}
+        for r in s.execute(
+            text(
+                "SELECT flag_key, note, author, created_at FROM timing_flag_overrides "
+                "WHERE timing_event_id = :e"
+            ),
+            {"e": event_id},
+        ).all()
+    }
+    devices = [
+        tr.DeviceStatus(
+            d["id"],
+            d["label"],
+            d["point_id"],
+            d["pending"],
+            d["offset_drift_ms"],
+            d["last_seen_at"],
+        )
+        for d in s.execute(
+            text(
+                "SELECT id, label, point_id, pending, offset_drift_ms, last_seen_at "
+                "FROM timing_devices WHERE timing_event_id = :e"
+            ),
+            {"e": event_id},
+        ).mappings()
+    ]
+    rec = tr.reconcile_local(
+        waves,
+        roster,
+        tr.effective_crossings(crossing_rows),
+        laps=event["laps"],
+        start_point_id=course["points"]["start"]["id"],
+        finish_point_id=course["points"]["finish"]["id"],
+        accepted_keys=set(accepted),
+        devices=devices,
+        drift_limit_ms=DRIFT_LIMIT_MS,
+        tz=LEAGUE_TZ,
+    )
+    return {"rec": rec, "waves": waves, "accepted": accepted, "course": course}
+
+
+def _blocking(s: Session, event: dict[str, Any]) -> list[Any]:
+    if event["kind"] == "localdirt":
+        return _local_inputs(s, event["id"], event)["rec"].blocking
+    return _rec_inputs(s, event["id"])["rec"].blocking
+
+
+def _local_results_page(
+    request: Request, s: Session, event: dict[str, Any], saved: str, error: str
+):
+    inp = _local_inputs(s, event["id"], event)
+    rec: tr.LocalReconciliation = inp["rec"]
+    by_wave: dict[str, list[tr.LocalResult]] = {}
+    for r in rec.riders:
+        if r.status == "DNS":
+            continue
+        by_wave.setdefault(r.wave.name if r.wave else "No wave", []).append(r)
+    by_cat: dict[str, list[tr.LocalResult]] = {}
+    for r in sorted(
+        (r for r in rec.riders if r.status == "OK"), key=lambda r: (r.place_category or 10_000)
+    ):
+        by_cat.setdefault(r.category or "No category", []).append(r)
+    return templates.TemplateResponse(
+        "admin/timing_local_results.html",
+        {
+            "request": request,
+            "event": event,
+            "rec": rec,
+            "waves": inp["waves"],
+            "by_wave": by_wave,
+            "by_cat": by_cat,
+            "flags_block": [f for f in rec.flags if f.severity == "block" and not f.accepted],
+            "flags_info": [f for f in rec.flags if f.severity == "info" and not f.accepted],
+            "flags_accepted": [f for f in rec.flags if f.accepted],
+            "accepted": inp["accepted"],
+            "tz": LEAGUE_TZ,
+            "fmt": tr.format_seconds,
+            "saved": saved,
+            "error": error,
+        },
+    )
+
+
 @router.get("/{event_id}/results", response_class=HTMLResponse)
 def results_page(
     request: Request,
@@ -1063,6 +1177,8 @@ def results_page(
 ):
     with get_session() as s:
         event = _load_event(s, event_id)
+        if event["kind"] == "localdirt":
+            return _local_results_page(request, s, event, saved, error)
         inp = _rec_inputs(s, event_id)
         published = None
         if event["published_event_id"]:
@@ -1436,11 +1552,11 @@ def event_approve(
     __: None = Depends(require_same_origin),
 ):
     with get_session() as s:
-        _load_event(s, event_id)
-        rec = _rec_inputs(s, event_id)["rec"]
-        if rec.blocking:
+        event = _load_event(s, event_id)
+        blocking = _blocking(s, event)
+        if blocking:
             return _results_redirect(
-                event_id, error=f"{len(rec.blocking)}+flags+still+need+a+look+or+an+accept+note"
+                event_id, error=f"{len(blocking)}+flags+still+need+a+look+or+an+accept+note"
             )
         s.execute(
             text("UPDATE timing_events SET status = 'approved' WHERE id = :e"), {"e": event_id}
@@ -1608,6 +1724,15 @@ def event_publish(
         event = _load_event(s, event_id)
         if event["status"] not in ("approved", "published"):
             return _results_redirect(event_id, error="Approve+the+results+first")
+        if event["kind"] == "localdirt":
+            linp = _local_inputs(s, event_id, event)
+            if linp["rec"].blocking:
+                return _results_redirect(
+                    event_id, error="Flags+changed+since+approval;+look+at+them+first"
+                )
+            code = publish_local(s, event, linp["rec"])
+            s.commit()
+            return _results_redirect(event_id, saved=f"published+at+/local/{code}")
         inp = _rec_inputs(s, event_id)
         if inp["rec"].blocking:
             return _results_redirect(
@@ -1618,6 +1743,70 @@ def event_publish(
     return _results_redirect(event_id, saved=f"published+as+event+{published_id}")
 
 
+def publish_local(s: Session, event: dict[str, Any], rec: tr.LocalReconciliation) -> str:
+    """Write local_results for every rider who started; mint the public code once."""
+    code = event["public_code"]
+    if not code:
+        code = new_station_code()
+        s.execute(
+            text("UPDATE timing_events SET public_code = :c WHERE id = :e"),
+            {"c": code, "e": event["id"]},
+        )
+    kept: list[int] = []
+    for r in rec.riders:
+        if r.status == "DNS":
+            continue
+        rider_id = s.execute(
+            text("""
+            INSERT INTO riders (name, team, name_key, team_key) VALUES (:name, :team, :nk, :tk)
+            ON CONFLICT ON CONSTRAINT uq_riders_name_team DO UPDATE SET name = :name
+            RETURNING id
+        """),
+            {"name": r.name, "team": r.team, "nk": name_key(r.name), "tk": team_key(r.team)},
+        ).scalar_one()
+        s.execute(
+            text("""
+            INSERT INTO local_results (timing_event_id, rider_id, roster_plate, name, team,
+                category, wave, place_wave, place_category, laps, elapsed_seconds, status,
+                published_at)
+            VALUES (:e, :rid, :plate, :name, :team, :cat, :wave, :pw, :pc, :laps, :el, :st, now())
+            ON CONFLICT ON CONSTRAINT uq_local_result DO UPDATE SET
+                rider_id = :rid, name = :name, team = :team, category = :cat, wave = :wave,
+                place_wave = :pw, place_category = :pc, laps = :laps, elapsed_seconds = :el,
+                status = :st, published_at = now()
+        """),
+            {
+                "e": event["id"],
+                "rid": rider_id,
+                "plate": r.plate,
+                "name": r.name,
+                "team": r.team,
+                "cat": r.category,
+                "wave": r.wave.name if r.wave else None,
+                "pw": r.place_wave,
+                "pc": r.place_category,
+                "laps": r.laps,
+                "el": r.elapsed_seconds,
+                "st": r.status,
+            },
+        )
+        kept.append(r.plate)
+    if kept:
+        s.execute(
+            text(
+                "DELETE FROM local_results WHERE timing_event_id = :e "
+                "AND NOT (roster_plate = ANY(:k))"
+            ),
+            {"e": event["id"], "k": kept},
+        )
+    else:
+        s.execute(text("DELETE FROM local_results WHERE timing_event_id = :e"), {"e": event["id"]})
+    s.execute(
+        text("UPDATE timing_events SET status = 'published' WHERE id = :e"), {"e": event["id"]}
+    )
+    return code
+
+
 @router.get("/{event_id}/results.csv")
 def results_csv(event_id: int, _: dict = Depends(require_picl)):
     import csv
@@ -1625,9 +1814,13 @@ def results_csv(event_id: int, _: dict = Depends(require_picl)):
 
     with get_session() as s:
         event = _load_event(s, event_id)
-        inp = _rec_inputs(s, event_id)
+        if event["kind"] == "localdirt":
+            rows = tr.local_csv_rows(_local_inputs(s, event_id, event)["rec"])
+        else:
+            inp = _rec_inputs(s, event_id)
+            rows = tr.csv_rows(inp["rec"], inp["segments"])
     buf = io.StringIO()
-    csv.writer(buf).writerows(tr.csv_rows(inp["rec"], inp["segments"]))
+    csv.writer(buf).writerows(rows)
     name = re.sub(r"[^A-Za-z0-9]+", "-", f"{event['season']}-{event['name']}").strip("-").lower()
     return Response(
         buf.getvalue(),
@@ -1655,14 +1848,25 @@ def live_board(
     """
     with get_session() as s:
         event = _load_event(s, event_id)
-        inp = _rec_inputs(s, event_id)
         devices = _devices(s, event_id)
-    rec: tr.Reconciliation = inp["rec"]
-    by_cat: dict[str, list[tr.RiderResult]] = {}
-    for r in rec.riders:
-        if r.status == "DNS":
-            continue
-        by_cat.setdefault(r.category or "No category", []).append(r)
+        by_cat: dict[str, list[Any]] = {}
+        segments: list[Any] = []
+        if event["kind"] == "localdirt":
+            lrec: tr.LocalReconciliation = _local_inputs(s, event_id, event)["rec"]
+            for lr in lrec.riders:
+                if lr.status == "DNS":
+                    continue
+                by_cat.setdefault(lr.wave.name if lr.wave else "No wave", []).append(lr)
+            blocking_n = len(lrec.blocking)
+        else:
+            inp = _rec_inputs(s, event_id)
+            rec: tr.Reconciliation = inp["rec"]
+            for r in rec.riders:
+                if r.status == "DNS":
+                    continue
+                by_cat.setdefault(r.category or "No category", []).append(r)
+            blocking_n = len(rec.blocking)
+            segments = inp["segments"]
     now = datetime.now(timezone.utc)
     stations = []
     for d in devices:
@@ -1674,9 +1878,10 @@ def live_board(
         {
             "request": request,
             "event": event,
-            "segments": inp["segments"],
+            "segments": segments,
             "by_cat": by_cat,
-            "blocking": len(rec.blocking),
+            "blocking": blocking_n,
+            "local": event["kind"] == "localdirt",
             "stations": stations,
             "refresh": refresh,
             "now": now.astimezone(LEAGUE_TZ),

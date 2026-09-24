@@ -394,6 +394,8 @@ def rider_lookup(q: str = Query("", max_length=80)):
 
 @app.get("/rider/{rider_id}", response_class=HTMLResponse)
 def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
+    from piclstats.web.timing_station import rider_local_results
+
     with get_session() as session:
         data = queries.rider_detail(session, rider_id)
         if not data:
@@ -427,10 +429,12 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
                     "team": (other_data["team_history"] or [{}])[-1].get("team"),
                     "form": other_form,
                 }
+        local_races = rider_local_results(session, data["info"]["id"])
     return templates.TemplateResponse(
         "rider_detail.html",
         _ctx(
             request,
+            local_races=local_races,
             **data,
             form=form,
             form_by_event={f["event_id"]: f for f in form},
@@ -582,7 +586,10 @@ def results_page(
 
     if tab != "position":
         tab = "results"
+    from piclstats.web.timing_station import published_local_events
+
     with get_session() as session:
+        local_count = len(published_local_events(session))
         events = queries.all_events(session)
         event = next((e for e in events if e["id"] == event_id), None)
         if event is None and events:
@@ -617,6 +624,7 @@ def results_page(
             finishers=sum(1 for r in results if r["place"] is not None),
             chart=chart,
             lap_chart=lap_chart,
+            local_count=local_count,
         ),
     )
 

@@ -46,12 +46,20 @@
                 <tr>
                     <th class="text-right px-3 py-1.5">#</th>
                     <th class="text-left px-2 py-1.5">Rider</th>
-                    {% for sg in segments %}<th class="text-right px-2 py-1.5">S{{ sg.seq }}</th>{% endfor %}
-                    <th class="text-right px-3 py-1.5">Total</th>
+                    {% if local %}<th class="text-right px-2 py-1.5">Laps</th>{% else %}{% for sg in segments %}<th class="text-right px-2 py-1.5">S{{ sg.seq }}</th>{% endfor %}{% endif %}
+                    <th class="text-right px-3 py-1.5">{{ 'Time' if local else 'Total' }}</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-picl-700/60">
                 {% for r in riders[:25] %}
+                {% if local %}
+                <tr class="{{ 'text-picl-200' if r.status != 'OK' }}">
+                    <td class="px-3 py-1.5 text-right font-mono {{ 'text-gold-400 font-bold' if r.place_wave == 1 }}">{{ r.place_wave or ('DNF' if r.status == 'DNF' else '') }}</td>
+                    <td class="px-2 py-1.5 truncate max-w-[12rem]">{{ r.name }} <span class="text-xs text-picl-200">{{ r.team or '' }}</span></td>
+                    <td class="px-2 py-1.5 text-right font-mono text-xs">{{ r.laps }}</td>
+                    <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ fmt(r.elapsed_seconds) }}</td>
+                </tr>
+                {% else %}
                 <tr class="{{ 'text-picl-200' if r.status != 'OK' }}">
                     <td class="px-3 py-1.5 text-right font-mono {{ 'text-gold-400 font-bold' if r.place == 1 }}">{{ r.place or ('DNF' if r.status == 'DNF' else '') }}</td>
                     <td class="px-2 py-1.5 truncate max-w-[10rem]"><span class="font-mono text-xs text-picl-200 mr-1">{{ r.plate }}</span>{{ r.name }}</td>
@@ -60,8 +68,9 @@
                     {% endfor %}
                     <td class="px-3 py-1.5 text-right font-mono font-semibold">{{ fmt(r.total_seconds) }}</td>
                 </tr>
+                {% endif %}
                 {% endfor %}
-                {% if riders|length > 25 %}<tr><td colspan="{{ 3 + segments|length }}" class="px-3 py-1.5 text-xs text-picl-200">and {{ riders|length - 25 }} more</td></tr>{% endif %}
+                {% if riders|length > 25 %}<tr><td colspan="{{ 4 if local else 3 + segments|length }}" class="px-3 py-1.5 text-xs text-picl-200">and {{ riders|length - 25 }} more</td></tr>{% endif %}
             </tbody>
         </table>
     </section>

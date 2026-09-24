@@ -588,3 +588,31 @@ timing_flag_overrides = Table(
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     UniqueConstraint("timing_event_id", "flag_key", name="uq_timing_flag_override"),
 )
+
+# Published local dirt results: separate from `results` on purpose (informal
+# team races are not league events), linked to riders for the rider page.
+local_results = Table(
+    "local_results",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "timing_event_id",
+        Integer,
+        ForeignKey("timing_events.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("rider_id", Integer, ForeignKey("riders.id"), nullable=False),
+    Column("roster_plate", Integer, nullable=False),
+    Column("name", Text, nullable=False),
+    Column("team", Text),
+    Column("category", Text),
+    Column("wave", Text),
+    Column("place_wave", SmallInteger),
+    Column("place_category", SmallInteger),
+    Column("laps", SmallInteger, nullable=False, server_default="0"),
+    Column("elapsed_seconds", Float),
+    Column("status", Text, nullable=False),  # 'OK' | 'DNF'
+    Column("published_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    UniqueConstraint("timing_event_id", "roster_plate", name="uq_local_result"),
+    Index("idx_local_results_rider", "rider_id"),
+)

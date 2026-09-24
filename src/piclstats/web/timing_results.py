@@ -544,3 +544,287 @@ def csv_rows(rec: Reconciliation, segments: list[Segment]) -> list[list[str]]:
         ]
         rows.append(cells)
     return rows
+
+
+# ── Local dirt ─────────────────────────────────────────────────────────────
+#
+# One course. Everyone in a wave starts on one countdown (a crossing at the
+# start point with wave_id set and no plate). The finish captain taps as each
+# rider crosses; the rider's internal number is attached at the table. A
+# rider's place is the order of their final crossing within their wave, the
+# way the lollipop sticks worked; elapsed time is that crossing minus the
+# wave start, when the start was recorded.
+
+
+@dataclass(frozen=True)
+class Wave:
+    id: int
+    seq: int
+    name: str
+
+
+@dataclass(frozen=True)
+class LocalRider:
+    plate: int  # internal roster number
+    name: str
+    team: str | None
+    category: str | None
+    wave_id: int | None
+
+
+@dataclass
+class LocalResult:
+    plate: int
+    name: str
+    team: str | None
+    category: str | None
+    wave: Wave | None
+    crossings: list[Crossing] = field(default_factory=list)  # finish crossings, in time order
+    laps: int = 0
+    final_ts: datetime | None = None
+    start_ts: datetime | None = None
+    elapsed_seconds: float | None = None
+    status: str = "DNS"  # 'OK' | 'DNF' | 'DNS'
+    place_wave: int | None = None
+    place_category: int | None = None
+
+
+@dataclass
+class LocalReconciliation:
+    riders: list[LocalResult]
+    flags: list[Flag]
+    wave_starts: dict[int, Crossing]  # wave id -> the start crossing in force
+    unassigned: list[Crossing]
+
+    @property
+    def blocking(self) -> list[Flag]:
+        return [f for f in self.flags if f.severity == "block" and not f.accepted]
+
+
+_MIN_LOCAL_LAP_SEC = 30.0
+
+
+def reconcile_local(
+    waves: list[Wave],
+    roster: list[LocalRider],
+    crossings: list[Crossing],
+    *,
+    laps: int,
+    start_point_id: int,
+    finish_point_id: int,
+    accepted_keys: set[str] | frozenset[str] = frozenset(),
+    devices: Sequence[DeviceStatus] = (),
+    drift_limit_ms: int = 1000,
+    tz: tzinfo | None = None,
+) -> LocalReconciliation:
+    """Place riders by finish order within their wave; time them from the wave start."""
+    laps = max(1, laps)
+    wave_by_id = {w.id: w for w in waves}
+    flags: list[Flag] = []
+
+    def clock(ts: datetime) -> str:
+        return (ts.astimezone(tz) if tz else ts).strftime("%H:%M:%S")
+
+    def flag(
+        kind: str,
+        severity: str,
+        text: str,
+        *,
+        plate=None,
+        crossing_id=None,
+        key_extra: str = "",
+        point_id=None,
+    ) -> None:
+        key = f"{kind}:{plate if plate is not None else '-'}:-:{crossing_id or key_extra}"
+        flags.append(
+            Flag(
+                key,
+                kind,
+                severity,
+                plate,
+                None,
+                point_id,
+                crossing_id,
+                text,
+                accepted=key in accepted_keys,
+            )
+        )
+
+    live = [c for c in crossings if not c.voided]
+
+    # Wave starts: exactly one per wave.
+    wave_starts: dict[int, Crossing] = {}
+    starts_by_wave: dict[int, list[Crossing]] = {}
+    for c in live:
+        if c.wave_id is not None and c.point_id == start_point_id:
+            starts_by_wave.setdefault(c.wave_id, []).append(c)
+    for wid, starts in starts_by_wave.items():
+        w = wave_by_id.get(wid)
+        name = w.name if w else f"wave {wid}"
+        if len(starts) > 1:
+            flag(
+                "duplicate_wave_start",
+                "block",
+                f"{name} was started {len(starts)} times ({', '.join(clock(s.ts) for s in starts)}); void the wrong ones",
+                key_extra=f"w{wid}",
+                point_id=start_point_id,
+            )
+        wave_starts[wid] = starts[-1]
+
+    # Finish crossings per rider.
+    finishes = [c for c in live if c.point_id == finish_point_id and c.wave_id is None]
+    unassigned = [c for c in finishes if c.plate is None]
+    for c in unassigned:
+        tap = (c.note or "").strip()
+        flag(
+            "no_plate",
+            "block",
+            f"A finish crossing at {clock(c.ts)}{' (' + tap + ')' if tap else ''} has no rider",
+            crossing_id=c.id,
+            point_id=finish_point_id,
+        )
+    by_plate: dict[int, list[Crossing]] = {}
+    for c in finishes:
+        if c.plate is not None:
+            by_plate.setdefault(c.plate, []).append(c)
+    roster_by_plate = {r.plate: r for r in roster}
+    for plate in by_plate:
+        if plate not in roster_by_plate:
+            flag(
+                "unknown_plate", "block", f"Rider number {plate} is not on the roster", plate=plate
+            )
+
+    results: list[LocalResult] = []
+    for r in roster:
+        res = LocalResult(
+            r.plate, r.name, r.team, r.category, wave_by_id.get(r.wave_id) if r.wave_id else None
+        )
+        res.crossings = sorted(by_plate.get(r.plate, []), key=lambda c: c.ts)
+        res.laps = len(res.crossings)
+        if res.laps == 0:
+            results.append(res)
+            continue
+        if res.wave is None:
+            flag(
+                "no_wave",
+                "block",
+                f"{r.name} crossed the finish but is not in a wave; put them in one on the roster",
+                plate=r.plate,
+            )
+        if res.laps > laps:
+            flag(
+                "too_many_crossings",
+                "block",
+                f"{r.name} has {res.laps} finish crossings for a {laps}-lap race; void the extras",
+                plate=r.plate,
+            )
+        res.final_ts = res.crossings[-1].ts
+        start = wave_starts.get(r.wave_id) if r.wave_id else None
+        if start is not None:
+            res.start_ts = start.ts
+            res.elapsed_seconds = (res.final_ts - start.ts).total_seconds()
+            if res.elapsed_seconds < _MIN_LOCAL_LAP_SEC * res.laps:
+                flag(
+                    "implausible",
+                    "block",
+                    f"{r.name} finished {format_seconds(res.elapsed_seconds)} after the {res.wave.name if res.wave else 'wave'} start; check the wave or the rider",
+                    plate=r.plate,
+                )
+        elif res.wave is not None:
+            flag(
+                "wave_no_start",
+                "info",
+                f"{res.wave.name} has no start recorded, so {r.name} is placed but not timed",
+                key_extra=f"w{r.wave_id}-{r.plate}",
+            )
+        if res.laps == laps or res.laps > laps:
+            res.status = "OK"
+        else:
+            res.status = "DNF"
+            flag("dnf", "info", f"{r.name} crossed {res.laps} of {laps} times: DNF", plate=r.plate)
+        results.append(res)
+
+    # Places: finish order within the wave (the stick order); category by elapsed when everyone has one, else by finish order.
+    ok = [x for x in results if x.status == "OK"]
+    for w in waves:
+        n = 0
+        for x in sorted(
+            (x for x in ok if x.wave and x.wave.id == w.id), key=lambda x: (x.final_ts, x.plate)
+        ):
+            n += 1
+            x.place_wave = n
+    cats = {x.category for x in ok}
+    for cat in cats:
+        group = [x for x in ok if x.category == cat]
+        timed = all(x.elapsed_seconds is not None for x in group)
+        key = (
+            (lambda x: (x.elapsed_seconds, x.plate)) if timed else (lambda x: (x.final_ts, x.plate))
+        )
+        for n, x in enumerate(sorted(group, key=key), start=1):
+            x.place_category = n
+
+    for d in devices:
+        who = d.label or d.device_id[:8]
+        which = "start" if d.point_id == start_point_id else "finish"
+        if d.drift_ms > drift_limit_ms:
+            flag(
+                "clock_drift",
+                "block",
+                f"{who} ({which}): clock moved {d.drift_ms / 1000:.1f}s between syncs; its times may be off",
+                key_extra=d.device_id,
+                point_id=d.point_id,
+            )
+        if d.pending:
+            flag(
+                "unsynced",
+                "info",
+                f"{who} ({which}) still has {d.pending} record{'s' if d.pending != 1 else ''} not synced",
+                key_extra=d.device_id,
+                point_id=d.point_id,
+            )
+
+    results.sort(
+        key=lambda x: (
+            x.wave.seq if x.wave else 999,
+            x.status != "OK",
+            x.place_wave or 10_000,
+            x.status,
+            x.plate,
+        )
+    )
+    return LocalReconciliation(results, flags, wave_starts, unassigned)
+
+
+def local_csv_rows(rec: LocalReconciliation) -> list[list[str]]:
+    rows = [
+        [
+            "name",
+            "team",
+            "category",
+            "wave",
+            "place_in_wave",
+            "place_in_category",
+            "laps",
+            "elapsed",
+            "elapsed_seconds",
+            "status",
+        ]
+    ]
+    for x in rec.riders:
+        if x.status == "DNS":
+            continue
+        rows.append(
+            [
+                x.name,
+                x.team or "",
+                x.category or "",
+                x.wave.name if x.wave else "",
+                str(x.place_wave or ""),
+                str(x.place_category or ""),
+                str(x.laps),
+                format_seconds(x.elapsed_seconds),
+                f"{x.elapsed_seconds:.1f}" if x.elapsed_seconds is not None else "",
+                x.status,
+            ]
+        )
+    return rows
