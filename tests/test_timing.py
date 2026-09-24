@@ -146,3 +146,10 @@ def test_normalize_crossing_rejects_bad_records(raw):
 
     with pytest.raises(ValueError):
         normalize_crossing(raw)
+
+
+def test_slow_round_trip_is_not_a_clock_sample():
+    """A sync that sat offline for minutes must not register as clock drift."""
+    from piclstats.web.timing_station import MAX_SAMPLE_RTT_MS
+
+    assert MAX_SAMPLE_RTT_MS == 1500

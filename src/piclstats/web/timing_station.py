@@ -38,6 +38,9 @@ START_INTERVAL_S = 30
 # A device whose clock offset moved more than this between two syncs cannot
 # be trusted to the one-second requirement (N2); the lead's view flags it.
 DRIFT_LIMIT_MS = 1000
+# An offset measured over a slower round trip than this is not a sample: the
+# request may have sat in a queue while the phone was offline.
+MAX_SAMPLE_RTT_MS = 1500
 MAX_BATCH = 2000
 
 _ID = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
@@ -163,6 +166,8 @@ def apply_sync(
     drift_ms = 0
     if device_id:
         client_offset = device.get("offset_ms")
+        rtt = device.get("last_rtt_ms")
+        trusted = rtt is None or (isinstance(rtt, (int, float)) and 0 <= rtt <= MAX_SAMPLE_RTT_MS)
         if isinstance(client_offset, (int, float)) and abs(client_offset) < 366 * 86_400_000:
             offset_ms = int(client_offset)
         else:
@@ -173,11 +178,12 @@ def apply_sync(
             text("SELECT offset_ms, offset_drift_ms FROM timing_devices WHERE id = :id"),
             {"id": device_id},
         ).first()
-        if offset_ms is not None:
+        if offset_ms is not None and trusted:
             offset_ms, drift_ms = device_offset_update(
                 prev[0] if prev else None, prev[1] if prev else 0, offset_ms
             )
         elif prev:
+            # Slow round trip: keep what we knew rather than record a false jump.
             offset_ms, drift_ms = prev[0], prev[1]
         s.execute(
             text("""
