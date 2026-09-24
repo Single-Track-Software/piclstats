@@ -204,6 +204,14 @@ PROMOTE_DIVISION = {
     "7th Grade": "8th Grade",
     "8th Grade": "JV3",
 }
+HS_DIVISIONS = {"Varsity", "JV1", "JV2", "JV3"}
+
+
+def division_age_group(division: str | None) -> str | None:
+    """'HS' or 'MS' for a division name; None when unknown."""
+    if not division:
+        return None
+    return "HS" if division in HS_DIVISIONS else "MS"
 
 
 def division_sort_key(division: str | None) -> tuple[int, str]:
@@ -253,8 +261,13 @@ def build_grid(
     custom_joins: list[str] | None = None,
     gender: str | None = None,
     season: int | None = None,
+    age_group: str | None = None,
 ) -> dict:
     """Build the staging grid from per-(rider, event) z-score rows.
+
+    With `age_group`, a rider whose guessed division has moved them out of
+    this age group (last season's 8th grader, JV3 now) is left out: they are
+    staged on the other grid, which carries them on purpose.
 
     Pivots into one row per kid with a z column per race, plus Best-z and Avg-z.
     With `season`, rows from that season are the current basis and older rows
@@ -371,6 +384,8 @@ def build_grid(
             if promoted:
                 rd["division"] = promoted
                 rd["division_assumed"] = True
+        if age_group and division_age_group(rd["division"]) not in (None, age_group):
+            continue
         # basis: what this rider is ranked on
         if zs:
             rd["basis"] = "current"

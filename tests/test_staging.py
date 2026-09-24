@@ -412,6 +412,18 @@ def test_last_seasons_8th_graders_are_staged_in_jv3_and_flagged():
     assert PROMOTE_DIVISION["6th Grade"] == "7th Grade" and "JV2" not in PROMOTE_DIVISION
 
 
+def test_a_promoted_8th_grader_leaves_the_middle_school_grid():
+    """Last season's 8th graders are guessed into JV3: staged on the HS grid, not the MS one."""
+    rows = _season_rows(1, "Moved Up", "8th Grade", 2025, {11: -0.5})
+    rows += _season_rows(2, "Still MS", "7th Grade", 2025, {11: 0.2})
+    ms = {r["name"]: r for r in build_grid(rows, season=2026, age_group="MS")["riders"]}
+    assert "Moved Up" not in ms and ms["Still MS"]["division"] == "8th Grade"
+    hs = {r["name"]: r for r in build_grid(rows, season=2026, age_group="HS")["riders"]}
+    assert hs["Moved Up"]["division"] == "JV3" and "Still MS" not in hs
+    # Without an age group (older callers) nothing is dropped.
+    assert len(build_grid(rows, season=2026)["riders"]) == 2
+
+
 def test_a_race_this_season_overrides_last_seasons_division_and_plate():
     rows = _season_rows(1, "Kid", "8th Grade", 2025, {11: 0.0}, bib="5501")
     rows += _season_rows(1, "Kid", "JV2", 2026, {26: 0.0}, bib="2501")
