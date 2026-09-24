@@ -7,7 +7,7 @@ Race-results scraper and analytics dashboard for the PA Interscholastic Cycling 
 ## Stack
 
 - Python 3.11+, FastAPI + Jinja2 templates, uvicorn
-- PostgreSQL via SQLAlchemy Core + Alembic migrations (prod DB is Fly Postgres)
+- PostgreSQL via SQLAlchemy Core + Alembic migrations (prod DB is Fly Managed Postgres, cluster `piclstats-pg`; ADR 006)
 - httpx scraper against the raceresult.com JSON API
 - pytest / ruff / mypy for dev
 

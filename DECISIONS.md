@@ -8,3 +8,4 @@ Append-only log. Full records live in `docs/decisions/`; supersede, never edit.
 - 2026-09-21 — [004](docs/decisions/004-course-season-race-type.md) Race type (race | rally) is a per-course, per-season flag with a default; `events.event_type` is resolved from it, exhibitions stay a name pattern.
 - 2026-09-23 — [005](docs/decisions/005-rally-timing.md) Rally timing runs on volunteers' phones as offline station pages inside piclstats; append-only crossings, clock offsets per device, lead approves and publishes as a rally event.
 - 2026-09-23 — [006](docs/decisions/006-hosting-review.md) Hosting review (proposed): stay on Fly; move the database to Fly Managed Postgres; Tigris for photos later. Vercel + Supabase rejected for this app's shape.
+- 2026-09-24 — [006](docs/decisions/006-hosting-review.md) Accepted: production database moved to Fly Managed Postgres (`piclstats-pg`); old `piclstats-db` stopped, to be destroyed after a week.
