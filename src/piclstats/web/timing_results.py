@@ -47,6 +47,7 @@ class Crossing:
     note: str | None = None
     kind: str = "tap"
     device_id: str | None = None
+    wave_id: int | None = None  # local dirt: a wave start, not a rider crossing
 
 
 @dataclass(frozen=True)
@@ -234,6 +235,7 @@ def effective_crossings(rows: list[dict]) -> list[Crossing]:
                 note=src.get("note"),
                 kind=r["kind"],
                 device_id=r.get("device_id"),
+                wave_id=r.get("wave_id"),
             )
         )
     out.sort(key=lambda c: (c.ts, c.id))
@@ -303,7 +305,7 @@ def reconcile(
             )
         )
 
-    live = [c for c in crossings if not c.voided]
+    live = [c for c in crossings if not c.voided and c.wave_id is None]
     unassigned = [c for c in live if c.plate is None]
     for c in unassigned:
         psg, kind = _lookup(point_seg, c.point_id)

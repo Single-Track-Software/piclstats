@@ -3,9 +3,10 @@
 {% block content %}
 {% set input = "rounded border border-gray-300 px-2 py-1 text-sm" %}
 <div class="max-w-4xl">
-    <div class="mb-4"><a href="/admin/timing" class="text-sm text-picl-700 hover:underline">&larr; Rally timing</a></div>
+    <div class="mb-4"><a href="/admin/timing" class="text-sm text-picl-700 hover:underline">&larr; Timing</a></div>
+    {% set local = event.kind == 'localdirt' %}
     <div class="flex flex-wrap items-baseline justify-between gap-3 mb-1">
-        <h1 class="text-2xl font-bold text-gray-900">{{ event.name }}</h1>
+        <h1 class="text-2xl font-bold text-gray-900">{{ event.name }} <span class="text-sm font-normal text-gray-400">{{ 'local dirt' if local else 'rally' }}</span></h1>
         <span class="inline-block px-2 py-0.5 rounded text-xs font-medium {{ 'bg-green-50 text-green-700' if event.status == 'live' else 'bg-gray-100 text-gray-600' }}">{{ event.status }}</span>
     </div>
     <p class="text-sm text-gray-500 mb-6">{{ event.season }}{% if event.event_date %} · {{ event.event_date }}{% endif %}{% if event.course %} · {{ event.course }}{% endif %}</p>
@@ -15,7 +16,7 @@
 
     <!-- Segments and stations -->
     <div class="flex items-baseline justify-between mb-2">
-        <h2 class="text-lg font-semibold text-gray-900">Segments</h2>
+        <h2 class="text-lg font-semibold text-gray-900">{{ 'Course' if local else 'Segments' }}</h2>
         <div class="flex gap-4 text-sm">
             {% if segments %}<a href="/admin/timing/{{ event.id }}/codes" class="text-picl-700 hover:underline">Print station codes &rarr;</a>{% endif %}
             <a href="/admin/timing/{{ event.id }}/live" class="text-picl-700 hover:underline">Live board &rarr;</a>
@@ -23,13 +24,13 @@
             <a href="/admin/timing/{{ event.id }}/results" class="text-picl-700 hover:underline font-medium">Results &amp; flags &rarr;</a>
         </div>
     </div>
-    <p class="text-xs text-gray-500 mb-3">Each segment gets a start station and a finish station. The code is what a volunteer scans or types to join that station; keep the sheet with the timing lead. Distance, gain and loss give per-mile pace and how much of a segment is descent; HS / MS says which groups ride the segment, so a rider's total only counts the segments their group rode.</p>
+    <p class="text-xs text-gray-500 mb-3">{% if local %}One course with a start station (wave countdowns) and a finish station (a tap per rider crossing; {{ event.laps }} lap{{ 's' if event.laps != 1 }}). {% endif %}Each segment gets a start station and a finish station. The code is what a volunteer scans or types to join that station; keep the sheet with the timing lead. Distance, gain and loss give per-mile pace and how much of a segment is descent; HS / MS says which groups ride the segment, so a rider's total only counts the segments their group rode.</p>
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-3">
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-gray-700">
                 <tr>
                     <th class="text-left px-3 py-2 w-10">#</th>
-                    <th class="text-left px-3 py-2">Segment</th>
+                    <th class="text-left px-3 py-2">{{ 'Course' if local else 'Segment' }}</th>
                     <th class="text-right px-3 py-2">Miles</th>
                     <th class="text-right px-3 py-2">Gain (ft)</th>
                     <th class="text-right px-3 py-2">Loss (ft)</th>
@@ -66,6 +67,7 @@
             </tbody>
         </table>
     </div>
+    {% if not local %}
     <form method="post" action="/admin/timing/{{ event.id }}/segments/add" class="flex flex-wrap items-end gap-2 mb-8">
         <div class="flex-1 min-w-[12rem] max-w-sm">
             <label class="block text-xs text-gray-500 mb-1">Add a segment</label>
@@ -80,6 +82,44 @@
         </div>
         <button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Add</button>
     </form>
+    {% else %}
+    <div class="mb-8"></div>
+
+    <!-- Waves -->
+    <h2 class="text-lg font-semibold text-gray-900 mb-2">Waves <span class="text-sm font-normal text-gray-400">{{ waves|length }}</span></h2>
+    <p class="text-xs text-gray-500 mb-3">Everyone in a wave starts on one countdown. List the roster categories a wave holds and riders are placed automatically; move anyone by hand in the roster below.</p>
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-3">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-gray-700">
+                <tr><th class="text-left px-3 py-2 w-10">#</th><th class="text-left px-3 py-2">Wave</th><th class="text-left px-3 py-2">Categories</th><th class="text-right px-3 py-2">Riders</th><th class="px-3 py-2"></th></tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for w in waves %}
+                <tr>
+                    <td class="px-3 py-2 font-mono text-gray-400">{{ w.seq }}</td>
+                    <td class="px-3 py-2"><input form="wave-{{ w.id }}" type="text" name="name" value="{{ w.name }}" required class="{{ input }} w-40"></td>
+                    <td class="px-3 py-2"><input form="wave-{{ w.id }}" type="text" name="categories" value="{{ w.categories or '' }}" placeholder="JV1 - Male, JV2 - Male" class="{{ input }} w-full"></td>
+                    <td class="px-3 py-2 text-right font-mono">{{ w.riders }}</td>
+                    <td class="px-3 py-2 text-right whitespace-nowrap">
+                        <form id="wave-{{ w.id }}" method="post" action="/admin/timing/{{ event.id }}/waves/{{ w.id }}" class="inline">
+                            <button name="action" value="save" class="text-picl-700 hover:underline text-sm font-medium">Save</button>
+                            <button name="action" value="reassign" class="text-gray-600 hover:underline text-sm ml-2" title="Clear every rider's wave and place them again by category">Reassign all</button>
+                            <button name="action" value="delete" class="text-red-600 hover:underline text-sm ml-2">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No waves yet. Add one below; a single wave is fine.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <form method="post" action="/admin/timing/{{ event.id }}/waves/add" class="flex flex-wrap items-end gap-2 mb-8">
+        <div><label class="block text-xs text-gray-500 mb-1">Add a wave</label><input type="text" name="name" placeholder="Wave {{ waves|length + 1 }} — HS" required class="{{ input }} w-40"></div>
+        <div class="flex-1 min-w-[14rem]"><label class="block text-xs text-gray-500 mb-1">Categories (comma separated)</label><input type="text" name="categories" placeholder="Varsity - Male, JV1 - Male" class="{{ input }} w-full"></div>
+        <button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Add</button>
+    </form>
+    {% endif %}
 
     <!-- Stations: every phone that has synced -->
     <h2 class="text-lg font-semibold text-gray-900 mb-2">Stations <span class="text-sm font-normal text-gray-400">{{ devices|length }} phone{{ 's' if devices|length != 1 }} synced</span></h2>
@@ -122,7 +162,7 @@
 
     <!-- Roster -->
     <h2 class="text-lg font-semibold text-gray-900 mb-2">Roster <span class="text-sm font-normal text-gray-400">{{ roster|length }} plates</span></h2>
-    <p class="text-xs text-gray-500 mb-3">Plates the stations validate against. Pull this season's riders from the race results (plates are stable across a season), paste a list, or add one at a time. A plate already on the roster is never overwritten.</p>
+    <p class="text-xs text-gray-500 mb-3">{% if local %}Riders have no plates here; each gets an internal number. Paste names (name, team, category per line), pull this season's PICL riders, or add one at a time.{% else %}Plates the stations validate against. Pull this season's riders from the race results (plates are stable across a season), paste a list, or add one at a time. A plate already on the roster is never overwritten.{% endif %}</p>
     <div class="grid md:grid-cols-2 gap-4 mb-4">
         <form method="post" action="/admin/timing/{{ event.id }}/roster/season" class="bg-white rounded-lg shadow border border-gray-200 p-4 flex items-end gap-2">
             <div>
@@ -134,7 +174,7 @@
             <button type="submit" class="bg-picl-700 hover:bg-picl-800 text-white font-semibold px-4 py-1.5 rounded-md text-sm">Import</button>
         </form>
         <form method="post" action="/admin/timing/{{ event.id }}/roster/add" class="bg-white rounded-lg shadow border border-gray-200 p-4 flex flex-wrap items-end gap-2">
-            <div><label class="block text-xs text-gray-500 mb-1">Plate</label><input type="number" name="plate" min="1" required class="{{ input }} w-20 font-mono"></div>
+            {% if not local %}<div><label class="block text-xs text-gray-500 mb-1">Plate</label><input type="number" name="plate" min="1" required class="{{ input }} w-20 font-mono"></div>{% endif %}
             <div class="flex-1 min-w-[8rem]"><label class="block text-xs text-gray-500 mb-1">Name</label><input type="text" name="name" required class="{{ input }} w-full"></div>
             <div><label class="block text-xs text-gray-500 mb-1">Team</label><input type="text" name="team" class="{{ input }} w-32"></div>
             <div><label class="block text-xs text-gray-500 mb-1">Category</label><input type="text" name="category" class="{{ input }} w-28"></div>
@@ -142,8 +182,8 @@
         </form>
     </div>
     <form method="post" action="/admin/timing/{{ event.id }}/roster/paste" class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-4">
-        <label class="block text-xs text-gray-500 mb-1">Paste a list — one rider per line: plate, name, team, category (comma, tab or | separated; a header line is skipped)</label>
-        <textarea name="lines" rows="4" placeholder="1547, MAXWELL HOOVER, Cumberland Valley, JV1 - Male" class="{{ input }} w-full font-mono text-xs"></textarea>
+        <label class="block text-xs text-gray-500 mb-1">Paste a list — one rider per line: {{ 'name, team, category' if local else 'plate, name, team, category' }} (comma, tab or | separated; a header line is skipped)</label>
+        <textarea name="lines" rows="4" placeholder="{{ 'MAXWELL HOOVER, Cumberland Valley, JV1 - Male' if local else '1547, MAXWELL HOOVER, Cumberland Valley, JV1 - Male' }}" class="{{ input }} w-full font-mono text-xs"></textarea>
         <div class="mt-2"><button type="submit" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Add pasted riders</button></div>
     </form>
     {% if roster %}
@@ -152,10 +192,11 @@
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
-                    <th class="text-right px-3 py-2">Plate</th>
+                    <th class="text-right px-3 py-2">{{ '#' if local else 'Plate' }}</th>
                     <th class="text-left px-3 py-2">Name</th>
                     <th class="text-left px-3 py-2">Team</th>
                     <th class="text-left px-3 py-2">Category</th>
+                    {% if local %}<th class="text-left px-3 py-2">Wave</th>{% endif %}
                     <th class="text-left px-3 py-2">Source</th>
                     <th class="px-3 py-2"></th>
                 </tr>
@@ -167,6 +208,16 @@
                     <td class="px-3 py-1.5">{{ r.name }}</td>
                     <td class="px-3 py-1.5 text-gray-600">{{ r.team or '' }}</td>
                     <td class="px-3 py-1.5 text-gray-600">{{ r.category or '' }}</td>
+                    {% if local %}
+                    <td class="px-3 py-1.5">
+                        <form method="post" action="/admin/timing/{{ event.id }}/roster/{{ r.id }}/wave" class="inline">
+                            <select name="wave_id" class="{{ input }} text-xs {{ 'border-amber-400' if not r.wave_id }}" onchange="this.form.submit()">
+                                <option value="" {{ 'selected' if not r.wave_id }}>— none —</option>
+                                {% for w in waves %}<option value="{{ w.id }}" {{ 'selected' if w.id == r.wave_id }}>{{ w.name }}</option>{% endfor %}
+                            </select>
+                        </form>
+                    </td>
+                    {% endif %}
                     <td class="px-3 py-1.5 text-gray-400 text-xs">{{ r.source }}</td>
                     <td class="px-3 py-1.5 text-right"><form method="post" action="/admin/timing/{{ event.id }}/roster/{{ r.id }}/delete" class="inline"><button class="text-red-600 hover:underline text-xs">Remove</button></form></td>
                 </tr>
@@ -198,6 +249,12 @@
                 {% for c in courses %}<option value="{{ c.id }}" {{ 'selected' if c.id == event.course_id }}>{{ c.name }}</option>{% endfor %}
             </select>
         </div>
+        {% if local %}
+        <div>
+            <label class="block text-xs text-gray-500 mb-1">Laps</label>
+            <input type="number" name="laps" value="{{ event.laps }}" min="1" max="20" class="{{ input }} w-16 font-mono">
+        </div>
+        {% endif %}
         <div>
             <label class="block text-xs text-gray-500 mb-1">Status</label>
             <select name="status" class="{{ input }}">

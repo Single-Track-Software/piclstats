@@ -86,6 +86,11 @@ def normalize_crossing(raw: dict[str, Any]) -> dict[str, Any]:
             plate = int(plate.strip())
         if not isinstance(plate, int) or isinstance(plate, bool) or not 0 < plate < 100_000:
             raise ValueError("bad plate")
+    wave_id = raw.get("wave_id")
+    if wave_id is not None and (
+        isinstance(wave_id, bool) or not isinstance(wave_id, int) or wave_id <= 0
+    ):
+        raise ValueError("bad wave_id")
     supersedes = raw.get("supersedes")
     if supersedes is not None and (not isinstance(supersedes, str) or not _ID.match(supersedes)):
         raise ValueError("bad supersedes")
@@ -103,6 +108,7 @@ def normalize_crossing(raw: dict[str, Any]) -> dict[str, Any]:
         "supersedes": supersedes,
         "voided": bool(raw.get("voided", False)),
         "note": (note or "").strip()[:500] or None,
+        "wave_id": wave_id,
     }
 
 
@@ -115,7 +121,8 @@ def load_station(s: Session, code: str) -> dict[str, Any] | None:
             text("""
             SELECT p.id AS point_id, p.kind, sg.id AS segment_id, sg.seq, sg.name AS segment,
                    sg.distance_miles, sg.rides_hs, sg.rides_ms,
-                   t.id AS event_id, t.name AS event, t.season, t.event_date, t.status
+                   t.id AS event_id, t.name AS event, t.season, t.event_date, t.status,
+                   t.kind AS event_kind, t.laps
             FROM timing_points p
             JOIN timing_segments sg ON sg.id = p.segment_id
             JOIN timing_events t ON t.id = sg.timing_event_id
@@ -132,12 +139,22 @@ def load_station(s: Session, code: str) -> dict[str, Any] | None:
 def load_roster(s: Session, event_id: int) -> list[dict[str, Any]]:
     rows = s.execute(
         text("""
-        SELECT plate, name, team, category FROM timing_roster
+        SELECT plate, name, team, category, wave_id FROM timing_roster
         WHERE timing_event_id = :e ORDER BY plate
     """),
         {"e": event_id},
     ).all()
-    return [{"plate": r[0], "name": r[1], "team": r[2], "category": r[3]} for r in rows]
+    return [
+        {"plate": r[0], "name": r[1], "team": r[2], "category": r[3], "wave_id": r[4]} for r in rows
+    ]
+
+
+def load_waves(s: Session, event_id: int) -> list[dict[str, Any]]:
+    rows = s.execute(
+        text("SELECT id, seq, name FROM timing_waves WHERE timing_event_id = :e ORDER BY seq"),
+        {"e": event_id},
+    ).all()
+    return [{"id": r[0], "seq": r[1], "name": r[2]} for r in rows]
 
 
 def apply_sync(
@@ -211,14 +228,21 @@ def apply_sync(
             },
         )
 
+    wave_ids = {
+        r[0]
+        for r in s.execute(
+            text("SELECT id FROM timing_waves WHERE timing_event_id = :e"),
+            {"e": station["event_id"]},
+        ).all()
+    }
     inserted = 0
     for r in rows:
         result = s.execute(
             text("""
             INSERT INTO timing_crossings (id, timing_event_id, point_id, device_id, device_ts,
-                offset_ms, ts, plate, kind, supersedes, voided, note, author)
+                offset_ms, ts, plate, kind, supersedes, voided, note, author, wave_id)
             VALUES (:id, :e, :p, :dev, :device_ts, :off, :ts, :plate, :kind, :sup, :voided,
-                :note, :author)
+                :note, :author, :wave)
             ON CONFLICT (id) DO NOTHING
         """),
             {
@@ -235,6 +259,7 @@ def apply_sync(
                 "voided": r["voided"],
                 "note": r["note"],
                 "author": author,
+                "wave": r["wave_id"] if r["wave_id"] in wave_ids else None,
             },
         )
         inserted += rowcount(result)
@@ -269,8 +294,12 @@ def station_page(request: Request, code: str):
                 "timing/station_missing.html", {"request": request, "code": code}, status_code=404
             )
         roster = load_roster(s, station["event_id"])
+        waves = load_waves(s, station["event_id"]) if station["event_kind"] == "localdirt" else []
     context = {
         "code": code.upper(),
+        "kind": station["event_kind"],
+        "laps": station["laps"],
+        "waves": waves,
         "event": {
             "id": station["event_id"],
             "name": station["event"],
