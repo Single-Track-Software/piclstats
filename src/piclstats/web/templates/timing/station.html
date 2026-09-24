@@ -278,7 +278,8 @@ if (KIND === 'start') {
 }
 
 // ── Sync ───────────────────────────────────────────────────────────────
-let syncTimer = null, syncing = false;
+let syncTimer = null, syncing = false, lastRtt = null;
+const MAX_SAMPLE_RTT_MS = 1500;
 function scheduleSync(delay = 1500) { clearTimeout(syncTimer); syncTimer = setTimeout(sync, delay); }
 function setState(text, cls = 'text-picl-200') { $('syncstate').textContent = text; $('syncstate').className = 'text-[11px] ' + cls; }
 async function sync() {
@@ -287,7 +288,7 @@ async function sync() {
     const t0 = Date.now();
     try {
         const res = await fetch(`/timing/api/s/${CODE}/sync`, {method: 'POST', headers: {"Content-Type": "application/json"}, body: JSON.stringify({
-            device: {id: deviceId, label, user_agent: navigator.userAgent, pending: batch.length, offset_ms: Math.round(offset)},
+            device: {id: deviceId, label, user_agent: navigator.userAgent, pending: batch.length, offset_ms: Math.round(offset), last_rtt_ms: lastRtt},
             client_time_ms: t0,
             crossings: batch.map(r => ({id: r.id, kind: r.kind, device_ts_ms: r.device_ts_ms, offset_ms: r.offset_ms, plate: r.plate, supersedes: r.supersedes, voided: r.voided, note: r.note})),
         })});
@@ -296,10 +297,16 @@ async function sync() {
         if (!res.ok) throw new Error('HTTP ' + res.status);
         const ack = await res.json();
         // Re-measure the clock: midpoint of the round trip against server time.
-        const measured = (t0 + t1) / 2 - ack.server_time_ms;
-        if (Math.abs(measured - offset) > 250) { offset = measured; ls.set('picl_timing_offset_' + CODE, String(offset)); }
+        // A request that hung offline and completed minutes later would put
+        // the midpoint minutes out, so only a quick round trip is a sample.
+        const rtt = t1 - t0;
+        if (rtt <= MAX_SAMPLE_RTT_MS) {
+            const measured = (t0 + t1) / 2 - ack.server_time_ms;
+            if (Math.abs(measured - offset) > 250) { offset = measured; ls.set('picl_timing_offset_' + CODE, String(offset)); }
+        }
         const acked = new Set(ack.acked);
         for (const r of records) if (acked.has(r.id) && !r.synced) { r.synced = true; await put(r); }
+        lastRtt = rtt;
         ls.set('picl_timing_lastsync_' + CODE, String(Date.now()));
         $('lastSync').textContent = 'synced ' + new Date().toLocaleTimeString([], {hour12: false});
         setState(ack.drift_ms > ack.drift_limit_ms ? `clock drift ${(ack.drift_ms/1000).toFixed(1)}s — tell the lead` : 'online · synced', ack.drift_ms > ack.drift_limit_ms ? 'text-amber-300' : 'text-green-300');
