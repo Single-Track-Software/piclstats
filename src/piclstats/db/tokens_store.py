@@ -27,7 +27,7 @@ RESET = "reset"
 # Invites are handed out deliberately and may sit in an inbox over a weekend.
 # Resets answer a "locked out right now" request, so they expire fast.
 INVITE_TTL = timedelta(days=7)
-RESET_TTL = timedelta(hours=1)
+RESET_TTL = timedelta(hours=24)
 
 _COLS = (
     auth_tokens.c.id,
