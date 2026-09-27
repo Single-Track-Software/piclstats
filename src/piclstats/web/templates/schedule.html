@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Schedule{% if season %} {{ season }}{% endif %} — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div>
+        <h1 class="text-3xl font-bold text-gray-900">Schedule{% if season %} <span class="text-gray-400 font-normal">{{ season }}</span>{% endif %}</h1>
+        <p class="mt-1 text-sm text-gray-500">Every race of the season. Results link up once they are loaded.</p>
+        {% if seasons | length > 1 %}
+        <div class="mt-2 flex items-center gap-2 flex-wrap">
+            {% for s in seasons | reverse %}
+            <a href="/schedule?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% if races %}
+    <details class="relative">
+        <summary class="list-none cursor-pointer bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">Add to calendar</summary>
+        <div class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-lg p-4 z-40 text-sm">
+            <div class="text-xs text-gray-500 mb-2">Subscribe once; new races and results links show up on their own. Pick a conference to get its races plus the state races.</div>
+            <a href="webcal://{{ ics_host }}/schedule.ics?season={{ season }}" class="block py-1 text-picl-700 font-medium hover:underline">All races</a>
+            {% for c in conferences %}
+            <a href="webcal://{{ ics_host }}/schedule.ics?season={{ season }}&conference={{ c | urlencode }}" class="block py-1 text-picl-700 font-medium hover:underline">{{ c }} + state</a>
+            {% endfor %}
+            <div class="mt-2 pt-2 border-t text-xs text-gray-400">Google Calendar: Other calendars → From URL, paste <code class="text-gray-600">https://{{ ics_host }}/schedule.ics?season={{ season }}</code></div>
+        </div>
+    </details>
+    {% endif %}
+</div>
+
+{% if not races %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No races on the {{ season or '' }} schedule yet.
+</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                <th class="px-4 py-2 w-28">Date</th>
+                <th class="px-4 py-2">Race</th>
+                <th class="px-4 py-2">Course</th>
+                <th class="px-4 py-2 w-32">Draw</th>
+                <th class="px-4 py-2 w-28 text-right">Results</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% set ns = namespace(next_marked=false) %}
+            {% for r in races %}
+            {% set upcoming = r.event_date is not none and r.event_date >= today %}
+            {% set is_next = upcoming and not ns.next_marked %}
+            {% if is_next %}{% set ns.next_marked = true %}{% endif %}
+            <tr class="{% if is_next %}bg-gold-50{% elif not upcoming %}text-gray-500{% endif %}">
+                <td class="px-4 py-2 font-mono whitespace-nowrap">{% if r.event_date %}{{ r.event_date.strftime('%a %b %-d') }}{% else %}<span class="text-gray-300">—</span>{% endif %}{% if is_next %} <span class="ml-1 text-[10px] font-sans font-semibold uppercase text-gold-700">next</span>{% endif %}</td>
+                <td class="px-4 py-2 font-medium {{ 'text-gray-900' if upcoming }}">{{ r.name }}{% if r.race_type == 'rally' %} <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle" title="Timed segments, not a points race">rally</span>{% endif %}</td>
+                <td class="px-4 py-2"><a href="/course/{{ r.course_id }}" class="text-picl-700 hover:underline">{{ r.course }}</a>{% if r.location %} <span class="text-xs text-gray-400">{{ r.location }}</span>{% endif %}</td>
+                <td class="px-4 py-2 text-xs">{% if r.conference %}{{ r.conference }}{% elif r.id %}<span class="font-semibold text-picl-700">State</span>{% else %}<span class="text-gray-300">—</span>{% endif %}</td>
+                <td class="px-4 py-2 text-right">{% if r.event_id %}<a href="/results?event_id={{ r.event_id }}" class="text-picl-700 font-medium hover:underline">Results &rarr;</a>{% elif not upcoming %}<span class="text-xs text-gray-400">not loaded</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">{{ races | length }} races. A conference race draws that conference's teams; a state race draws everyone.{% if races and races[0].id is none %} No schedule was entered for {{ season }}; these are the loaded results in race order.{% endif %}</p>
+</div>
+{% endif %}
+{% endblock %}

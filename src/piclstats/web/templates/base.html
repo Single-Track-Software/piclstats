@@ -31,7 +31,7 @@
                         </span>
                     </a>
                     {% set user = request.state.user if request and request.state else None %}
-                    {% set nav_links = [('/', 'Dashboard'), ('/results', 'Results'), ('/riders', 'Riders'), ('/teams', 'Teams'), ('/leaderboard', 'Leaderboard'), ('/courses', 'Courses')] %}
+                    {% set nav_links = [('/', 'Dashboard'), ('/results', 'Results'), ('/riders', 'Riders'), ('/teams', 'Teams'), ('/leaderboard', 'Leaderboard'), ('/courses', 'Courses'), ('/schedule', 'Schedule')] %}
                     <div class="hidden md:flex space-x-1 self-stretch items-stretch">
                         {% for href, label in nav_links %}
                         {{ nav_link(href, label) }}

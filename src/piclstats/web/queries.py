@@ -1581,6 +1581,55 @@ def dnf_lap_context(session: Session, rider_id: int) -> list[dict]:
     return out
 
 
+def schedule_seasons(session: Session) -> list[int]:
+    """Seasons with a schedule or published results, oldest first."""
+    rows = session.execute(
+        text("""
+        SELECT season FROM scheduled_races
+        UNION SELECT season FROM events WHERE is_published
+        ORDER BY season
+        """)
+    ).all()
+    return [r[0] for r in rows]
+
+
+def season_schedule(session: Session, season: int) -> list[dict]:
+    """Every scheduled race of a season, soonest first, with its course."""
+    rows = session.execute(
+        text("""
+        SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference, sr.course_id,
+               c.name AS course, c.location,
+               COALESCE(
+                   (SELECT t.race_type FROM course_race_types t
+                     WHERE t.course_id = sr.course_id AND t.season = sr.season),
+                   (SELECT t.race_type FROM course_race_types t
+                     WHERE t.course_id = sr.course_id AND t.season IS NULL),
+                   'race'
+               ) AS race_type
+        FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
+        WHERE sr.season = :season
+        ORDER BY sr.event_date, sr.name
+        """),
+        {"season": season},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
+def season_events(session: Session, season: int) -> list[dict]:
+    """Loaded events of a season (published or not), for matching to the schedule."""
+    rows = session.execute(
+        text("""
+        SELECT e.id, e.event_name, e.event_order, e.event_date, e.course_id,
+               e.event_type, e.is_published, c.name AS course, c.location
+        FROM events e LEFT JOIN courses c ON c.id = e.course_id
+        WHERE e.season = :season
+        ORDER BY e.event_order, e.id
+        """),
+        {"season": season},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
 def upcoming_races(session: Session, today) -> list[dict]:
     """Scheduled races from `today` on, soonest first (/admin/schedule).
 
