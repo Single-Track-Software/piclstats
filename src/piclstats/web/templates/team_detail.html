@@ -58,7 +58,7 @@
 <!-- Movers: this season against last, per rider -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
     <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="text-lg font-semibold text-gray-900">Riders in {{ season }} <span class="text-sm font-normal text-gray-400">vs {{ season - 1 }}</span></h2>
+        <h2 class="text-lg font-semibold text-gray-900">Riders in {{ season }} <span class="text-sm font-normal text-gray-400">vs {{ season - 1 }}</span> <a href="/team/{{ team_name | urlencode }}/recap?season={{ season }}" class="ml-2 text-sm font-medium text-picl-700 hover:underline" title="Awards and totals for the season">Season recap &rarr;</a></h2>
         <span class="text-xs text-gray-400">Percentile = share of the category beaten · Behind = finish time behind the winner · Δ vs the rider's {{ season - 1 }} average, any team</span>
     </div>
     {% if movers %}

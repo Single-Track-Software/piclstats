@@ -519,6 +519,71 @@ _FIELD_CTE = f"""
 """
 
 
+def team_seasons(session: Session, team_name: str) -> list[int]:
+    """Seasons the team has a published result in, oldest first."""
+    rows = session.execute(
+        text("""
+        SELECT DISTINCT e.season
+        FROM riders ri
+        JOIN results r ON r.rider_id = ri.id
+        JOIN events e ON r.event_id = e.id AND e.is_published
+        WHERE ri.team_key = :team_key
+        ORDER BY e.season
+        """),
+        {"team_key": team_key(team_name)},
+    ).all()
+    return [r[0] for r in rows]
+
+
+def team_season_rows(session: Session, team_name: str, season: int) -> list[dict]:
+    """One row per (rider on the team, scoring race) in `season`, for the recap.
+
+    Membership is anyone who raced for the team that season; their rows
+    cover every scoring race that season on any team. Percentile, lap fade,
+    laps ridden and best lap follow the rider page's definitions.
+    """
+    rows = session.execute(
+        text(f"""
+        WITH {_CANONICAL_CTE},
+        {_FIELD_CTE},
+        members AS (
+            SELECT DISTINCT c.cid
+            FROM canonical c
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+            WHERE c.team_key = :team_key
+        )
+        SELECT c.cid, c.name,
+               e.id AS event_id, e.event_name, e.event_order, e.event_type, e.course_id,
+               r.division, r.gender, r.place, r.status, r.points, r.dq_status,
+               f.field_size,
+               CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded' AND f.field_size > 0
+                    THEN round(((1 - r.place::numeric / f.field_size) * 100)::numeric, 1)
+               END AS percentile,
+               CASE WHEN r.dq_status <> 'excluded' THEN {_ACTUAL_LAPS} ELSE 0 END AS laps_ridden,
+               cl.distance_miles AS loop_distance,
+               CASE WHEN {_LAPS_CONSISTENT} AND r.lap3 IS NOT NULL AND r.lap2 > interval '0'
+                    THEN round((EXTRACT(EPOCH FROM (
+                                    COALESCE(r.lap6, r.lap5, r.lap4, r.lap3) - r.lap2))
+                                / EXTRACT(EPOCH FROM r.lap2) * 100)::numeric, 1)
+                    WHEN {_LAPS_CONSISTENT} AND r.lap2 IS NOT NULL AND r.lap1 > interval '0'
+                    THEN round((EXTRACT(EPOCH FROM (r.lap2 - r.lap1))
+                                / EXTRACT(EPOCH FROM r.lap1) * 100)::numeric, 1)
+               END AS lap_fade
+        FROM members m
+        JOIN canonical c ON c.cid = m.cid
+        JOIN results r ON r.rider_id = c.rider_id
+        JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+        LEFT JOIN field f ON f.event_id = r.event_id AND f.category = r.category
+        {_LAP_JOINS}
+        WHERE {_POINTS_ONLY}
+        ORDER BY c.cid, e.event_order, e.id
+        """),
+        {"team_key": team_key(team_name), "season": season, "seasons": [season]},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def team_rider_seasons(session: Session, team_name: str, season: int) -> list[dict]:
     """Each rider on the team this season, with this and last season's form.
 
