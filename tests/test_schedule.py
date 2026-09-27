@@ -10,6 +10,7 @@ from piclstats.web.schedule import (
     for_conference,
     match_events,
     name_key,
+    with_unscheduled,
 )
 
 
@@ -142,3 +143,20 @@ def test_race_link_is_the_entrys_url_and_a_details_line():
         for line in lines
     )
     assert "URL:https://x/schedule" in lines  # the race without a link points at the page
+
+
+def test_loaded_races_without_a_schedule_row_join_the_list_in_date_order():
+    races = [_race(14, "Eastern Blue Conference #1 - Battle at Belmont", 10, day=date(2026, 9, 19))]
+    events = [
+        _event(167, "2026 State Kick-Off - Playin' at Penn College", 6, day=date(2026, 9, 12)),
+        _event(184, "2026 Eastern Blue Conference #1 - Battle at Belmont", 10),
+        _event(190, "2026 Undated extra", 7),
+    ]
+    match_events(races, events)
+    rows = with_unscheduled(races, events)
+    assert [r.get("event_id") for r in rows] == [167, 184, 190]
+    assert rows[0]["id"] is None and rows[0]["event_date"] == date(2026, 9, 12)
+    assert rows[1]["id"] == 14  # the matched schedule row is untouched
+    ics = build_ics(rows, "https://x", 2026)
+    assert ics.count("BEGIN:VEVENT") == 2  # the undated one has no calendar entry
+    assert "UID:event-167@piclstats.com" in ics
