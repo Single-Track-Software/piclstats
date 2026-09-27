@@ -130,3 +130,15 @@ def test_canceled_race_stays_in_the_feed_as_cancelled():
     assert "STATUS:CANCELLED" in lines
     assert any(line.startswith("DESCRIPTION:Canceled — not rescheduled.") for line in lines)
     assert "STATUS:CANCELLED" not in build_ics([_race(1, "R", 1)], "https://x", 2026)
+
+
+def test_race_link_is_the_entrys_url_and_a_details_line():
+    races = [{**_race(1, "R", 1), "url": "https://www.pamtb.org/race/1"}, _race(2, "S", 2)]
+    ics = build_ics(races, "https://x", 2026)
+    lines = ics.replace("\r\n ", "").split("\r\n")
+    assert "URL:https://www.pamtb.org/race/1" in lines
+    assert any(
+        line.startswith("DESCRIPTION:State race\\nDetails: https://www.pamtb.org/race/1")
+        for line in lines
+    )
+    assert "URL:https://x/schedule" in lines  # the race without a link points at the page

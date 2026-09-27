@@ -71,6 +71,7 @@ def events_as_schedule(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "event_date": e.get("event_date"),
             "conference": None,
             "canceled": False,
+            "url": None,
             "race_type": "rally" if e.get("event_type") == "rally" else "race",
             "event_id": e["id"],
         }
@@ -123,8 +124,8 @@ def build_ics(
     """One all-day VEVENT per scheduled race; stable UIDs so re-syncs update in place.
 
     `races` need id, event_date, name, course, conference, and optionally
-    location, canceled and event_id (the loaded results, linked in the
-    description). A canceled race stays in the feed as STATUS:CANCELLED with
+    location, url (the league's page: the entry's URL and a Details line),
+    canceled and event_id (the loaded results, linked in the description). A canceled race stays in the feed as STATUS:CANCELLED with
     a "CANCELED:" summary, so subscribers see it change rather than vanish.
     """
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
@@ -155,6 +156,8 @@ def build_ics(
             kind = f"{r['conference']} conference race"
         canceled = bool(r.get("canceled"))
         desc = [kind, f"Schedule: {base}/schedule"]
+        if r.get("url"):
+            desc.insert(1, f"Details: {r['url']}")
         if canceled:
             desc.insert(0, "Canceled — not rescheduled.")
         if r.get("event_id"):
@@ -174,7 +177,7 @@ def build_ics(
         if where:
             lines.append(f"LOCATION:{_escape(where)}")
         lines.append(f"DESCRIPTION:{_escape(chr(10).join(desc))}")
-        lines.append(f"URL:{base}/schedule")
+        lines.append(f"URL:{r.get('url') or base + '/schedule'}")
         lines.append("END:VEVENT")
     lines.append("END:VCALENDAR")
     return "\r\n".join(_fold(line) for line in lines) + "\r\n"

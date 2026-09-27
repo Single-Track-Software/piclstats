@@ -403,6 +403,7 @@ scheduled_races = Table(
     Column("conference", Text),  # NULL = state race; else team_conferences.conference
     # Called off and not rescheduled: shown as such, but not an upcoming race.
     Column("canceled", Boolean, nullable=False, server_default="false"),
+    Column("url", Text),  # the league's page for the race (pamtb.org), optional
     UniqueConstraint("season", "event_date", "name", name="uq_scheduled_race"),
     Index("idx_scheduled_races_date", "event_date"),
 )
