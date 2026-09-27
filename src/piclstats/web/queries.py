@@ -9,7 +9,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
 from piclstats.quality.keys import team_key
-from piclstats.web.riderstats import season_summary
+from piclstats.web.riderstats import career_highlights, season_summary
 
 
 def _serialize(row) -> dict:
@@ -384,9 +384,20 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             r.penalty,
             r.dq_status,
             ri.team,
+            e.course_id,
+            c.name AS course,
             dl.loop_type,
             dl.lap_count AS expected_laps,
             cl.distance_miles AS loop_distance,
+            {_ACTUAL_LAPS} AS laps_ridden,
+            -- Fastest lap in seconds. Lap 1 often includes a start loop of a
+            -- different length, so on a 3+ lap race it is left out (same
+            -- rule as lap_fade); a 2-lap race compares both.
+            CASE WHEN r.dq_status <> 'excluded' AND {_LAPS_CONSISTENT}
+                 THEN EXTRACT(EPOCH FROM LEAST(
+                     CASE WHEN r.lap3 IS NULL THEN r.lap1 END,
+                     r.lap2, r.lap3, r.lap4, r.lap5, r.lap6))
+            END AS best_lap_secs,
             f.field_size,
             CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded' AND f.field_size > 0
                  THEN round(((1 - r.place::numeric / f.field_size) * 100)::numeric, 1)
@@ -421,6 +432,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         FROM results r
         JOIN events e ON r.event_id = e.id AND e.is_published
         JOIN riders ri ON r.rider_id = ri.id
+        LEFT JOIN courses c ON c.id = e.course_id
         LEFT JOIN field f ON f.event_id = r.event_id AND f.category = r.category
         {_LAP_JOINS}
         WHERE r.rider_id = ANY(:ids)
@@ -448,6 +460,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
         "venues": rider_venue_history(session, canonical_id) if canonical_id is not None else [],
         "races": serialized_races,
         "season_stats": season_summary(serialized_races),
+        "highlights": career_highlights(serialized_races),
         "rivals": rivals,
         "rival_season": rival_season,
     }
@@ -647,6 +660,17 @@ def team_rider_seasons(session: Session, team_name: str, season: int) -> list[di
     return out
 
 
+def team_display_name(session: Session, team_name: str) -> str | None:
+    """The most common spelling of a team (page titles and links); None if unknown."""
+    return session.execute(
+        text("""
+        SELECT ri.team FROM riders ri JOIN results r ON r.rider_id = ri.id
+        WHERE ri.team_key = :team_key GROUP BY ri.team ORDER BY count(*) DESC LIMIT 1
+        """),
+        {"team_key": team_key(team_name)},
+    ).scalar()
+
+
 def team_detail(session: Session, team_name: str, season: int | None = None) -> dict | None:
     params: dict = {"team_key": team_key(team_name)}
     season_filter = ""
@@ -772,14 +796,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
     if not seasons_available:
         return None  # no rider ever raced under this name -> 404, not a blank page
 
-    # The page title and links use the most common spelling of the team.
-    display = session.execute(
-        text("""
-        SELECT ri.team FROM riders ri JOIN results r ON r.rider_id = ri.id
-        WHERE ri.team_key = :team_key GROUP BY ri.team ORDER BY count(*) DESC LIMIT 1
-        """),
-        {"team_key": team_key(team_name)},
-    ).scalar()
+    display = team_display_name(session, team_name)
 
     return {
         "team_name": display or team_name,
@@ -1574,7 +1591,7 @@ def rating_rows(
     rows = session.execute(
         text(f"""
         SELECT
-            e.id AS event_id, e.season, e.event_order, e.event_name,
+            e.id AS event_id, e.season, e.event_order, e.event_name, e.course_id,
             COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
             r.division, r.gender, r.place, r.conference, r.category_order,
             ri.team,

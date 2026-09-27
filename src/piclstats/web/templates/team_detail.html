@@ -21,7 +21,13 @@
                 {% endfor %}
             </div>
         </div>
-        <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
+        <div class="flex items-center gap-3">
+            {% set user = request.state.user if request and request.state else None %}
+            {% if user %}
+            <a href="/team/{{ team_name | urlencode }}/raceday" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Staging and forecast for every rider at the next race">Race-day sheet</a>
+            {% endif %}
+            <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
+        </div>
     </div>
 </div>
 
