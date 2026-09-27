@@ -1013,6 +1013,63 @@ def _staging_query(season, metric, sort, conference, group, row, wave_format, jo
     )
 
 
+@app.get("/planner", response_class=HTMLResponse)
+def planner_page(
+    request: Request,
+    course_id: int | None = Query(None, alias="course"),
+    season_raw: str = Query("", alias="season"),
+    conference: str = Query(""),
+    _user: dict = Depends(require_picl),
+):
+    """Race duration planner: finish-time spread per division vs its window.
+
+    Lap counts come from the course's profile; `?laps=<division>|<gender>=N`
+    (repeatable) tries another count without saving anything.
+    """
+    from piclstats.web import planner as planner_mod
+
+    overrides: dict[tuple[str, str], int] = {}
+    for raw in request.query_params.getlist("laps"):
+        key, _, value = raw.rpartition("=")
+        division, _, gender = key.partition("|")
+        if division and value.isdigit():
+            overrides[(division, gender)] = int(value)
+
+    with get_session() as session:
+        courses = queries.courses_list(session)
+        seasons = queries.seasons_list(session)
+        season = (
+            int(season_raw) if season_raw.isdigit() and int(season_raw) in seasons else None
+        ) or (seasons[-1] if seasons else None)
+        course = next((c for c in courses if c["id"] == course_id), None)
+        plan = None
+        profiles: list[dict] = []
+        if course and season:
+            profiles = queries.course_profiles(session, course["id"], season)
+            rows_by_loop = {
+                (gender, loop_type): _cached_rating_rows(session, gender, loop_type)
+                for gender in ("Male", "Female")
+                for loop_type in ("HS", "MS")
+            }
+            plan = planner_mod.plan_course(
+                rows_by_loop, season, course["id"], conference or None, profiles, overrides
+            )
+    return templates.TemplateResponse(
+        "planner.html",
+        _ctx(
+            request,
+            courses=courses,
+            course=course,
+            seasons=seasons,
+            season=season,
+            conference=conference,
+            plan=plan,
+            profiles=profiles,
+            overrides={f"{d}|{g}": n for (d, g), n in overrides.items()},
+        ),
+    )
+
+
 @app.get("/staging", response_class=HTMLResponse)
 def staging_page(
     request: Request,
