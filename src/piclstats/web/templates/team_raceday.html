@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}{{ team_name }} race-day sheet — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div>
+        <div class="text-sm text-gray-400 print:hidden"><a href="/team/{{ team_name | urlencode }}" class="hover:text-gray-600">&larr; {{ team_name }}</a></div>
+        <h1 class="text-3xl font-bold text-gray-900">{{ team_name }} <span class="text-gray-400 font-normal">race day</span></h1>
+        {% if race %}
+        <p class="mt-1 text-sm text-gray-600">
+            <strong>{{ race.name }}</strong> · {{ race.event_date.strftime('%a %b %-d') }} · {{ race.course }}
+            · {{ race.conference or 'State' }} race
+        </p>
+        {% endif %}
+    </div>
+    <div class="flex items-center gap-2 print:hidden">
+        {% if races | length > 1 %}
+        <form method="get">
+            <select name="race" class="rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for r in races %}
+                <option value="{{ r.id }}" {{ 'selected' if race and r.id == race.id }}>{{ r.event_date.strftime('%b %-d') }} · {{ r.name }}</option>
+                {% endfor %}
+            </select>
+        </form>
+        {% endif %}
+        <button type="button" onclick="window.print()" class="bg-white text-picl-700 border border-picl-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50">Print</button>
+    </div>
+</div>
+
+{% if not race %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No upcoming race on the schedule{% if season %} for {{ season }}{% endif %}. The sheet appears once the next race is scheduled.
+</div>
+{% elif not lines %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No {{ team_name }} riders on the {{ season }} or {{ season - 1 }} start lists{% if race.conference %} in {{ race.conference }}{% endif %}.
+</div>
+{% else %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:shadow-none print:border-0">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                <th class="px-3 py-2 w-14">Plate</th>
+                <th class="px-3 py-2">Name</th>
+                <th class="px-3 py-2 w-12 text-right" title="Divisions that roll off the line together">Wave</th>
+                <th class="px-3 py-2" title="Start box within the wave — the colour of the dot on the plate">Group</th>
+                <th class="px-3 py-2 w-10 text-right" title="Row within the group; row 1 is the front">Row</th>
+                <th class="px-3 py-2 w-16 text-right" title="Staging rank within the division (of riders on the start list)">Rank</th>
+                <th class="px-3 py-2 w-24 text-center" title="Forecast finish: most likely place, and the 80% range, of about the expected field">Forecast</th>
+                <th class="px-3 py-2 w-10 text-right">Laps</th>
+                <th class="px-3 py-2 w-24 text-right" title="Estimated ride time from the rider's rating and the last race on this loop at this course">Est. time</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% set ns = namespace(category=none) %}
+            {% for line in lines %}
+            {% if line.category != ns.category %}
+            {% set ns.category = line.category %}
+            <tr class="bg-picl-700 text-white print:bg-gray-200 print:text-gray-900" style="break-after: avoid">
+                <td colspan="9" class="px-3 py-1.5 text-xs font-bold uppercase tracking-wider">{{ line.category }} <span class="font-normal normal-case tracking-normal opacity-80">· wave {{ line.wave }} · {{ line.division_size }} on the start list</span></td>
+            </tr>
+            {% endif %}
+            {% set f = line.forecast %}
+            <tr class="{% if line.basis != 'current' %}text-gray-500{% endif %}">
+                <td class="px-3 py-1.5 font-mono">{{ line.plate }}</td>
+                <td class="px-3 py-1.5">
+                    <a href="/rider/{{ line.canonical_id }}" class="text-picl-700 font-medium hover:underline print:text-gray-900">{{ line.name }}</a>
+                    {% if line.division_assumed %}<span class="text-amber-600 text-xs" title="Division guessed from last season — no race this season yet">?</span>{% endif %}
+                    {% if line.basis == 'prior' %}<span class="text-[11px] text-gray-400" title="No race this season; staged on last season's average">last season</span>{% endif %}
+                    {% if not line.basis %}<span class="text-[11px] text-gray-400" title="No timed race either season; added at the back of the division by hand">unrated</span>{% endif %}
+                </td>
+                <td class="px-3 py-1.5 font-mono text-right text-gray-500">{{ line.wave }}</td>
+                <td class="px-3 py-1.5 whitespace-nowrap">
+                    {% if line.group %}
+                    <span class="inline-block w-3 h-3 rounded-full align-middle mr-1 border border-gray-300 print:hidden" style="background: {{ line.color_css }}"></span>{{ line.color }}
+                    {% else %}<span class="text-gray-300">—</span>{% endif %}
+                </td>
+                <td class="px-3 py-1.5 font-mono text-right">{{ line.row or '' }}</td>
+                <td class="px-3 py-1.5 font-mono text-right text-gray-600">{% if line.group %}{{ line.rank }}<span class="text-gray-400">/{{ line.division_size }}</span>{% endif %}</td>
+                {% if f and f.place %}
+                <td class="px-3 py-1.5 text-center whitespace-nowrap font-mono
+                    {% if f.color == 'green' %}bg-green-50 text-green-700
+                    {% elif f.color == 'amber' %}bg-amber-50 text-amber-700
+                    {% elif f.color == 'red' %}bg-red-50 text-red-700
+                    {% endif %}"
+                    title="Most likely {{ f.place }}; 8 times in 10 between {{ f.place_low }} and {{ f.place_high }} of about {{ f.field }}">
+                    <span class="font-semibold">{{ f.place }}</span><span class="text-xs opacity-70"> / ~{{ f.field }}</span>
+                    <span class="text-[11px] opacity-70 ml-1">{{ f.place_low }}–{{ f.place_high }}</span>
+                </td>
+                {% else %}
+                <td class="px-3 py-1.5 text-center text-gray-300">—</td>
+                {% endif %}
+                <td class="px-3 py-1.5 font-mono text-right text-gray-600">{{ f.laps if f and f.laps else '' }}</td>
+                <td class="px-3 py-1.5 font-mono text-right whitespace-nowrap">
+                    {% if f and f.est_minutes %}
+                    <span title="About {{ f.lap_minutes }} min a lap; {{ f.est_low }}–{{ f.est_high }} min covers a good or bad day">~{{ f.est_minutes }} min</span>
+                    <span class="text-[11px] text-gray-400">{{ f.est_low }}–{{ f.est_high }}</span>
+                    {% else %}<span class="text-gray-300">—</span>{% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
+        {{ lines | length }} riders · {{ rated }} with a forecast · {{ timed }} with a time estimate.
+        Staging is the league's row-sheet order for a {{ race.conference or 'state' }} race: lap-time z, groups of 28, rows of 7, colours Red, Yellow, Green, Blue, Orange, Neon Pink, Purple, White; the coach writes the row number on the dot.
+        Forecast is against the riders expected in the division{% if race.conference %} from {{ race.conference }}{% endif %}; greyed riders have no race this season and no forecast.
+        Time estimates need a past race on the same loop at {{ race.course }}{% if not timed %} — none yet, so the column is blank{% endif %}.
+        Live staging can differ: the league merges waves and moves riders on the day.
+    </p>
+</div>
+{% endif %}
+{% endblock %}
