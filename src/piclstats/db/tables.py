@@ -401,6 +401,8 @@ scheduled_races = Table(
     Column("name", Text, nullable=False),
     Column("course_id", Integer, ForeignKey("courses.id"), nullable=False),
     Column("conference", Text),  # NULL = state race; else team_conferences.conference
+    # Called off and not rescheduled: shown as such, but not an upcoming race.
+    Column("canceled", Boolean, nullable=False, server_default="false"),
     UniqueConstraint("season", "event_date", "name", name="uq_scheduled_race"),
     Index("idx_scheduled_races_date", "event_date"),
 )

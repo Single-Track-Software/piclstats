@@ -1680,7 +1680,7 @@ def season_schedule(session: Session, season: int) -> list[dict]:
     rows = session.execute(
         text("""
         SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference, sr.course_id,
-               c.name AS course, c.location,
+               sr.canceled, c.name AS course, c.location,
                COALESCE(
                    (SELECT t.race_type FROM course_race_types t
                      WHERE t.course_id = sr.course_id AND t.season = sr.season),
@@ -1713,7 +1713,7 @@ def season_events(session: Session, season: int) -> list[dict]:
 
 
 def upcoming_races(session: Session, today) -> list[dict]:
-    """Scheduled races from `today` on, soonest first (/admin/schedule).
+    """Scheduled races from `today` on, soonest first (/admin/schedule); canceled ones left out.
 
     `race_type` is the course-season flag ('race' | 'rally'), 'race' when unset.
     """
@@ -1729,7 +1729,7 @@ def upcoming_races(session: Session, today) -> list[dict]:
                    'race'
                ) AS race_type
         FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
-        WHERE sr.event_date >= :today
+        WHERE sr.event_date >= :today AND NOT sr.canceled
         ORDER BY sr.event_date, sr.name
     """),
         {"today": today},

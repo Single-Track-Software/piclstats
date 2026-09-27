@@ -28,6 +28,7 @@
                     <th class="text-left px-3 py-2">Race</th>
                     <th class="text-left px-3 py-2">Course</th>
                     <th class="text-left px-3 py-2">Field</th>
+                    <th class="text-left px-3 py-2" title="Called off and not rescheduled: stays listed, drops out of forecasts and sheets">Canceled</th>
                     <th class="px-3 py-2"></th>
                 </tr>
             </thead>
@@ -47,8 +48,9 @@
                             {% for conf in conferences %}<option value="{{ conf }}" {{ 'selected' if conf == r.conference }}>{{ conf }}</option>{% endfor %}
                         </select>
                     </td>
+                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="checkbox" name="canceled" {{ 'checked' if r.canceled }} class="rounded border-gray-300"></td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                        {% if r.event_date < today %}<span class="text-xs mr-2">past</span>{% endif %}
+                        {% if r.canceled %}<span class="text-xs mr-2 text-red-600">canceled</span>{% elif r.event_date < today %}<span class="text-xs mr-2">past</span>{% endif %}
                         <form id="race-{{ r.id }}" method="post" action="/admin/schedule/race/{{ r.id }}" class="inline">
                         <button name="action" value="save" class="text-picl-700 hover:underline text-sm font-medium">Save</button>
                         <button name="action" value="delete" class="text-red-600 hover:underline text-sm ml-2">Delete</button>
@@ -56,7 +58,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="5" class="px-3 py-6 text-center text-gray-400">No races scheduled for {{ season }} yet.</td></tr>
+                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">No races scheduled for {{ season }} yet.</td></tr>
                 {% endfor %}
                 <tr class="bg-gray-50">
                     <td class="px-3 py-2"><input form="race-add" type="date" name="event_date" required class="{{ input }}"></td>
