@@ -715,8 +715,7 @@ def schedule_page(request: Request, season_raw: str = Query("", alias="season"))
         races = queries.season_schedule(session, season) if season else []
         events = queries.season_events(session, season) if season else []
         schedule_mod.match_events(races, events)
-        if not races:
-            races = schedule_mod.events_as_schedule(events)
+        races = schedule_mod.with_unscheduled(races, events)
         conferences = sorted({r["conference"] for r in races if r["conference"]})
     return templates.TemplateResponse(
         "schedule.html",
@@ -746,9 +745,7 @@ def schedule_ics(
         races = queries.season_schedule(session, season) if season else []
         events = queries.season_events(session, season) if season else []
     schedule_mod.match_events(races, events)
-    if not races:
-        races = schedule_mod.events_as_schedule(events)
-    races = schedule_mod.for_conference(races, conference)
+    races = schedule_mod.for_conference(schedule_mod.with_unscheduled(races, events), conference)
     base = settings.public_base_url or str(request.base_url)
     body = schedule_mod.build_ics(races, base, season)
     return Response(

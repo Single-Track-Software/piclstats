@@ -61,7 +61,7 @@
             {% endfor %}
         </tbody>
     </table>
-    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">{{ races | length }} races. A conference race draws that conference's teams; a state race draws everyone.{% if races and races[0].id is none %} No schedule was entered for {{ season }}; these are the loaded results in race order.{% endif %}</p>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">{{ races | length }} races. A conference race draws that conference's teams; a state race draws everyone.{% if races | rejectattr('id') | list %} Races without a schedule entry are listed from their loaded results{% if not (races | selectattr('id') | list) %} in race order{% endif %}.{% endif %}</p>
 </div>
 {% endif %}
 {% endblock %}

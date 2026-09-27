@@ -79,6 +79,29 @@ def events_as_schedule(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
+def with_unscheduled(
+    races: list[dict[str, Any]], events: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The schedule plus any published event no schedule row claimed, in date order.
+
+    Races loaded from results before the schedule was entered (the season
+    opener, typically) would otherwise be missing from the page and the
+    feed. Call after `match_events`. Undated events sort by race order after
+    the dated ones.
+    """
+    matched = {r["event_id"] for r in races if r.get("event_id")}
+    extra = events_as_schedule([e for e in events if e["id"] not in matched])
+    order = {e["id"]: (e.get("event_order") or 0) for e in events}
+    combined = list(races) + extra
+
+    def key(r: dict[str, Any]):
+        day = r.get("event_date")
+        return (day is None, day or date.max, order.get(r.get("event_id"), 0), r["name"] or "")
+
+    combined.sort(key=key)
+    return combined
+
+
 def for_conference(races: list[dict[str, Any]], conference: str | None) -> list[dict[str, Any]]:
     """State races plus one conference's (None = every race)."""
     if not conference:
