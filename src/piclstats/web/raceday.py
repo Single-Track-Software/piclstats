@@ -82,7 +82,7 @@ def staging_lines(grids: list[tuple[str, str, dict]], team: str) -> list[dict]:
     The grid where they have a race this season wins, else the first grid.
     """
     key = team_key(team)
-    out = []
+    out: list[dict] = []
     seen: dict[int, int] = {}  # canonical_id -> index in out
     for age_group, gender, grid in grids:
         by_division: dict[str, int] = {}

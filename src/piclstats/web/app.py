@@ -508,7 +508,7 @@ def team_raceday(
             race = next((r for r in races if r["id"] == race_id), None) or raceday.pick_race(
                 upcoming, conference
             )
-        if race is not None:
+        if race is not None and season is not None:
             wave_format = (
                 raceday.STATE_FORMAT if not race["conference"] else raceday.CONFERENCE_FORMAT
             )
