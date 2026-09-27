@@ -35,6 +35,61 @@
     </div>
 </div>
 
+{% if highlights %}
+<!-- Career highlights: personal bests and milestones across every season -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-8">
+    <div class="flex items-baseline justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-900">Career</h2>
+        <span class="text-xs text-gray-400">{{ highlights.seasons }} season{{ 's' if highlights.seasons != 1 }} · scoring races with clean timing</span>
+    </div>
+    <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-3 text-sm">
+        <div>
+            <div class="text-gray-400 text-xs">Races</div>
+            <div class="font-mono font-medium text-lg">{{ highlights.races }}</div>
+        </div>
+        <div>
+            <div class="text-gray-400 text-xs" title="Every clean lap ridden, including laps before a DNF">Laps ridden</div>
+            <div class="font-mono font-medium text-lg">{{ highlights.laps }}{% if highlights.miles %} <span class="text-xs text-gray-400 font-normal">~{{ highlights.miles }} mi</span>{% endif %}</div>
+        </div>
+        <div>
+            <div class="text-gray-400 text-xs">Wins · podiums · top 10</div>
+            <div class="font-mono font-medium text-lg">{{ highlights.wins }} <span class="text-gray-300">·</span> {{ highlights.podiums }} <span class="text-gray-300">·</span> {{ highlights.top10 }}</div>
+        </div>
+        <div>
+            <div class="text-gray-400 text-xs">Best finish</div>
+            {% set b = highlights.best_finish %}
+            {% if b %}
+            <div class="font-mono font-medium text-lg">{{ b.place }}<span class="text-gray-400 text-sm">/{{ b.field_size }}</span></div>
+            <div class="text-[11px] text-gray-500 truncate" title="{{ b.event_name }} · {{ b.division }} · {{ b.season }}">{{ b.division }} · {{ b.season }}</div>
+            {% else %}<div class="font-mono font-medium text-lg">—</div>{% endif %}
+        </div>
+        <div>
+            <div class="text-gray-400 text-xs" title="Largest share of a category field beaten in one race">Best day</div>
+            {% set b = highlights.best_percentile %}
+            {% if b %}
+            <div class="font-mono font-medium text-lg">{{ "%.0f"|format(b.value) }}%<span class="text-xs text-gray-400 font-normal"> beaten</span></div>
+            <div class="text-[11px] text-gray-500 truncate" title="{{ b.event_name }} · {{ b.place }}/{{ b.field_size }} · {{ b.season }}">{{ b.place }}/{{ b.field_size }} · {{ b.division }} · {{ b.season }}</div>
+            {% else %}<div class="font-mono font-medium text-lg">—</div>{% endif %}
+        </div>
+        <div>
+            <div class="text-gray-400 text-xs">Best pace</div>
+            {% set b = highlights.best_pace %}
+            {% if b %}
+            <div class="font-mono font-medium text-lg">{{ "%.1f"|format(b.value) }} <span class="text-[10px] text-gray-400 font-normal">min/mi</span></div>
+            <div class="text-[11px] text-gray-500 truncate" title="{{ b.event_name }} · {{ b.season }}">{% if b.course_id %}<a href="/course/{{ b.course_id }}" class="hover:underline">{{ b.course }}</a>{% else %}{{ b.course or b.event_name }}{% endif %} · {{ b.season }}</div>
+            {% else %}<div class="font-mono font-medium text-lg">—</div>{% endif %}
+        </div>
+    </div>
+    {% if highlights.milestones %}
+    <div class="mt-4 pt-3 border-t border-gray-100 flex flex-wrap gap-x-5 gap-y-1 text-xs text-gray-500">
+        {% for m in highlights.milestones %}
+        <span><span class="font-medium text-picl-700">{{ m.label }}</span> · {{ m.when }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
 <!-- Season summary cards -->
 <div class="grid md:grid-cols-{{ season_stats|length if season_stats|length <= 4 else 4 }} gap-4 mb-8">
     {% for ss in season_stats %}
@@ -57,8 +112,8 @@
                 <div class="font-mono font-medium">{% if ss.best_pace %}{{ "%.1f"|format(ss.best_pace) }} <span class="text-[10px] text-gray-400">min/mi</span>{% else %}—{% endif %}</div>
             </div>
             <div>
-                <div class="text-gray-400 text-xs">Races</div>
-                <div class="font-mono font-medium">{{ ss.races }}{% if ss.dnfs %} <span class="text-xs text-red-400" title="Did not finish">+{{ ss.dnfs }} DNF</span>{% endif %}</div>
+                <div class="text-gray-400 text-xs">Races · laps</div>
+                <div class="font-mono font-medium">{{ ss.races }}{% if ss.dnfs %} <span class="text-xs text-red-400" title="Did not finish">+{{ ss.dnfs }} DNF</span>{% endif %} <span class="text-gray-400">·</span> {{ ss.laps }}</div>
             </div>
             <div>
                 <div class="text-gray-400 text-xs">Best place</div>
@@ -248,7 +303,7 @@
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div class="px-6 py-2.5 border-b bg-gray-50 flex items-center justify-between">
             <h3 class="font-semibold text-gray-800"><a href="/course/{{ v.course_id }}" class="hover:underline">{{ v.course_name }}</a></h3>
-            <span class="text-xs text-gray-400">{{ v.visits | length }} visit{{ 's' if v.visits | length != 1 }}</span>
+            <span class="text-xs text-gray-400">{% if highlights and highlights.course_bests.get(v.course_id) %}{% set cb = highlights.course_bests[v.course_id] %}<span title="{{ cb.event_name }} ({{ cb.season }})">best lap {{ cb.text }}</span> · {% endif %}{{ v.visits | length }} visit{{ 's' if v.visits | length != 1 }}</span>
         </div>
         <div class="overflow-x-auto">
         <table class="w-full text-sm">

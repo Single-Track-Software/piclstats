@@ -465,6 +465,95 @@ def team_search(
     )
 
 
+# Before team_profile: its greedy {team_name:path} would otherwise match this URL too.
+@app.get("/team/{team_name:path}/raceday", response_class=HTMLResponse)
+def team_raceday(
+    request: Request,
+    team_name: str,
+    race_id: int | None = Query(None, alias="race"),
+    _user: dict = Depends(require_coach),
+):
+    """Race-day sheet: the team's riders at one upcoming race, staging + forecast.
+
+    Staged the way the league's row sheets are (lap-time z, groups of 28,
+    rows of 7, state or conference wave format to match the race) and
+    forecast against the riders expected in each division. Coaches only.
+    """
+    from datetime import date
+
+    from piclstats.db.settings_store import get_forecast_config
+    from piclstats.web import raceday
+    from piclstats.web.forecast import _place_color
+
+    with get_session() as session:
+        team = queries.team_display_name(session, team_name)
+        if not team:
+            return HTMLResponse("Team not found", status_code=404)
+        # Rallies are not staged or placed, so there is nothing to sheet.
+        upcoming = [
+            r for r in queries.upcoming_races(session, date.today()) if r["race_type"] != "rally"
+        ]
+        season = upcoming[0]["season"] if upcoming else None
+        rows: list[dict] = []
+        races: list[dict] = []
+        race = None
+        lines: list[dict] = []
+        if season is not None:
+            upcoming = [r for r in upcoming if r["season"] == season]
+            for gender in ("Male", "Female"):
+                for loop_type in ("HS", "MS"):
+                    rows += _cached_rating_rows(session, gender, loop_type)
+            conference = raceday.team_conference(rows, team, season)
+            races = raceday.team_races(upcoming, conference)
+            race = next((r for r in races if r["id"] == race_id), None) or raceday.pick_race(
+                upcoming, conference
+            )
+        if race is not None and season is not None:
+            wave_format = (
+                raceday.STATE_FORMAT if not race["conference"] else raceday.CONFERENCE_FORMAT
+            )
+            grids = [
+                (
+                    age_group,
+                    gender,
+                    _staging_grid(
+                        session, age_group, gender, season, "lap", "best", "",
+                        race["conference"] or "", wave_format=wave_format,
+                    ),
+                )
+                for age_group, gender in staging_mod.SHEET_CATEGORIES
+            ]  # fmt: skip
+            laps_by_gender = {
+                gender: queries.division_lap_counts(session, race["course_id"], season, gender)
+                for gender in ("Male", "Female")
+            }
+            config = get_forecast_config()
+            forecasts = raceday.team_forecasts(
+                rows,
+                team,
+                season,
+                race,
+                laps_by_gender,
+                lambda place, field: _place_color(place, field, config),
+            )
+            lines = raceday.merge_lines(raceday.staging_lines(grids, team), forecasts)
+    return templates.TemplateResponse(
+        "team_raceday.html",
+        _ctx(
+            request,
+            team_name=team,
+            season=season,
+            race=race,
+            races=races,
+            lines=lines,
+            rated=sum(1 for line in lines if line["forecast"]),
+            timed=sum(
+                1 for line in lines if line["forecast"] and line["forecast"].get("est_minutes")
+            ),
+        ),
+    )
+
+
 @app.get("/team/{team_name:path}", response_class=HTMLResponse)
 def team_profile(
     request: Request,
