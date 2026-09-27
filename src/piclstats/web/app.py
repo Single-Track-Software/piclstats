@@ -465,6 +465,35 @@ def team_search(
     )
 
 
+@app.get("/team/{team_name:path}/recap", response_class=HTMLResponse)
+def team_recap(
+    request: Request,
+    team_name: str,
+    season_raw: str = Query("", alias="season"),
+):
+    """Season recap for a team: banquet awards and a per-rider table.
+
+    Registered before team_profile, whose greedy {team_name:path} would
+    otherwise match this URL too.
+    """
+    from piclstats.web import recap as recap_mod
+
+    with get_session() as session:
+        seasons = queries.team_seasons(session, team_name)
+        if not seasons:
+            return HTMLResponse("Team not found", status_code=404)
+        season = int(season_raw) if season_raw.isdigit() and int(season_raw) in seasons else None
+        if season is None:
+            season = seasons[-1]
+        rows = queries.team_season_rows(session, team_name, season)
+        movers = queries.team_rider_seasons(session, team_name, season)
+        data = recap_mod.season_recap(rows, movers)
+    return templates.TemplateResponse(
+        "team_recap.html",
+        _ctx(request, team_name=team_name, season=season, seasons=seasons, recap=data),
+    )
+
+
 # Before team_profile: its greedy {team_name:path} would otherwise match this URL too.
 @app.get("/team/{team_name:path}/raceday", response_class=HTMLResponse)
 def team_raceday(

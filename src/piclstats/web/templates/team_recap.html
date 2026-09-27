@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}{{ team_name }} {{ season }} recap — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+    <div>
+        <div class="text-sm text-gray-400 print:hidden"><a href="/team/{{ team_name | urlencode }}?season={{ season }}" class="hover:text-gray-600">&larr; {{ team_name }}</a></div>
+        <h1 class="text-3xl font-bold text-gray-900">{{ team_name }} <span class="text-gray-400 font-normal">{{ season }} recap</span></h1>
+        <div class="mt-2 flex items-center gap-2 flex-wrap print:hidden">
+            {% for s in seasons %}
+            <a href="/team/{{ team_name | urlencode }}/recap?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    <button type="button" onclick="window.print()" class="bg-white text-picl-700 border border-picl-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50 print:hidden">Print</button>
+</div>
+
+{% if not recap %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No scoring races for {{ team_name }} in {{ season }} yet.
+</div>
+{% else %}
+{% set t = recap.totals %}
+<!-- Team totals -->
+<div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-8">
+    {% for label, value in [('Riders', t.riders), ('Races', t.events), ('Starts', t.starts), ('Laps', t.laps), ('Miles', ('~' ~ t.miles) if t.miles else '—'), ('Podiums', t.podiums), ('Wins', t.wins)] %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-4 py-3">
+        <div class="text-xs text-gray-400">{{ label }}</div>
+        <div class="font-mono font-semibold text-xl text-gray-900">{{ value }}</div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Awards -->
+{% if recap.awards %}
+<div class="mb-8">
+    <div class="flex items-baseline justify-between mb-3">
+        <h2 class="text-lg font-semibold text-gray-900">Awards</h2>
+        <span class="text-xs text-gray-400">Placed scoring races with clean timing · at least 2 races for an average, 3 for a spread or trend</span>
+    </div>
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {% for a in recap.awards %}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 border-l-4 border-l-picl-500">
+            <div class="text-xs font-semibold uppercase tracking-wider text-picl-700">{{ a.label }}</div>
+            <div class="mt-1 text-lg font-bold text-gray-900"><a href="/rider/{{ a.id }}" class="hover:underline">{{ a.name }}</a></div>
+            <div class="text-xs text-gray-500">{{ a.category }}</div>
+            <div class="mt-2 font-mono text-2xl font-semibold text-gray-900">{{ a.value }}</div>
+            <div class="text-xs text-gray-500">{{ a.detail }}</div>
+        </div>
+        {% endfor %}
+        {% if recap.perfect_attendance %}
+        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 border-l-4 border-l-picl-500">
+            <div class="text-xs font-semibold uppercase tracking-wider text-picl-700">Perfect attendance</div>
+            <div class="mt-1 text-sm text-gray-900">
+                {% for x in recap.perfect_attendance -%}
+                <a href="/rider/{{ x.id }}" class="font-medium hover:underline">{{ x.name }}</a>{{ ', ' if not loop.last }}
+                {%- endfor %}
+            </div>
+            <div class="mt-2 text-xs text-gray-500">started every one of the {{ t.events }} races the team went to</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Every rider -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Every rider</h2>
+        <span class="text-xs text-gray-400">Pctl = share of the category beaten, averaged · Δ vs the rider's {{ season - 1 }} average · ± = spread of percentile across races · Climb = last race vs first · Fade = last lap vs second, averaged</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-2">Rider</th>
+                    <th class="px-4 py-2">Category</th>
+                    <th class="px-4 py-2 text-right" title="Starts (placed finishes)">Starts</th>
+                    <th class="px-4 py-2 text-right">Laps</th>
+                    <th class="px-4 py-2 text-right">Pctl</th>
+                    <th class="px-4 py-2 text-right">Δ</th>
+                    <th class="px-4 py-2 text-right">±</th>
+                    <th class="px-4 py-2 text-right">Climb</th>
+                    <th class="px-4 py-2 text-right">Fade</th>
+                    <th class="px-4 py-2 text-right">Best</th>
+                    <th class="px-4 py-2 text-right">Podiums</th>
+                    <th class="px-4 py-2 text-right">Pts</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% set ns = namespace(cat=None) %}
+                {% for x in recap.lines %}
+                {% if x.category != ns.cat %}{% set ns.cat = x.category %}
+                <tr class="bg-gray-50"><td colspan="12" class="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ x.category }}</td></tr>
+                {% endif %}
+                <tr>
+                    <td class="px-4 py-2"><a href="/rider/{{ x.id }}" class="text-picl-700 font-medium hover:underline">{{ x.name }}</a></td>
+                    <td class="px-4 py-2 text-gray-600 text-xs">{{ x.category }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.started }}{% if x.dnfs %} <span class="text-xs text-red-400" title="Did not finish">{{ x.dnfs }} DNF</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.laps }}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium {% if x.avg_percentile is not none %}{{ 'text-green-600' if x.avg_percentile >= 50 else ('text-amber-600' if x.avg_percentile >= 25 else 'text-red-500') }}{% endif %}">{% if x.avg_percentile is not none %}{{ "%.0f"|format(x.avg_percentile) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.delta_percentile is not none %}{{ 'text-green-600' if x.delta_percentile > 0 else ('text-red-500' if x.delta_percentile < 0 else 'text-gray-400') }}{% endif %}">{% if x.delta_percentile is not none %}{{ '+' if x.delta_percentile > 0 else '' }}{{ "%.0f"|format(x.delta_percentile) }}{% else %}<span class="text-gray-300">—</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs text-gray-500">{% if x.spread is not none %}±{{ "%.0f"|format(x.spread) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.climb is not none %}{{ 'text-green-600' if x.climb > 0 else ('text-red-500' if x.climb < 0 else 'text-gray-400') }}{% endif %}">{% if x.climb is not none %}{{ '+' if x.climb > 0 else '' }}{{ "%.0f"|format(x.climb) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono text-xs {% if x.avg_fade is not none %}{{ 'text-red-500' if x.avg_fade > 5 else ('text-green-600' if x.avg_fade < 0 else 'text-gray-500') }}{% endif %}">{% if x.avg_fade is not none %}{{ '+' if x.avg_fade > 0 else '' }}{{ "%.1f"|format(x.avg_fade) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.best_place or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.podiums or '' }}{% if x.wins %} <span class="text-xs text-gray-400">({{ x.wins }} win{{ 's' if x.wins != 1 }})</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{{ x.points or '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
+        Races counted: {% for e in recap.events %}{{ e.event_name }}{{ ' · ' if not loop.last }}{% endfor %}. Rallies and exhibitions are not scoring races and are left out.
+    </p>
+</div>
+{% endif %}
+{% endblock %}
