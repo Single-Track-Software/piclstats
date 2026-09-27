@@ -779,7 +779,7 @@ def schedule_page(
             s.execute(
                 text("""
             SELECT sr.id, sr.event_date, sr.name, sr.course_id, sr.conference, sr.canceled,
-                   c.name AS course
+                   sr.url, c.name AS course
             FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
             WHERE sr.season = :season ORDER BY sr.event_date, sr.name
         """),
@@ -820,6 +820,16 @@ def schedule_page(
     )
 
 
+def parse_schedule_url(raw: str) -> str | None:
+    """A race's web link: blank → None; must be http(s). Raises ValueError otherwise."""
+    url = raw.strip()
+    if not url:
+        return None
+    if not url.lower().startswith(("http://", "https://")):
+        raise ValueError("the link must start with http:// or https://")
+    return url
+
+
 def _race_from_form(s: Session, form: FormData, season: int) -> dict[str, Any]:
     name = _squash(_form_str(form, "name"))
     if not name:
@@ -838,6 +848,7 @@ def _race_from_form(s: Session, form: FormData, season: int) -> dict[str, Any]:
             _form_str(form, "conference"), _season_conferences(s, season)
         ),
         "canceled": _form_str(form, "canceled") == "on",
+        "url": parse_schedule_url(_form_str(form, "url")),
     }
 
 

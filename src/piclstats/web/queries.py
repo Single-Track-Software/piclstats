@@ -1680,7 +1680,7 @@ def season_schedule(session: Session, season: int) -> list[dict]:
     rows = session.execute(
         text("""
         SELECT sr.id, sr.season, sr.event_date, sr.name, sr.conference, sr.course_id,
-               sr.canceled, c.name AS course, c.location,
+               sr.canceled, sr.url, c.name AS course, c.location,
                COALESCE(
                    (SELECT t.race_type FROM course_race_types t
                      WHERE t.course_id = sr.course_id AND t.season = sr.season),

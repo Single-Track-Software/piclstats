@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from piclstats.web.admin import parse_schedule_field, parse_schedule_lines
+from piclstats.web.admin import parse_schedule_field, parse_schedule_lines, parse_schedule_url
 
 COURSES = {"granite": 1, "penn college": 2}
 CONFERENCES = ["Central", "Eastern Blue", "Western"]
@@ -58,3 +58,10 @@ def test_every_bad_line_is_reported_by_number():
     message = str(exc.value)
     assert "Line 1" in message and "Line 2" in message and "Line 3" in message
     assert "Line 4" not in message
+
+
+def test_url_blank_is_none_and_must_be_http():
+    assert parse_schedule_url("  ") is None
+    assert parse_schedule_url(" https://www.pamtb.org/x ") == "https://www.pamtb.org/x"
+    with pytest.raises(ValueError, match="http"):
+        parse_schedule_url("www.pamtb.org/x")
