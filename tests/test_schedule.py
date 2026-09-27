@@ -119,3 +119,14 @@ def test_events_stand_in_for_a_season_with_no_schedule():
 def test_ics_location_is_not_the_course_twice():
     races = [_race(1, "R", 1, location="Course 1, PA")]
     assert "LOCATION:Course 1\\, PA" in build_ics(races, "https://x", 2026)
+
+
+def test_canceled_race_stays_in_the_feed_as_cancelled():
+    races = [{**_race(19, "Eastern Blue Conference #2", 105, conference="Eastern Blue"),
+              "canceled": True}]  # fmt: skip
+    ics = build_ics(races, "https://x", 2026)
+    lines = ics.split("\r\n")
+    assert "SUMMARY:CANCELED: Eastern Blue Conference #2" in lines
+    assert "STATUS:CANCELLED" in lines
+    assert any(line.startswith("DESCRIPTION:Canceled — not rescheduled.") for line in lines)
+    assert "STATUS:CANCELLED" not in build_ics([_race(1, "R", 1)], "https://x", 2026)

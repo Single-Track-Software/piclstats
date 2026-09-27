@@ -778,7 +778,8 @@ def schedule_page(
         races = (
             s.execute(
                 text("""
-            SELECT sr.id, sr.event_date, sr.name, sr.course_id, sr.conference, c.name AS course
+            SELECT sr.id, sr.event_date, sr.name, sr.course_id, sr.conference, sr.canceled,
+                   c.name AS course
             FROM scheduled_races sr JOIN courses c ON c.id = sr.course_id
             WHERE sr.season = :season ORDER BY sr.event_date, sr.name
         """),
@@ -836,6 +837,7 @@ def _race_from_form(s: Session, form: FormData, season: int) -> dict[str, Any]:
         "conference": parse_schedule_field(
             _form_str(form, "conference"), _season_conferences(s, season)
         ),
+        "canceled": _form_str(form, "canceled") == "on",
     }
 
 

@@ -70,6 +70,7 @@ def events_as_schedule(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "location": e.get("location"),
             "event_date": e.get("event_date"),
             "conference": None,
+            "canceled": False,
             "race_type": "rally" if e.get("event_type") == "rally" else "race",
             "event_id": e["id"],
         }
@@ -122,7 +123,9 @@ def build_ics(
     """One all-day VEVENT per scheduled race; stable UIDs so re-syncs update in place.
 
     `races` need id, event_date, name, course, conference, and optionally
-    location and event_id (the loaded results, linked in the description).
+    location, canceled and event_id (the loaded results, linked in the
+    description). A canceled race stays in the feed as STATUS:CANCELLED with
+    a "CANCELED:" summary, so subscribers see it change rather than vanish.
     """
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     base = base_url.rstrip("/")
@@ -150,18 +153,24 @@ def build_ics(
         kind = r.get("conference") or "State race"
         if r.get("conference"):
             kind = f"{r['conference']} conference race"
+        canceled = bool(r.get("canceled"))
         desc = [kind, f"Schedule: {base}/schedule"]
+        if canceled:
+            desc.insert(0, "Canceled — not rescheduled.")
         if r.get("event_id"):
             desc.append(f"Results: {base}/results?event_id={r['event_id']}")
         uid = f"race-{r['id']}" if r.get("id") else f"event-{r['event_id']}"
+        summary = f"CANCELED: {r['name']}" if canceled else r["name"]
         lines += [
             "BEGIN:VEVENT",
             f"UID:{uid}@piclstats.com",
             f"DTSTAMP:{stamp}",
             f"DTSTART;VALUE=DATE:{day.strftime('%Y%m%d')}",
             f"DTEND;VALUE=DATE:{(day + timedelta(days=1)).strftime('%Y%m%d')}",
-            f"SUMMARY:{_escape(r['name'])}",
+            f"SUMMARY:{_escape(summary)}",
         ]
+        if canceled:
+            lines.append("STATUS:CANCELLED")
         if where:
             lines.append(f"LOCATION:{_escape(where)}")
         lines.append(f"DESCRIPTION:{_escape(chr(10).join(desc))}")
