@@ -1767,6 +1767,21 @@ def division_lap_counts(
     return laps
 
 
+def course_profiles(session: Session, course_id: int, season: int) -> list[dict]:
+    """Every division's lap profile at a course — its `season` row, else the default."""
+    rows = session.execute(
+        text("""
+        SELECT DISTINCT ON (division, gender)
+               division, gender, loop_type, lap_count, max_duration_mins, cutoff_mins, season
+        FROM division_laps
+        WHERE course_id = :cid AND (season IS NULL OR season = :season) AND loop_type IS NOT NULL
+        ORDER BY division, gender, season NULLS LAST
+        """),
+        {"cid": course_id, "season": season},
+    ).all()
+    return [dict(r._mapping) for r in rows]
+
+
 def division_profile_lookup(
     session: Session,
     division: str,

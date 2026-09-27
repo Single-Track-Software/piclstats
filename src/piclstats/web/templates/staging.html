@@ -2,12 +2,15 @@
 {% block title %}Staging — PICL Stats{% endblock %}
 
 {% block content %}
-<div class="mb-6">
+<div class="mb-6 flex flex-wrap items-start justify-between gap-4">
+  <div>
     <h1 class="text-3xl font-bold text-gray-900">Staging</h1>
     <p class="mt-1 text-sm text-gray-500">
         Rank a category by speed (z-score vs the field) to set start order — division by division, fastest at the front, cut into groups of 28 (four rows of 7) with a colour per group, the way the league's row sheets do it.
         Riders with a race this season rank on it; riders without one yet follow on <strong>last season's average</strong> (last year's 8th graders appear in JV3); riders with neither go to the back unrated.
     </p>
+  </div>
+  <a href="/planner" class="bg-white text-picl-700 border border-picl-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50" title="How long each category runs at a course for a given lap count">Race planner</a>
 </div>
 
 <!-- Filters -->

@@ -1,0 +1,111 @@
+{% extends "base.html" %}
+{% block title %}Race planner — PICL Stats{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-3xl font-bold text-gray-900">Race planner</h1>
+    <p class="mt-1 text-sm text-gray-500">
+        How long each category's race will run at a course, from the ratings of the riders expected in it, against the division's time window and lap cutoff. Change a lap count to try it; nothing is saved.
+    </p>
+</div>
+
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+    <div class="grid md:grid-cols-4 gap-4">
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Course</label>
+            <select name="course" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="">Pick a course</option>
+                {% for c in courses %}
+                <option value="{{ c.id }}" {{ 'selected' if course and c.id == course.id }}>{{ c.name }}{% if not c.event_count %} (no race yet){% endif %}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1" title="Whose ratings and lap profile to use">Riders from</label>
+            <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                {% for s in seasons | reverse %}
+                <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Draw</label>
+            <select name="conference" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
+                <option value="">State race (everyone)</option>
+                {% if plan %}{% for c in plan.conferences %}
+                <option value="{{ c }}" {{ 'selected' if c == conference }}>{{ c }} conference</option>
+                {% endfor %}{% endif %}
+            </select>
+        </div>
+    </div>
+    {% for key, n in overrides.items() %}<input type="hidden" name="laps" value="{{ key }}={{ n }}">{% endfor %}
+</form>
+
+{% if not course %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">Pick a course to plan.</div>
+{% elif not plan or not plan.divisions %}
+<div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
+    No lap profile for {{ course.name }} yet — enter one at <a href="/admin/courses/{{ course.id }}" class="text-picl-700 hover:underline">course admin</a>.
+</div>
+{% else %}
+{% if plan.borrowed_baseline %}
+<div class="mb-4 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3 text-sm text-amber-800">
+    {{ course.name }} has no race on one or both loops yet, so those rows use the league-typical lap time for the loop; a hilly or fast course will run slower or faster than shown.
+</div>
+{% endif %}
+<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <input type="hidden" name="course" value="{{ course.id }}">
+    <input type="hidden" name="season" value="{{ season }}">
+    <input type="hidden" name="conference" value="{{ conference }}">
+    <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">{{ course.name }} <span class="text-sm font-normal text-gray-400">{{ conference or 'state' }} race · riders seen in {{ season }}</span></h2>
+        <span class="text-xs text-gray-400">Winner and median on a typical day; last rider on a slow day (rating + 1 sd). Pulled = still short of the final lap at the cutoff, so they finish on fewer laps.</span>
+    </div>
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                    <th class="px-4 py-2">Category</th>
+                    <th class="px-4 py-2 w-20 text-right">Laps</th>
+                    <th class="px-4 py-2 text-right" title="Riders expected: everyone in the division this season (in the draw)">Riders</th>
+                    <th class="px-4 py-2 text-right" title="Typical lap in this division">Lap</th>
+                    <th class="px-4 py-2 text-right">Winner</th>
+                    <th class="px-4 py-2 text-right">Median</th>
+                    <th class="px-4 py-2 text-right">Last</th>
+                    <th class="px-4 py-2 text-right">Pulled</th>
+                    <th class="px-4 py-2 text-right" title="Division time window (max duration)">Window</th>
+                    <th class="px-4 py-2 text-right">Headroom</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% set ns = namespace(gender=None) %}
+                {% for d in plan.divisions %}
+                {% if d.gender != ns.gender %}{% set ns.gender = d.gender %}
+                <tr class="bg-gray-50"><td colspan="10" class="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ 'Boys' if d.gender == 'Male' else 'Girls' }}</td></tr>
+                {% endif %}
+                {% set key = d.division ~ '|' ~ d.gender %}
+                <tr class="{% if d.status == 'over' %}bg-red-50{% elif d.status == 'tight' %}bg-amber-50{% endif %}">
+                    <td class="px-4 py-2 font-medium text-gray-900">{{ d.division }} <span class="text-xs text-gray-400">{{ d.loop_type }} loop</span>{% if d.baseline_source == 'typical' %} <span class="text-amber-600 text-xs" title="No race on this loop here yet; league-typical lap time">~</span>{% endif %}</td>
+                    <td class="px-4 py-2 text-right">
+                        <input type="number" name="laps" value="{{ key }}={{ d.laps }}" hidden>
+                        <input type="number" min="1" max="8" value="{{ d.laps }}" class="w-14 rounded border-gray-300 border px-2 py-1 text-right font-mono text-sm {% if d.laps != d.profile_laps %}border-picl-500 bg-picl-50{% endif %}" oninput="this.previousElementSibling.value='{{ key }}='+this.value" onchange="this.form.submit()" title="Profile: {{ d.profile_laps }}">
+                    </td>
+                    <td class="px-4 py-2 text-right font-mono">{{ d.riders }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-gray-500">{% if d.lap_mins %}{{ d.lap_mins }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{% if d.winner_mins %}{{ "%.0f"|format(d.winner_mins) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono">{% if d.median_mins %}{{ "%.0f"|format(d.median_mins) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono font-semibold {% if d.status == 'over' %}text-red-600{% elif d.status == 'tight' %}text-amber-700{% endif %}">{% if d.last_mins %}{{ "%.0f"|format(d.last_mins) }}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if d.pulled %}text-amber-700{% else %}text-gray-400{% endif %}">{{ d.pulled if d.pulled is defined else '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono text-gray-500">{% if d.window_mins %}{{ d.window_mins }}{% if d.cutoff_mins %} <span class="text-[10px]" title="Lap cutoff">cut {{ d.cutoff_mins }}</span>{% endif %}{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono {% if d.status == 'over' %}text-red-600{% elif d.status == 'tight' %}text-amber-700{% elif d.status == 'ok' %}text-green-600{% endif %}">{% if d.headroom_mins is not none %}{{ '+' if d.headroom_mins > 0 else '' }}{{ "%.0f"|format(d.headroom_mins) }}{% else %}—{% endif %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="px-4 py-3 text-[11px] text-gray-400 border-t">
+        All times in minutes. A category is <span class="text-amber-700">tight</span> when the last rider lands inside the final 10% of the window and <span class="text-red-600">over</span> when past it. Lap counts and windows come from the course profile ({{ season }} row, else the default) and are edited at <a href="/admin/courses/{{ course.id }}" class="hover:underline">course admin</a>; the boxes here are what-ifs.
+    </p>
+</form>
+{% endif %}
+{% endblock %}
