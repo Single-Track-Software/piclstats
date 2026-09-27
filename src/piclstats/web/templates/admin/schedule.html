@@ -21,63 +21,66 @@
     <h2 class="text-lg font-semibold text-gray-900 mb-2">Scheduled races</h2>
     <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden mb-4">
         <div class="overflow-x-auto">
-        <table class="w-full text-sm">
+        <table class="w-full table-fixed text-sm">
             <thead class="bg-gray-50 text-gray-700">
                 <tr>
-                    <th class="text-left px-3 py-2">Date</th>
+                    <th class="text-left px-3 py-2 w-40">Date</th>
                     <th class="text-left px-3 py-2">Race</th>
-                    <th class="text-left px-3 py-2">Course</th>
-                    <th class="text-left px-3 py-2">Field</th>
-                    <th class="text-left px-3 py-2" title="The league's page for the race (pamtb.org); shown as Details on the public schedule">Link</th>
-                    <th class="text-left px-3 py-2" title="Called off and not rescheduled: stays listed, drops out of forecasts and sheets">Canceled</th>
-                    <th class="px-3 py-2"></th>
+                    <th class="text-left px-3 py-2 w-40">Course</th>
+                    <th class="text-left px-3 py-2 w-40">Field</th>
+                    <th class="text-center px-3 py-2 w-24" title="Called off and not rescheduled: stays listed, drops out of forecasts and sheets">Canceled</th>
+                    <th class="px-3 py-2 w-28"></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
                 {% for r in races %}
                 <tr class="{{ 'text-gray-400' if r.event_date < today }}">
-                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="date" name="event_date" value="{{ r.event_date }}" required class="{{ input }}"></td>
-                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="text" name="name" value="{{ r.name }}" required class="{{ input }} w-64"></td>
+                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="date" name="event_date" value="{{ r.event_date }}" required class="{{ input }} w-full"></td>
                     <td class="px-3 py-2">
-                        <select form="race-{{ r.id }}" name="course_id" class="{{ input }}">
+                        <input form="race-{{ r.id }}" type="text" name="name" value="{{ r.name }}" required class="{{ input }} w-full">
+                        <input form="race-{{ r.id }}" type="url" name="url" value="{{ r.url or '' }}" placeholder="Link: https://www.pamtb.org/…" title="The league's page for the race; shown as Details on the public schedule" class="{{ input }} w-full mt-1 text-xs">
+                    </td>
+                    <td class="px-3 py-2">
+                        <select form="race-{{ r.id }}" name="course_id" class="{{ input }} w-full">
                             {% for c in courses %}<option value="{{ c.id }}" {{ 'selected' if c.id == r.course_id }}>{{ c.name }}</option>{% endfor %}
                         </select>
                     </td>
                     <td class="px-3 py-2">
-                        <select form="race-{{ r.id }}" name="conference" class="{{ input }}">
+                        <select form="race-{{ r.id }}" name="conference" class="{{ input }} w-full">
                             <option value="{{ state_field }}">{{ state_field }} (all teams)</option>
                             {% for conf in conferences %}<option value="{{ conf }}" {{ 'selected' if conf == r.conference }}>{{ conf }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="url" name="url" value="{{ r.url or '' }}" placeholder="https://www.pamtb.org/…" class="{{ input }} w-56"></td>
-                    <td class="px-3 py-2"><input form="race-{{ r.id }}" type="checkbox" name="canceled" {{ 'checked' if r.canceled }} class="rounded border-gray-300"></td>
+                    <td class="px-3 py-2 text-center"><input form="race-{{ r.id }}" type="checkbox" name="canceled" {{ 'checked' if r.canceled }} class="rounded border-gray-300"></td>
                     <td class="px-3 py-2 text-right whitespace-nowrap">
-                        {% if r.canceled %}<span class="text-xs mr-2 text-red-600">canceled</span>{% elif r.event_date < today %}<span class="text-xs mr-2">past</span>{% endif %}
                         <form id="race-{{ r.id }}" method="post" action="/admin/schedule/race/{{ r.id }}" class="inline">
                         <button name="action" value="save" class="text-picl-700 hover:underline text-sm font-medium">Save</button>
                         <button name="action" value="delete" class="text-red-600 hover:underline text-sm ml-2">Delete</button>
                         </form>
+                        {% if r.canceled %}<div class="text-xs text-red-600">canceled</div>{% elif r.event_date < today %}<div class="text-xs">past</div>{% endif %}
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="7" class="px-3 py-6 text-center text-gray-400">No races scheduled for {{ season }} yet.</td></tr>
+                <tr><td colspan="6" class="px-3 py-6 text-center text-gray-400">No races scheduled for {{ season }} yet.</td></tr>
                 {% endfor %}
                 <tr class="bg-gray-50">
-                    <td class="px-3 py-2"><input form="race-add" type="date" name="event_date" required class="{{ input }}"></td>
-                    <td class="px-3 py-2"><input form="race-add" type="text" name="name" placeholder="Race name" required class="{{ input }} w-64"></td>
+                    <td class="px-3 py-2"><input form="race-add" type="date" name="event_date" required class="{{ input }} w-full"></td>
                     <td class="px-3 py-2">
-                        <select form="race-add" name="course_id" required class="{{ input }}">
+                        <input form="race-add" type="text" name="name" placeholder="Race name" required class="{{ input }} w-full">
+                        <input form="race-add" type="url" name="url" placeholder="Link: https://www.pamtb.org/…" class="{{ input }} w-full mt-1 text-xs">
+                    </td>
+                    <td class="px-3 py-2">
+                        <select form="race-add" name="course_id" required class="{{ input }} w-full">
                             <option value="">Course…</option>
                             {% for c in courses %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}
                         </select>
                     </td>
                     <td class="px-3 py-2">
-                        <select form="race-add" name="conference" class="{{ input }}">
+                        <select form="race-add" name="conference" class="{{ input }} w-full">
                             <option value="{{ state_field }}">{{ state_field }} (all teams)</option>
                             {% for conf in conferences %}<option value="{{ conf }}">{{ conf }}</option>{% endfor %}
                         </select>
                     </td>
-                    <td class="px-3 py-2"><input form="race-add" type="url" name="url" placeholder="https://www.pamtb.org/…" class="{{ input }} w-56"></td>
                     <td class="px-3 py-2"></td>
                     <td class="px-3 py-2 text-right"><form id="race-add" method="post" action="/admin/schedule/{{ season }}/add" class="inline"><button class="bg-picl-600 text-white px-3 py-1 rounded text-sm font-medium hover:bg-picl-700">Add</button></form></td>
                 </tr>
