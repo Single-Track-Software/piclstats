@@ -690,6 +690,74 @@ def leaderboard_page(
     )
 
 
+def _schedule_season(session, season_raw: str) -> tuple[int | None, list[int]]:
+    """The season to show: the one asked for, else the one with the next race, else the latest."""
+    from datetime import date
+
+    seasons = queries.schedule_seasons(session)
+    if season_raw.isdigit() and int(season_raw) in seasons:
+        return int(season_raw), seasons
+    if not seasons:
+        return None, seasons
+    upcoming = queries.upcoming_races(session, date.today())
+    return (upcoming[0]["season"] if upcoming else seasons[-1]), seasons
+
+
+@app.get("/schedule", response_class=HTMLResponse)
+def schedule_page(request: Request, season_raw: str = Query("", alias="season")):
+    """The season's races: date, course, conference, and results once loaded."""
+    from datetime import date
+
+    from piclstats.web import schedule as schedule_mod
+
+    with get_session() as session:
+        season, seasons = _schedule_season(session, season_raw)
+        races = queries.season_schedule(session, season) if season else []
+        events = queries.season_events(session, season) if season else []
+        schedule_mod.match_events(races, events)
+        if not races:
+            races = schedule_mod.events_as_schedule(events)
+        conferences = sorted({r["conference"] for r in races if r["conference"]})
+    return templates.TemplateResponse(
+        "schedule.html",
+        _ctx(
+            request,
+            season=season,
+            seasons=seasons,
+            races=races,
+            conferences=conferences,
+            today=date.today(),
+            ics_host=str(request.base_url).rstrip("/").split("://", 1)[-1],
+        ),
+    )
+
+
+@app.get("/schedule.ics")
+def schedule_ics(
+    request: Request,
+    season_raw: str = Query("", alias="season"),
+    conference: str = Query(""),
+):
+    """Subscribable calendar of the season's races (state + one conference with ?conference=)."""
+    from piclstats.web import schedule as schedule_mod
+
+    with get_session() as session:
+        season, _ = _schedule_season(session, season_raw)
+        races = queries.season_schedule(session, season) if season else []
+        events = queries.season_events(session, season) if season else []
+    schedule_mod.match_events(races, events)
+    if not races:
+        races = schedule_mod.events_as_schedule(events)
+    races = schedule_mod.for_conference(races, conference)
+    base = settings.public_base_url or str(request.base_url)
+    body = schedule_mod.build_ics(races, base, season)
+    return Response(
+        content=body,
+        media_type="text/calendar; charset=utf-8",
+        headers={"Content-Disposition": 'inline; filename="picl-races.ics"'},
+    )
+
+
 @app.get("/results", response_class=HTMLResponse)
 def results_page(
     request: Request,
