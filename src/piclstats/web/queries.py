@@ -2186,7 +2186,7 @@ def team_course_history(session: Session, team_name: str, course_id: int) -> dic
       AND COALESCE(ra.canonical_id, ri.id) IN (
           SELECT COALESCE(a.canonical_id, x.id)
           FROM riders x LEFT JOIN rider_aliases a ON a.rider_id = x.id
-          WHERE x.team_key = :team_key
+          WHERE x.team_key = :team_key AND NOT x.hidden
       )
     ORDER BY e.season, e.event_order
     """
