@@ -227,6 +227,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_chartjs.html" %}
 {% if division_stats %}
 <script>
 const stats = {{ division_stats | tojson }};

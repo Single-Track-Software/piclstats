@@ -454,6 +454,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_chartjs.html" %}
 <script>
 // Per-event z-score chart (staging view)
 {% if speed_rating and speed_rating.has_data %}

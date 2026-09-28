@@ -203,6 +203,20 @@ def teams_list(session: Session) -> list[str]:
     return [r[0] for r in rows]
 
 
+def rider_page_ids(session: Session) -> list[int]:
+    """Every canonical rider with a published result, for the sitemap."""
+    rows = session.execute(
+        text("""
+        SELECT DISTINCT COALESCE(ra.canonical_id, r.rider_id) AS id
+        FROM results r
+        JOIN events e ON e.id = r.event_id AND e.is_published
+        LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
+        ORDER BY id
+        """)
+    ).all()
+    return [r[0] for r in rows]
+
+
 def search_riders(
     session: Session, q: str, team: str | None = None, season: int | None = None
 ) -> list[dict]:

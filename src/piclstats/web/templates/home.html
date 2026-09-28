@@ -1,5 +1,16 @@
 {% extends "base.html" %}
 {% block title %}PICL Stats — Pennsylvania Interscholastic Cycling League results{% endblock %}
+{% block jsonld %}
+<script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@graph": [
+        {"@type": "WebSite", "@id": site_url ~ "/#website", "url": site_url ~ "/", "name": "PICL Stats",
+         "description": "Race results, rider and team stats, and the season schedule for the Pennsylvania Interscholastic Cycling League.",
+         "potentialAction": {"@type": "SearchAction", "target": {"@type": "EntryPoint", "urlTemplate": site_url ~ "/riders?q={search_term_string}"}, "query-input": "required name=search_term_string"}},
+        {"@type": "Organization", "@id": site_url ~ "/#org", "name": "PICL Stats", "url": site_url ~ "/", "logo": site_url ~ "/static/apple-touch-icon.png"}
+    ]
+} | tojson }}</script>
+{% endblock %}
 
 {% block content %}
 <!-- Hero: brand navy with the mountain silhouette from the logo set; the latest race rides on it. -->

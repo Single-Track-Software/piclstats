@@ -359,6 +359,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_chartjs.html" %}
 <script>
 {% if form %}
 const form = {{ form | tojson }};
