@@ -87,3 +87,11 @@ def test_results_page_canonical_names_the_event(monkeypatch):
     r = TestClient(app).get("/results")
     assert r.status_code == 200
     assert '<link rel="canonical" href="https://piclstats.com/results">' in r.text
+
+
+def test_privacy_page_is_public_and_linked_from_the_footer():
+    r = TestClient(app).get("/privacy")
+    assert r.status_code == 200
+    assert "support@piclstats.com" in r.text and "hide the rider" in r.text
+    assert 'href="/privacy"' in r.text  # the footer link, on every page
+    assert 'name="robots"' not in r.text

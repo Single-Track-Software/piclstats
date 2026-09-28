@@ -1073,6 +1073,24 @@ def usage_page(request: Request, days: int = 30, _: dict = Depends(require_admin
     return templates.TemplateResponse("admin/usage.html", {"request": request, **data})
 
 
+@router.post("/riders/{rider_id}/hidden")
+async def rider_hidden(
+    request: Request,
+    rider_id: int,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Hide a rider after a privacy request, or show them again (form field `hidden` = on/off)."""
+    from piclstats.web import queries
+
+    form = await request.form()
+    hidden = _form_str(form, "hidden") == "on"
+    with get_session() as s:
+        if not queries.set_rider_hidden(s, rider_id, hidden):
+            raise HTTPException(404, "Rider not found")
+    return RedirectResponse(f"/rider/{rider_id}", status_code=303)
+
+
 @router.get("/users", response_class=HTMLResponse)
 def users_list(
     request: Request, saved: str = "", error: str = "", _: dict = Depends(require_admin)

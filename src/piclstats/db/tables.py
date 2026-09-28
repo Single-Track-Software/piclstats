@@ -52,6 +52,10 @@ riders = Table(
     # Derived blocking keys (quality.keys); raw name/team are never rewritten.
     Column("name_key", Text),
     Column("team_key", Text),
+    # Privacy request: no profile, search listing, leaderboard or roster
+    # entry; the league's published results are left as they are.
+    Column("hidden", Boolean, nullable=False, server_default="false"),
+    Column("hidden_at", DateTime(timezone=True)),
     UniqueConstraint("name", "team", name="uq_riders_name_team"),
     Index("idx_riders_name", "name"),
     Index("idx_riders_name_key", "name_key"),

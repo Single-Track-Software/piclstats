@@ -1,8 +1,20 @@
 {% extends "base.html" %}
 {% block title %}{{ info.name }} — PICL Stats{% endblock %}
 {% block description %}{{ info.name }}: PICL race history, season stats and form{% if team_history %} for {{ team_history[-1].team }}{% endif %}.{% endblock %}
+{% block head_extra %}{% if info.hidden %}<meta name="robots" content="noindex, nofollow">{% endif %}{% endblock %}
 
 {% block content %}
+{% set viewer = request.state.user if request and request.state else None %}
+{% if info.hidden %}
+<div class="mb-6 rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800 flex flex-wrap items-center justify-between gap-3">
+    <div><strong>Hidden</strong> since {{ info.hidden_at.strftime('%b %-d, %Y') if info.hidden_at else '—' }} (privacy request). Only admins see this page; the rider is out of search, leaderboards, rosters and the sitemap. Race results stay as the league published them.</div>
+    <form method="post" action="/admin/riders/{{ info.id }}/hidden" onsubmit="return confirm('Show this rider publicly again?')"><input type="hidden" name="hidden" value="off"><button class="bg-white text-red-700 border border-red-300 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-red-100">Show again</button></form>
+</div>
+{% elif viewer and viewer.role == 'admin' %}
+<div class="mb-4 text-right print:hidden">
+    <form method="post" action="/admin/riders/{{ info.id }}/hidden" class="inline" onsubmit="return confirm('Hide this rider? Their page, search listing, leaderboard, roster and sitemap entries go away. Published race results are unchanged. You can show them again from this page.')"><input type="hidden" name="hidden" value="on"><button class="text-xs text-gray-400 hover:text-red-600 hover:underline" title="For a privacy request from the family">Hide this rider (privacy request)</button></form>
+</div>
+{% endif %}
 <!-- Header -->
 <div class="mb-8">
     <div class="flex flex-wrap items-start justify-between gap-y-2">

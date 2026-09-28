@@ -8,6 +8,7 @@ from decimal import Decimal
 from sqlalchemy import bindparam, text
 from sqlalchemy.orm import Session
 
+from piclstats.db.engine import rowcount
 from piclstats.quality.keys import team_key
 from piclstats.web.riderstats import career_highlights, season_summary
 
@@ -26,13 +27,18 @@ def _serialize(row) -> dict:
     return d
 
 
-# Common CTE fragment: resolve any rider to its canonical ID
+# Common CTE fragment: resolve any rider to its canonical ID. Hidden riders
+# (privacy requests, `riders.hidden`) are left out here, which removes them
+# from every derived listing at once — search, leaderboards, rosters, rivals,
+# recaps — while the league's published results, which do not go through
+# this CTE, keep their rows.
 _CANONICAL_CTE = """
     canonical AS (
         SELECT ri.id AS rider_id, COALESCE(ra.canonical_id, ri.id) AS cid,
                ri.name, ri.team, ri.team_key, ri.school
         FROM riders ri
         LEFT JOIN rider_aliases ra ON ra.rider_id = ri.id
+        WHERE NOT ri.hidden
     )
 """
 
@@ -203,6 +209,36 @@ def teams_list(session: Session) -> list[str]:
     return [r[0] for r in rows]
 
 
+def rider_group_ids(session: Session, rider_id: int) -> list[int]:
+    """The canonical id plus every alias row for a rider."""
+    rows = session.execute(
+        text("""
+        WITH cid AS (
+            SELECT COALESCE((SELECT canonical_id FROM rider_aliases WHERE rider_id = :id), :id) AS id
+        )
+        SELECT id FROM cid
+        UNION SELECT rider_id FROM rider_aliases WHERE canonical_id = (SELECT id FROM cid)
+        """),
+        {"id": rider_id},
+    ).all()
+    return [r[0] for r in rows]
+
+
+def set_rider_hidden(session: Session, rider_id: int, hidden: bool) -> int:
+    """Hide or show a rider (every row of the merged group). Returns rows changed."""
+    ids = rider_group_ids(session, rider_id)
+    result = session.execute(
+        text("""
+        UPDATE riders SET hidden = :hidden,
+               hidden_at = CASE WHEN :hidden THEN now() ELSE NULL END
+        WHERE id = ANY(:ids)
+        """),
+        {"hidden": hidden, "ids": ids},
+    )
+    session.commit()
+    return rowcount(result)
+
+
 def rider_page_ids(session: Session) -> list[int]:
     """Every canonical rider with a published result, for the sitemap."""
     rows = session.execute(
@@ -210,6 +246,7 @@ def rider_page_ids(session: Session) -> list[int]:
         SELECT DISTINCT COALESCE(ra.canonical_id, r.rider_id) AS id
         FROM results r
         JOIN events e ON e.id = r.event_id AND e.is_published
+        JOIN riders ri ON ri.id = r.rider_id AND NOT ri.hidden
         LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
         ORDER BY id
         """)
@@ -335,7 +372,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
 
     info = session.execute(
         text("""
-        SELECT ri.id, ri.name, ri.school,
+        SELECT ri.id, ri.name, ri.school, ri.hidden, ri.hidden_at,
                string_agg(DISTINCT ri2.team, ' / ' ORDER BY ri2.team) AS team
         FROM riders ri
         CROSS JOIN riders ri2
