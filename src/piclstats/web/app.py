@@ -25,6 +25,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
 from piclstats.web import canonical, usage
+from piclstats.web.exports import csv_safe_row, filename_part
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
@@ -82,6 +83,45 @@ async def _canonical_host_redirect(request: Request, call_next):
     if target:
         return RedirectResponse(target, status_code=301)
     return await call_next(request)
+
+
+# Sent on every response. Scripts: our own plus Chart.js from jsdelivr; inline
+# scripts and handlers are allowed because the templates use them throughout.
+# Styles: the built stylesheet plus inline style attributes (group colours).
+_CSP = "; ".join(
+    [
+        "default-src 'self'",
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net",
+        "style-src 'self' 'unsafe-inline'",
+        "img-src 'self' data: blob:",
+        "font-src 'self' data:",
+        "connect-src 'self'",
+        "object-src 'none'",
+        "base-uri 'self'",
+        "form-action 'self'",
+        "frame-ancestors 'none'",
+    ]
+)
+SECURITY_HEADERS = {
+    "Content-Security-Policy": _CSP,
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+}
+HSTS = "max-age=31536000; includeSubDomains"
+
+
+@app.middleware("http")
+async def _security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for name, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    # HSTS only means something on an https response (Fly terminates TLS and
+    # says so in X-Forwarded-Proto); sending it over plain http is ignored.
+    if request.headers.get("x-forwarded-proto", request.url.scheme) == "https":
+        response.headers.setdefault("Strict-Transport-Security", HSTS)
+    return response
 
 
 @app.middleware("http")
@@ -1374,9 +1414,11 @@ def staging_sheet_csv(
     w.writerow(["Plate", "Name", "Team", "Category", "Wave", "Group", "Color", "Row"])
     for r in sheet:
         w.writerow(
-            [r["plate"], r["name"], r["team"], r["category"], r["wave"], r["group"], r["color"], r["row"] or ""]
+            csv_safe_row(
+                [r["plate"], r["name"], r["team"], r["category"], r["wave"], r["group"], r["color"], r["row"] or ""]
+            )
         )  # fmt: skip
-    fname = f"staging_sheet_{season}{'_' + conference.replace(' ', '_') if conference else ''}.csv"
+    fname = f"staging_sheet_{season}{'_' + filename_part(conference) if conference else ''}.csv"
     return Response(
         buf.getvalue(),
         media_type="text/csv",
@@ -1441,26 +1483,28 @@ def staging_csv(
             v = r["per_event"].get(e["event_id"])
             per.append("" if v is None else v)
         w.writerow(
-            [
-                r["division"] or "",
-                r["wave"],
-                r["group"] or "",
-                r["color"] or "",
-                r["row"] or "",
-                r["rank"],
-                r["plate"] or "",
-                r["name"],
-                r["team"] or "",
-                r["conference"] or "",
-                r["basis"] or "",
-                "" if r["staged_z"] is None else r["staged_z"],
-                "" if r["best_z"] is None else r["best_z"],
-                "" if r["avg_z"] is None else r["avg_z"],
-                r["n_events"],
-                "" if r["prior_avg_z"] is None else r["prior_avg_z"],
-                r["prior_n_events"],
-            ]
-            + per
+            csv_safe_row(
+                [
+                    r["division"] or "",
+                    r["wave"],
+                    r["group"] or "",
+                    r["color"] or "",
+                    r["row"] or "",
+                    r["rank"],
+                    r["plate"] or "",
+                    r["name"],
+                    r["team"] or "",
+                    r["conference"] or "",
+                    r["basis"] or "",
+                    "" if r["staged_z"] is None else r["staged_z"],
+                    "" if r["best_z"] is None else r["best_z"],
+                    "" if r["avg_z"] is None else r["avg_z"],
+                    r["n_events"],
+                    "" if r["prior_avg_z"] is None else r["prior_avg_z"],
+                    r["prior_n_events"],
+                ]
+                + per
+            )
         )
 
     fname = f"staging_{season}_{age_group}_{gender}.csv"
