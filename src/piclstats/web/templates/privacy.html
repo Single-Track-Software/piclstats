@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Privacy — PICL Stats{% endblock %}
+{% block description %}What PICL Stats holds, where it comes from, what it does not do, and how to ask for a rider to be removed.{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl">
+    <h1 class="text-3xl font-bold text-gray-900">Privacy</h1>
+    <p class="mt-2 text-sm text-gray-500">Last updated September 28, 2026 · questions and requests: <a href="mailto:support@piclstats.com" class="text-picl-700 hover:underline">support@piclstats.com</a></p>
+
+    <div class="mt-8 space-y-8 text-gray-800 leading-relaxed">
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">What this site is</h2>
+            <p class="mt-2">PICL Stats shows race results and statistics for the Pennsylvania Interscholastic Cycling League (PICL), a middle and high school mountain bike league. It is an independent project, not run by the league, NICA or PAMTB.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Where the race data comes from</h2>
+            <p class="mt-2">Every result on this site is taken from the results the league publishes on <a href="https://www.pamtb.org/results-standings" class="text-picl-700 hover:underline" rel="noopener">pamtb.org</a> and its timing provider: rider name, plate number, team, school, category, laps, times, place and points. The site adds statistics computed from those results (pace, percentiles, form, season summaries). It holds no birth dates, addresses, contact details or photographs of riders.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Riders and families: asking for a rider to be hidden</h2>
+            <p class="mt-2">If you would rather a rider did not have a page here, email <a href="mailto:support@piclstats.com" class="text-picl-700 hover:underline">support@piclstats.com</a> with the rider's name and team. We will hide the rider: their page, search listing, leaderboard, roster and rivals entries are removed and the page is taken out of search engines. The league's published race results are not ours to change and stay as published. No reason is needed and there is no charge.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Accounts</h2>
+            <p class="mt-2">Coaches and league staff sign in with an email address and a password (stored only as a bcrypt hash). Accounts are created by invitation. A signed-in browser keeps a session cookie; nothing else is stored on your device. Account emails are used only to send invitations and password resets.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">No tracking</h2>
+            <p class="mt-2">There is no advertising, no third-party analytics and no tracking cookie. To see how the site is used, the server keeps its own log of pages viewed, with a visitor identifier that is a one-way hash re-salted every day, so it cannot be tied back to a person or followed across days. Entries are kept for 180 days.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Timing stations</h2>
+            <p class="mt-2">When the site is used to time a race, volunteers' phones send the crossings they record together with a device identifier and clock offset, so results can be checked. That data is visible only to league staff and is not part of any public page.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Children</h2>
+            <p class="mt-2">Riders do not have accounts and the site collects nothing from them. Information about riders under 13 appears only because the league publishes it in its results; the hiding request above applies to any rider.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Where the data lives</h2>
+            <p class="mt-2">The site and its database run on Fly.io in the United States. Transactional email is sent through Resend. Neither receives anything beyond what their service needs.</p>
+        </section>
+
+        <section>
+            <h2 class="text-lg font-semibold text-gray-900">Changes</h2>
+            <p class="mt-2">If this page changes in a way that matters, the date at the top moves and the change is described here.</p>
+        </section>
+    </div>
+</div>
+{% endblock %}

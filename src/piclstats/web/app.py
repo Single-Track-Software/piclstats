@@ -450,6 +450,11 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
         data = queries.rider_detail(session, rider_id)
         if not data:
             return HTMLResponse("Rider not found", status_code=404)
+        # A hidden rider (privacy request) has no public page; admins still
+        # see it, with the banner and the button to show it again.
+        viewer = request.state.user
+        if data["info"].get("hidden") and not (viewer and viewer["role"] == "admin"):
+            return HTMLResponse("Rider not found", status_code=404)
         try:
             form = _rider_form(session, data["races"], data["info"]["id"])
         except Exception:
@@ -766,6 +771,11 @@ _ROBOTS_DISALLOW = (
     "/timing/",
     "/api/",
 )
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page(request: Request):
+    return templates.TemplateResponse("privacy.html", _ctx(request))
 
 
 @app.get("/robots.txt")
