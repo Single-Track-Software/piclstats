@@ -5,7 +5,11 @@ from fastapi.testclient import TestClient
 from piclstats.web.app import app
 
 
-def test_public_page_has_description_canonical_and_og():
+def test_public_page_has_description_canonical_and_og(monkeypatch):
+    # CI has no database: an empty season list short-circuits every query on the page.
+    from piclstats.web import queries
+
+    monkeypatch.setattr(queries, "schedule_seasons", lambda session: [])
     r = TestClient(app).get("/schedule")
     h = r.text
     assert '<meta name="description" content="The PICL race schedule' in h
