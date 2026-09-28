@@ -71,11 +71,16 @@ def classify(path: str) -> tuple[str, str | None]:
     return "other", None
 
 
+# Paths whose segments are access tokens: never written to the log, since a
+# dump of page_views must not yield a working link.
+_TOKEN_PATHS = ("/timing/", "/invite/", "/reset/")
+
+
 def should_log(method: str, path: str, status: int) -> bool:
     return (
         method == "GET"
         and not path.startswith("/static")
-        and not path.startswith("/timing/")  # station codes are access tokens
+        and not path.startswith(_TOKEN_PATHS)
         and status < 500
         and path != "/favicon.ico"
     )

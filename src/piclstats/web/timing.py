@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from starlette.datastructures import FormData
 
 from piclstats.db.engine import get_session, rowcount
+from piclstats.web.exports import csv_safe_row
 from piclstats.web.auth import build_link, require_picl, require_same_origin
 from piclstats.web.timing_station import DRIFT_LIMIT_MS, apply_sync, load_station
 from piclstats.web.templating import Jinja2Templates
@@ -1849,7 +1850,7 @@ def results_csv(event_id: int, _: dict = Depends(require_picl)):
             inp = _rec_inputs(s, event_id)
             rows = tr.csv_rows(inp["rec"], inp["segments"])
     buf = io.StringIO()
-    csv.writer(buf).writerows(rows)
+    csv.writer(buf).writerows(csv_safe_row(r) for r in rows)
     name = re.sub(r"[^A-Za-z0-9]+", "-", f"{event['season']}-{event['name']}").strip("-").lower()
     return Response(
         buf.getvalue(),
@@ -2010,21 +2011,23 @@ def audit_csv(event_id: int, _: dict = Depends(require_picl)):
     for r in rows:
         seq, kind = points.get(r[1], ("?", "?"))
         w.writerow(
-            [
-                r[0],
-                seq,
-                kind,
-                r[3].astimezone(LEAGUE_TZ).strftime("%H:%M:%S.%f")[:-5],
-                r[3].isoformat(),
-                r[4] or "",
-                r[5],
-                r[6] or "",
-                "yes" if r[7] else "",
-                r[8] or "",
-                r[9],
-                r[2] or "",
-                r[10].isoformat(),
-            ]
+            csv_safe_row(
+                [
+                    r[0],
+                    seq,
+                    kind,
+                    r[3].astimezone(LEAGUE_TZ).strftime("%H:%M:%S.%f")[:-5],
+                    r[3].isoformat(),
+                    r[4] or "",
+                    r[5],
+                    r[6] or "",
+                    "yes" if r[7] else "",
+                    r[8] or "",
+                    r[9],
+                    r[2] or "",
+                    r[10].isoformat(),
+                ]
+            )
         )
     name = re.sub(r"[^A-Za-z0-9]+", "-", f"{event['season']}-{event['name']}").strip("-").lower()
     return Response(
