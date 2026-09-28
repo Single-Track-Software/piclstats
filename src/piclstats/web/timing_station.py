@@ -14,7 +14,6 @@ never got a connection.
 
 from __future__ import annotations
 
-import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -320,7 +319,7 @@ def station_page(request: Request, code: str):
             "request": request,
             "station": station,
             "code": code.upper(),
-            "ctx_json": json.dumps(context),
+            "ctx": context,
         },
     )
     response.headers["Cache-Control"] = "no-store"
