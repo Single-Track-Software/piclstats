@@ -95,3 +95,14 @@ def test_privacy_page_is_public_and_linked_from_the_footer():
     assert "support@piclstats.com" in r.text and "hide the rider" in r.text
     assert 'href="/privacy"' in r.text  # the footer link, on every page
     assert 'name="robots"' not in r.text
+
+
+def test_description_appears_only_in_meta_tags(monkeypatch):
+    from piclstats.web import queries
+
+    monkeypatch.setattr(queries, "schedule_seasons", lambda session: [])
+    h = TestClient(app).get("/schedule").text
+    head, body = h.split("</head>", 1)
+    assert "The PICL race schedule" in head and "The PICL race schedule" not in body
+    assert h.lstrip().startswith("<!DOCTYPE html>")
+    assert h.index("<head>") - h.index("<html") < 120  # nothing printed between html and head

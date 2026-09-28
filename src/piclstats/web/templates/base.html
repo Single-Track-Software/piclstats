@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-gray-50">
-{%- block description %}Race results, rider and team stats, and the season schedule for the Pennsylvania Interscholastic Cycling League (PICL), the state's middle and high school mountain bike league.{% endblock %}
-{%- block canonical_path %}{% endblock %}
+{#- Captured, not printed: a block renders where it is declared, and these belong in meta tags below. #}
+{%- set page_description %}{% block description %}Race results, rider and team stats, and the season schedule for the Pennsylvania Interscholastic Cycling League (PICL), the state's middle and high school mountain bike league.{% endblock %}{% endset %}
+{%- set canonical_override %}{% block canonical_path %}{% endblock %}{% endset %}
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PICL Stats{% endblock %}</title>
-    {%- set page_description = self.description() | trim %}
+    {%- set page_description = page_description | trim %}
     {%- set page_title = self.title() | trim %}
     {#- A template may name its own canonical (already URL-encoded, may carry a query); otherwise the request path. #}
-    {%- set canonical_override = self.canonical_path() | trim %}
+    {%- set canonical_override = canonical_override | trim %}
     {%- set page_path = canonical_override or (request.url.path if request else '/') %}
     {%- set canonical_href = site_url ~ (canonical_override if canonical_override else (page_path | urlencode)) %}
     {%- set private = page_path.startswith(('/admin', '/staging', '/planner', '/login', '/forgot', '/reset', '/invite', '/account', '/timing')) or page_path.endswith(('/raceday', '/forecast')) %}
