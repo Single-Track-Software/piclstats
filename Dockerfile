@@ -13,4 +13,9 @@ EXPOSE ${PORT:-8080}
 
 COPY start.sh .
 
+# Run as an unprivileged user: uvicorn binds 8080, nothing needs root.
+RUN useradd --system --uid 10001 --no-create-home app \
+    && chown -R app:app /app
+USER app
+
 CMD ["./start.sh"]

@@ -183,3 +183,21 @@ def test_normalize_crossing_wave_id():
         normalize_crossing(
             {"id": "w1-000000000", "device_ts_ms": 1_800_000_000_000, "wave_id": "a"}
         )
+
+
+def test_station_sync_window_ties_codes_to_the_event_date():
+    from datetime import date
+
+    from piclstats.web.timing_station import sync_allowed
+
+    day = date(2026, 10, 3)
+    assert sync_allowed("setup", day, today=date(2026, 9, 20)) is None  # testing before race day
+    assert sync_allowed("setup", day, today=date(2026, 10, 4)) is None  # the day after
+    assert sync_allowed("setup", day, today=date(2026, 10, 5))  # never went live, now stale
+    assert sync_allowed("live", day, today=date(2026, 10, 10)) is None  # reconciliation week
+    assert sync_allowed("live", day, today=date(2026, 10, 11))
+    assert sync_allowed("live", None, today=date(2027, 1, 1)) is None  # undated test event
+    assert (
+        sync_allowed("approved", day, today=date(2026, 10, 3)) == "This rally's results are closed"
+    )
+    assert sync_allowed("published", None) is not None

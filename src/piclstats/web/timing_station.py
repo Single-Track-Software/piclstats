@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -373,6 +373,28 @@ def service_worker():
     )
 
 
+# A station code printed on a card is a bearer credential with no expiry of
+# its own, so writes are tied to the event's date: a race that never went
+# live and is more than a day past, or one that went live more than a week
+# ago and was never approved, stops taking crossings. Undated events are
+# test events and stay open.
+SETUP_GRACE = timedelta(days=1)
+LIVE_GRACE = timedelta(days=7)
+
+
+def sync_allowed(status: str, event_date: date | None, today: date | None = None) -> str | None:
+    """None when the station may record; otherwise the reason it may not."""
+    if status in ("approved", "published"):
+        return "This rally's results are closed"
+    if event_date is None:
+        return None
+    today = today or datetime.now(timezone.utc).date()
+    grace = LIVE_GRACE if status == "live" else SETUP_GRACE
+    if today > event_date + grace:
+        return "This rally's date has passed; its station codes no longer record"
+    return None
+
+
 @router.post("/timing/api/s/{code}/sync")
 async def station_sync(request: Request, code: str):
     try:
@@ -383,8 +405,9 @@ async def station_sync(request: Request, code: str):
         raise HTTPException(400, "Body must be a JSON object")
     with get_session() as s:
         station = _station_or_404(s, code)
-        if station["status"] in ("approved", "published"):
-            raise HTTPException(409, "This rally's results are closed")
+        blocked = sync_allowed(station["status"], station.get("event_date"))
+        if blocked:
+            raise HTTPException(409, blocked)
         device: dict[str, Any] = (
             payload["device"] if isinstance(payload.get("device"), dict) else {}
         )

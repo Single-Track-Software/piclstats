@@ -4,6 +4,9 @@
 <div class="max-w-4xl">
     <div class="mb-4 print:hidden flex items-center justify-between">
         <a href="/admin/timing/{{ event.id }}" class="text-sm text-picl-700 hover:underline">&larr; {{ event.name }}</a>
+        <form method="post" action="/admin/timing/{{ event.id }}/codes/rotate" class="inline print:hidden" onsubmit="return confirm('New codes for every station? Printed sheets and any photographed QR codes stop working, and phones already on a station must reload from the new sheet.')">
+            <button class="border border-red-200 hover:bg-red-50 text-red-600 font-medium px-4 py-1.5 rounded-md text-sm" title="Use if a code sheet was lost or shared">Rotate codes</button>
+        </form>
         <button onclick="window.print()" class="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium px-4 py-1.5 rounded-md text-sm">Print</button>
     </div>
     <h1 class="text-2xl font-bold text-gray-900 mb-1">{{ event.name }} — station codes</h1>

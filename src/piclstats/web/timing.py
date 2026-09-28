@@ -906,6 +906,35 @@ async def station_import(
 # ── Station code sheet ─────────────────────────────────────────────────────
 
 
+@router.post("/{event_id}/codes/rotate")
+def rotate_codes(
+    event_id: int,
+    _: dict = Depends(require_picl),
+    __: None = Depends(require_same_origin),
+):
+    """New station codes for every point: printed sheets and photographed QR codes stop working."""
+    with get_session() as s:
+        _load_event(s, event_id)
+        point_ids = [
+            r[0]
+            for r in s.execute(
+                text(
+                    "SELECT p.id FROM timing_points p "
+                    "JOIN timing_segments sg ON sg.id = p.segment_id "
+                    "WHERE sg.timing_event_id = :e"
+                ),
+                {"e": event_id},
+            ).all()
+        ]
+        for pid in point_ids:
+            s.execute(
+                text("UPDATE timing_points SET station_code = :c WHERE id = :id"),
+                {"c": new_station_code(), "id": pid},
+            )
+        s.commit()
+    return RedirectResponse(f"/admin/timing/{event_id}/codes", status_code=303)
+
+
 @router.get("/{event_id}/codes", response_class=HTMLResponse)
 def code_sheet(request: Request, event_id: int, _: dict = Depends(require_picl)):
     """One printable card per point: QR code, the code itself, and the URL."""
