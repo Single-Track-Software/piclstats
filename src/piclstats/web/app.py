@@ -781,9 +781,8 @@ def favicon():
 
 
 def sitemap_urls(session) -> list[str]:
-    """Public pages worth indexing. Rider pages are left out on purpose: the
-    site is about named minors, and pushing every rider into search indexes
-    is a decision for the league, not a crawler."""
+    """Public pages worth indexing, rider pages included: the league publishes
+    the same names itself, and Chris decided (2026-09-27) they may be indexed."""
     from urllib.parse import quote
 
     urls = [
@@ -793,6 +792,7 @@ def sitemap_urls(session) -> list[str]:
     urls += [f"{SITE_URL}/results?event_id={e['id']}" for e in queries.events_list(session)]
     urls += [f"{SITE_URL}/team/{quote(t, safe='')}" for t in queries.teams_list(session)]
     urls += [f"{SITE_URL}/course/{c['id']}" for c in queries.courses_list(session)]
+    urls += [f"{SITE_URL}/rider/{rid}" for rid in queries.rider_page_ids(session)]
     return urls
 
 
