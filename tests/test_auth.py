@@ -160,9 +160,10 @@ def test_client_ip_prefers_fly_header():
     assert auth.client_ip(req) == "203.0.113.7"
 
 
-def test_client_ip_falls_back_to_first_forwarded_hop():
+def test_client_ip_never_trusts_x_forwarded_for():
+    # Off Fly there is no trusted proxy, so the header is attacker-chosen.
     req = _IPRequest({"x-forwarded-for": "198.51.100.1, 10.0.0.5"})
-    assert auth.client_ip(req) == "198.51.100.1"
+    assert auth.client_ip(req) == "10.0.0.1"
 
 
 def test_client_ip_falls_back_to_socket_peer():
@@ -171,3 +172,26 @@ def test_client_ip_falls_back_to_socket_peer():
 
 def test_client_ip_handles_no_client():
     assert auth.client_ip(_IPRequest({}, peer=None)) is None
+
+
+def test_session_must_carry_the_users_current_version(monkeypatch):
+    from starlette.requests import Request
+
+    user = {"id": 7, "role": "coach", "is_active": True, "session_version": 3}
+    monkeypatch.setattr(auth.users_store, "get_user_by_id", lambda uid: user)
+
+    def req(session):
+        scope = {"type": "http", "session": session, "headers": []}
+        return Request(scope)
+
+    assert auth.load_user(req({"user_id": 7, "sv": 3})) == user
+    assert auth.load_user(req({"user_id": 7, "sv": 2})) is None  # password changed since
+    assert auth.load_user(req({"user_id": 7})) is None  # cookie from before versions existed
+    r = req({})
+    auth.start_session(r, user)
+    assert r.session == {"user_id": 7, "sv": 3}
+
+
+def test_dummy_hash_is_a_real_bcrypt_hash_that_never_matches():
+    assert auth._DUMMY_HASH.startswith("$2b$")
+    assert not auth.verify_password("anything", auth._DUMMY_HASH)

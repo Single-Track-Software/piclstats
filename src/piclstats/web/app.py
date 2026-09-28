@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
-from piclstats.web import canonical, usage
+from piclstats.web import canonical, mail, usage
 from piclstats.web.exports import csv_safe_row, filename_part
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
@@ -242,7 +242,7 @@ def _bootstrap_admin() -> None:
             password_hash=hash_password(settings.admin_password),
             role="admin",
         )
-        logger.info("Bootstrapped admin account %s", settings.admin_email)
+        logger.info("Bootstrapped admin account %s", mail.mask_email(settings.admin_email))
     except Exception:
         logger.exception("Failed to bootstrap admin account")
 

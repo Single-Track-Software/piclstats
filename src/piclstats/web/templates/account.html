@@ -30,6 +30,14 @@
         <button type="submit" class="w-full bg-picl-700 text-white px-4 py-2 rounded text-sm font-medium hover:bg-picl-800">Change password</button>
     </form>
 
+    <form method="post" action="/account/signout-everywhere" class="bg-white rounded-lg shadow border border-gray-200 p-5 flex flex-wrap items-center justify-between gap-3">
+        <div>
+            <h2 class="text-sm font-semibold text-gray-700">Sign out everywhere</h2>
+            <p class="text-xs text-gray-500 mt-1">Ends this account's sessions on every phone and computer, including this one. Use it if a device was lost or shared.</p>
+        </div>
+        <button class="bg-white text-red-600 border border-red-200 px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-50">Sign out everywhere</button>
+    </form>
+
     <div class="mt-6 text-xs text-gray-500">
         <div class="font-medium text-gray-600 mb-1">What each role can do</div>
         <ul class="space-y-0.5">{% for r in roles %}<li><span class="font-mono">{{ r }}</span> — {{ role_help[r] }}</li>{% endfor %}</ul>

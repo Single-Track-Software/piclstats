@@ -21,6 +21,7 @@ _COLS = (
     users.c.is_active,
     users.c.created_at,
     users.c.last_login_at,
+    users.c.session_version,
 )
 
 
@@ -64,9 +65,27 @@ def create_user(email: str, name: str | None, password_hash: str, role: str) -> 
 
 
 def set_password(user_id: int, password_hash: str) -> None:
+    """Store a new hash and retire every existing session for the user."""
     with get_session() as s:
-        s.execute(update(users).where(users.c.id == user_id).values(password_hash=password_hash))
+        s.execute(
+            update(users)
+            .where(users.c.id == user_id)
+            .values(password_hash=password_hash, session_version=users.c.session_version + 1)
+        )
         s.commit()
+
+
+def revoke_sessions(user_id: int) -> int:
+    """Sign the user out everywhere; returns the new session version."""
+    with get_session() as s:
+        s.execute(
+            update(users)
+            .where(users.c.id == user_id)
+            .values(session_version=users.c.session_version + 1)
+        )
+        s.commit()
+    fresh = get_user_by_id(user_id)
+    return int(fresh["session_version"]) if fresh else 0
 
 
 def set_role(user_id: int, role: str) -> None:

@@ -24,6 +24,15 @@ from piclstats.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def mask_email(address: str) -> str:
+    """'chris@example.com' -> 'c***@example.com', for logs that should not carry addresses."""
+    local, _, domain = address.partition("@")
+    if not domain:
+        return "***"
+    return f"{local[:1]}***@{domain}"
+
+
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 TIMEOUT_SECONDS = 10.0
 
@@ -68,16 +77,18 @@ def send(to: str, subject: str, text: str, html: str | None = None) -> bool:
             timeout=TIMEOUT_SECONDS,
         )
     except httpx.HTTPError:
-        logger.exception("Email to %s failed to send", to)
+        logger.exception("Email to %s failed to send", mask_email(to))
         return False
 
     if response.status_code >= 400:
         # Body may name the problem (unverified domain, bad key) — worth logging,
         # and it contains no secret beyond what we sent.
-        logger.error("Resend rejected mail to %s: %s %s", to, response.status_code, response.text)
+        logger.error(
+            "Resend rejected mail to %s: %s %s", mask_email(to), response.status_code, response.text
+        )
         return False
 
-    logger.info("Sent %r to %s", subject, to)
+    logger.info("Sent %r to %s", subject, mask_email(to))
     return True
 
 
