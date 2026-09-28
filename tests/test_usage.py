@@ -43,3 +43,10 @@ def test_bots_and_skips():
     assert not should_log("POST", "/login", 303)
     assert not should_log("GET", "/static/app.css", 200)
     assert not should_log("GET", "/rider/1", 500)
+
+
+def test_token_bearing_paths_are_never_logged():
+    assert not should_log("GET", "/invite/abc123", 200)
+    assert not should_log("GET", "/reset/abc123", 200)
+    assert not should_log("GET", "/timing/s/ABCDEFGH", 200)
+    assert should_log("GET", "/rider/1", 200)

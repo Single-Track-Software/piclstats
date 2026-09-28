@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="/static/app.css">
 </head>
 <body class="bg-gray-50 text-gray-900 min-h-screen select-none">
-<script id="ctx" type="application/json">{{ ctx_json|safe }}</script>
+<script id="ctx" type="application/json">{{ ctx | tojson }}</script>
 
 <!-- Header: what this phone is recording. Fixed so it is always visible. -->
 <header class="bg-picl-800 text-white px-4 py-3 sticky top-0 z-20 border-b-4 border-gold-500">
@@ -145,6 +145,9 @@
 <script>
 (() => {
 const ctx = JSON.parse(document.getElementById('ctx').textContent);
+// Roster names and team names come from outside (the league's results), so
+// anything rendered through innerHTML goes through this first.
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
 const CODE = ctx.code, KIND = ctx.point.kind, LOCAL = ctx.kind === 'localdirt', LAPS = ctx.laps || 1;
 const roster = new Map(ctx.roster.map(r => [r.plate, r]));
 const byName = new Map(ctx.roster.map(r => [r.name.trim().toLowerCase(), r]));
@@ -225,14 +228,14 @@ function render() {
         const info = r.plate ? roster.get(r.plate) : null;
         const cls = r.voided ? 'opacity-40 line-through' : (!r.plate ? 'border-amber-300 bg-amber-50' : 'border-gray-200 bg-white');
         const isWave = r.wave_id != null;
-        const head = isWave ? `Wave: ${waveName(r.wave_id)}` : LOCAL ? (r.tap != null ? `#${r.tap}` : (info ? info.name : 'no name')) : (r.plate ?? 'no plate');
-        const sub = isWave ? 'wave start' : LOCAL ? (info ? `${info.name}${info.team ? ' · ' + info.team : ''}` : 'tap to pick the rider') : (info ? info.name : (r.plate ? 'not on roster' : 'tap to enter plate'));
+        const head = isWave ? `Wave: ${esc(waveName(r.wave_id))}` : LOCAL ? (r.tap != null ? `#${r.tap}` : (info ? esc(info.name) : 'no name')) : (r.plate ?? 'no plate');
+        const sub = isWave ? 'wave start' : LOCAL ? (info ? `${esc(info.name)}${info.team ? ' · ' + esc(info.team) : ''}` : 'tap to pick the rider') : (info ? info.name : (r.plate ? 'not on roster' : 'tap to enter plate'));
         const cls2 = isWave ? 'border-green-300 bg-green-50' : cls;
         return `<li data-root="${r.root}" class="rounded-xl border ${(LOCAL && !r.voided && !isWave && !r.plate) ? 'border-amber-300 bg-amber-50' : cls2} px-3 py-2 flex items-center gap-3 cursor-pointer">
             <div class="font-mono text-base tabular-nums text-gray-700 shrink-0">${fmt(r.device_ts_ms - r.offset_ms)}</div>
             <div class="flex-1 min-w-0">
                 <div class="${isWave ? 'text-lg font-bold text-green-800' : 'font-mono text-2xl font-bold'} ${(r.plate || isWave || LOCAL) ? 'text-gray-900' : 'text-amber-700'}">${head}</div>
-                <div class="text-xs text-gray-500 truncate">${sub}${r.note && !(LOCAL && /^tap \d+$/.test(r.note)) ? ' · ' + r.note : ''}</div>
+                <div class="text-xs text-gray-500 truncate">${sub}${r.note && !(LOCAL && /^tap \d+$/.test(r.note)) ? ' · ' + esc(r.note) : ''}</div>
             </div>
             <div class="text-[10px] ${r.synced && !records.some(x => x.supersedes === r.root && !x.synced) ? 'text-green-600' : 'text-gray-400'}">${r.synced ? '✓' : '…'}</div>
         </li>`;
@@ -262,7 +265,7 @@ $('sheetPlate').oninput = () => hint($('sheetHint'), plateInfo($('sheetPlate').v
 $('sheetPlate').onkeydown = e => { if (e.key === 'Enter') $('sheetSave').click(); };
 if (LOCAL) {
     // Name picker: the datalist holds every roster name; a match sets the internal number.
-    $('riders').innerHTML = ctx.roster.map(r => `<option value="${r.name.replace(/"/g, '&quot;')}">${r.team || ''}${r.category ? ' · ' + r.category : ''}</option>`).join('');
+    $('riders').innerHTML = ctx.roster.map(r => `<option value="${esc(r.name)}">${esc(r.team || '')}${r.category ? ' · ' + esc(r.category) : ''}</option>`).join('');
     const resolve = () => { const r = byName.get($('sheetName').value.trim().toLowerCase()); $('sheetPlate').value = r ? r.plate : ''; hint($('sheetHint'), r ? plateInfo(String(r.plate), sheetRoot?.root) : {ok: false, text: $('sheetName').value.trim() ? 'Not on the roster — saved as a note for the lead' : ''}); };
     $('sheetName').oninput = resolve; $('sheetName').onchange = resolve;
     $('sheetName').onkeydown = e => { if (e.key === 'Enter') $('sheetSave').click(); };
@@ -292,7 +295,7 @@ function tickSince() {
 }
 if (KIND === 'start' && LOCAL) {
     const sel = $('wave');
-    sel.innerHTML = ctx.waves.map(w => `<option value="${w.id}">${w.name}</option>`).join('') || '<option value="">no waves set up</option>';
+    sel.innerHTML = ctx.waves.map(w => `<option value="${w.id}">${esc(w.name)}</option>`).join('') || '<option value="">no waves set up</option>';
     const started = () => effective().filter(r => !r.voided && r.wave_id != null).map(r => r.wave_id);
     const waveHint = () => { const id = Number(sel.value); const n = started().filter(x => x === id).length; $('waveHint').textContent = n ? `⚠ ${waveName(id)} already started ${n} time${n === 1 ? '' : 's'}` : (ctx.roster.filter(r => r.wave_id === id).length + ' riders in this wave'); $('waveHint').className = 'mt-1 min-h-[1.25rem] text-sm text-center ' + (n ? 'text-amber-700 font-medium' : 'text-gray-500'); };
     sel.onchange = waveHint; waveHint();
