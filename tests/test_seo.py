@@ -48,3 +48,42 @@ def test_canonical_percent_encodes_the_path():
     assert Environment().from_string("{{ p | urlencode }}").render(p="/team/Pgh North") == quote(
         "/team/Pgh North"
     )
+
+
+def test_chart_pages_load_chart_js_before_using_it():
+    from pathlib import Path
+
+    templates = Path(__file__).resolve().parents[1] / "src" / "piclstats" / "web" / "templates"
+    base = (templates / "base.html").read_text()
+    assert "chart.umd.min.js" not in base  # not on every page any more
+    for path in templates.rglob("*.html"):
+        text = path.read_text()
+        if "new Chart(" in text and path.name != "_racechart_scripts.html":
+            inc = text.find('{% include "_chartjs.html" %}')
+            assert 0 <= inc < text.find("new Chart("), path.name
+
+
+def test_responses_are_gzipped_and_static_is_cached():
+    client = TestClient(app)
+    r = client.get("/login", headers={"accept-encoding": "gzip"})
+    assert r.headers.get("content-encoding") == "gzip"
+    r = client.get("/static/favicon.svg")
+    assert r.status_code == 200
+    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
+    r = client.get("/static/og-image.png")
+    assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+
+
+def test_results_page_canonical_names_the_event(monkeypatch):
+    from piclstats.web import queries
+
+    from piclstats.web import app as app_module
+
+    monkeypatch.setattr(queries, "all_events", lambda session: [])
+    monkeypatch.setattr(app_module, "published_local_events", lambda session: [], raising=False)
+    import piclstats.web.timing_station as station
+
+    monkeypatch.setattr(station, "published_local_events", lambda session: [])
+    r = TestClient(app).get("/results")
+    assert r.status_code == 200
+    assert '<link rel="canonical" href="https://piclstats.com/results">' in r.text

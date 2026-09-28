@@ -214,6 +214,7 @@
 {% endblock %}
 
 {% block scripts %}
+{% include "_chartjs.html" %}
 <script>
 const events = {{ event_performance | tojson }};
 

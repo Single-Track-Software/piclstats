@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
@@ -117,6 +118,10 @@ async def _security_headers(request: Request, call_next):
     response = await call_next(request)
     for name, value in SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+    # Static files are referenced with a content-hash query (static_version),
+    # so a browser may keep them for good; a new build is a new URL.
+    if request.url.path.startswith("/static/") and response.status_code == 200:
+        response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
     # HSTS only means something on an https response (Fly terminates TLS and
     # says so in X-Forwarded-Proto); sending it over plain http is ignored.
     if request.headers.get("x-forwarded-proto", request.url.scheme) == "https":
@@ -184,6 +189,8 @@ def _session_secret() -> str:
 # per-process value (uniques then reset on restart, which is acceptable).
 _USAGE_SALT = settings.session_secret or secrets.token_hex(32)
 
+# Compress HTML, CSS, JSON and CSV over the wire (Fly's proxy does not).
+app.add_middleware(GZipMiddleware, minimum_size=800)
 app.add_middleware(
     SessionMiddleware,
     secret_key=_session_secret(),
