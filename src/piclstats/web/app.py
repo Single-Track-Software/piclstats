@@ -58,6 +58,9 @@ app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 # Cache-buster for the built stylesheet: changes whenever app.css is rebuilt.
+# Absolute origin for canonical links, Open Graph and the sitemap.
+SITE_URL = (settings.public_base_url or "https://piclstats.com").rstrip("/")
+templates.env.globals["site_url"] = SITE_URL
 templates.env.globals["static_version"] = hashlib.sha256(
     (STATIC_DIR / "app.css").read_bytes()
 ).hexdigest()[:12]
@@ -741,6 +744,64 @@ def _schedule_season(session, season_raw: str) -> tuple[int | None, list[int]]:
         return None, seasons
     upcoming = queries.upcoming_races(session, date.today())
     return (upcoming[0]["season"] if upcoming else seasons[-1]), seasons
+
+
+# Crawlers: index the public stats, stay out of accounts, admin and stations.
+_ROBOTS_DISALLOW = (
+    "/admin",
+    "/staging",
+    "/planner",
+    "/login",
+    "/forgot",
+    "/reset/",
+    "/invite/",
+    "/account",
+    "/timing/",
+    "/api/",
+)
+
+
+@app.get("/robots.txt")
+def robots_txt():
+    lines = ["User-agent: *"] + [f"Disallow: {p}" for p in _ROBOTS_DISALLOW]
+    lines += ["", f"Sitemap: {SITE_URL}/sitemap.xml"]
+    return Response("\n".join(lines) + "\n", media_type="text/plain")
+
+
+@app.get("/favicon.ico")
+def favicon():
+    return RedirectResponse("/static/favicon.svg", status_code=301)
+
+
+def sitemap_urls(session) -> list[str]:
+    """Public pages worth indexing. Rider pages are left out on purpose: the
+    site is about named minors, and pushing every rider into search indexes
+    is a decision for the league, not a crawler."""
+    from urllib.parse import quote
+
+    urls = [
+        f"{SITE_URL}{p}"
+        for p in ("/", "/results", "/riders", "/teams", "/leaderboard", "/courses", "/schedule")
+    ]
+    urls += [f"{SITE_URL}/results?event_id={e['id']}" for e in queries.events_list(session)]
+    urls += [f"{SITE_URL}/team/{quote(t, safe='')}" for t in queries.teams_list(session)]
+    urls += [f"{SITE_URL}/course/{c['id']}" for c in queries.courses_list(session)]
+    return urls
+
+
+@app.get("/sitemap.xml")
+def sitemap_xml():
+    from xml.sax.saxutils import escape
+
+    with get_session() as session:
+        urls = sitemap_urls(session)
+    body = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    body += [f"  <url><loc>{escape(u)}</loc></url>" for u in urls]
+    body.append("</urlset>")
+    return Response("\n".join(body) + "\n", media_type="application/xml")
 
 
 @app.get("/schedule", response_class=HTMLResponse)
