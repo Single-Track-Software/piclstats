@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ info.name }} — PICL Stats{% endblock %}
+{% block description %}{{ info.name }}: PICL race history, season stats and form{% if team_history %} for {{ team_history[-1].team }}{% endif %}.{% endblock %}
 
 {% block content %}
 <!-- Header -->

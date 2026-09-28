@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ info.name }} — PICL Stats{% endblock %}
+{% block description %}{{ info.name }}{% if info.location %}, {{ info.location }}{% endif %}: PICL race course with loop distance, climbing, lap counts and every result ridden there.{% endblock %}
 
 {% block content %}
 <!-- Header -->

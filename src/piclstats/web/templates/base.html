@@ -1,9 +1,27 @@
 <!DOCTYPE html>
 <html lang="en" class="h-full bg-gray-50">
+{%- block description %}Race results, rider and team stats, and the season schedule for the Pennsylvania Interscholastic Cycling League (PICL), the state's middle and high school mountain bike league.{% endblock %}
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}PICL Stats{% endblock %}</title>
+    {%- set page_description = self.description() | trim %}
+    {%- set page_title = self.title() | trim %}
+    {%- set page_path = request.url.path if request else '/' %}
+    {%- set private = page_path.startswith(('/admin', '/staging', '/planner', '/login', '/forgot', '/reset', '/invite', '/account', '/timing')) or page_path.endswith(('/raceday', '/forecast')) %}
+    <meta name="description" content="{{ page_description }}">
+    {%- if private %}
+    <meta name="robots" content="noindex, nofollow">
+    {%- else %}
+    <link rel="canonical" href="{{ site_url }}{{ page_path | urlencode }}">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="PICL Stats">
+    <meta property="og:title" content="{{ page_title }}">
+    <meta property="og:description" content="{{ page_description }}">
+    <meta property="og:url" content="{{ site_url }}{{ page_path | urlencode }}">
+    <meta property="og:image" content="{{ site_url }}/static/apple-touch-icon.png">
+    <meta name="twitter:card" content="summary">
+    {%- endif %}
     <meta name="theme-color" content="#0b1f3d">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg?v={{ static_version }}">
     <link rel="apple-touch-icon" href="/static/apple-touch-icon.png?v={{ static_version }}">
