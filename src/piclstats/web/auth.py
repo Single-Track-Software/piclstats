@@ -19,7 +19,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import bcrypt
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from piclstats.config import settings
@@ -57,6 +57,11 @@ def password_problem(password: str, confirm: str) -> str | None:
 # --- password hashing -------------------------------------------------------
 
 
+# Checked against when the email has no account, so a login attempt costs the
+# same either way. Any valid bcrypt hash will do; the password never matches.
+_DUMMY_HASH = "$2b$12$C6UzMDM.H6dfI/f/IKcEeO5x1JYh7oT7Yb4nJqk3v3Z5s6kO0UQxG"
+
+
 def hash_password(password: str) -> str:
     # bcrypt caps input at 72 bytes; encode then truncate to stay within it.
     digest = bcrypt.hashpw(password.encode("utf-8")[:72], bcrypt.gensalt())
@@ -88,7 +93,23 @@ def load_user(request: Request) -> dict | None:
     user = users_store.get_user_by_id(user_id)
     if not user or not user["is_active"]:
         return None
+    # A cookie minted before the password was last set (or before "sign out
+    # everywhere") is dead, however long its own expiry has left.
+    if request.session.get("sv") != user.get("session_version"):
+        return None
     return user
+
+
+def start_session(request: Request, user: dict) -> None:
+    """Sign the user in on this browser: id plus the session version to check against."""
+    request.session["user_id"] = user["id"]
+    request.session["sv"] = user.get("session_version")
+
+
+def start_session_by_id(request: Request, user_id: int) -> None:
+    fresh = users_store.get_user_by_id(user_id)
+    if fresh:
+        start_session(request, fresh)
 
 
 def _next_path(request: Request) -> str:
@@ -218,9 +239,8 @@ def client_ip(request: Request) -> str | None:
     fly_ip = request.headers.get("fly-client-ip")
     if fly_ip:
         return fly_ip
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
+    # No X-Forwarded-For fallback: off Fly there is no trusted proxy, and the
+    # throttle key must not be something the caller can choose.
     return request.client.host if request.client else None
 
 
@@ -249,7 +269,12 @@ def login_submit(
         )
 
     user = users_store.get_user_by_email(email)
-    if not user or not user["is_active"] or not verify_password(password, user["password_hash"]):
+    if not user or not user["is_active"]:
+        # Burn the same bcrypt time as a real check so response time does not
+        # say whether the address has an account.
+        verify_password(password, _DUMMY_HASH)
+        user = None
+    if not user or not verify_password(password, user["password_hash"]):
         throttle.record_failure(key)
         return templates.TemplateResponse(
             "login.html",
@@ -257,7 +282,7 @@ def login_submit(
             status_code=401,
         )
     throttle.record_success(key)
-    request.session["user_id"] = user["id"]
+    start_session(request, user)
     users_store.touch_last_login(user["id"])
     return RedirectResponse(_safe_next(next), status_code=303)
 
@@ -340,7 +365,7 @@ def invite_accept(
 
     # Sign them straight in — bouncing to a login form right after they chose a
     # password is the step where people give up.
-    request.session["user_id"] = user_id
+    start_session_by_id(request, user_id)
     users_store.touch_last_login(user_id)
     fresh = users_store.get_user_by_id(user_id)
     return RedirectResponse(landing_for(fresh["role"] if fresh else None), status_code=303)
@@ -366,6 +391,7 @@ def forgot_form(request: Request):
 @router.post("/forgot")
 def forgot_submit(
     request: Request,
+    background: BackgroundTasks,
     email: str = Form(...),
     __: None = Depends(require_same_origin),
 ):
@@ -394,7 +420,9 @@ def forgot_submit(
             purpose=tokens_store.RESET, email=user["email"], user_id=user["id"]
         )
         hours = max(1, int(tokens_store.RESET_TTL.total_seconds() // 3600))
-        mail.send_password_reset(user["email"], build_link(request, f"/reset/{token}"), hours)
+        background.add_task(
+            mail.send_password_reset, user["email"], build_link(request, f"/reset/{token}"), hours
+        )
 
     # Same response either way, whether or not the account exists.
     return templates.TemplateResponse(
@@ -443,7 +471,7 @@ def reset_submit(
     # throttle, so a locked-out coach isn't still locked out after resetting.
     throttle.record_success(ratelimit.client_key(client_ip(request), entry["email"]))
 
-    request.session["user_id"] = user_id
+    start_session_by_id(request, user_id)
     users_store.touch_last_login(user_id)
     fresh = users_store.get_user_by_id(user_id)
     return RedirectResponse(landing_for(fresh["role"] if fresh else None), status_code=303)
@@ -502,4 +530,17 @@ def account_password(
     if verify_password(password, full["password_hash"]):
         return _account_page(request, user, error="That is already your password.", status_code=400)
     users_store.set_password(user["id"], hash_password(password))
+    start_session_by_id(request, user["id"])  # this browser stays in; every other one is out
     return RedirectResponse("/account?saved=1", status_code=303)
+
+
+@router.post("/account/signout-everywhere")
+def account_signout_everywhere(
+    request: Request,
+    user: dict = Depends(require_member),
+    __: None = Depends(require_same_origin),
+):
+    """Retire every session for this account, including this one."""
+    users_store.revoke_sessions(user["id"])
+    request.session.clear()
+    return RedirectResponse("/login", status_code=303)

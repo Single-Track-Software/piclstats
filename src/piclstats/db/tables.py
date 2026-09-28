@@ -202,6 +202,9 @@ users = Table(
     Column("is_active", Boolean, nullable=False, server_default="true"),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("last_login_at", DateTime(timezone=True)),
+    # Bumped whenever the password is set or the user signs out everywhere;
+    # a session whose recorded version is older is dead (see auth.load_user).
+    Column("session_version", Integer, nullable=False, server_default="1"),
     Index("idx_users_email", "email"),
 )
 
