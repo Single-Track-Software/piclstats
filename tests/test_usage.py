@@ -42,6 +42,7 @@ def test_bots_and_skips():
     assert should_log("GET", "/rider/1", 200)
     assert not should_log("POST", "/login", 303)
     assert not should_log("GET", "/static/app.css", 200)
+    assert not should_log("GET", "/healthz", 200)
     assert not should_log("GET", "/rider/1", 500)
 
 

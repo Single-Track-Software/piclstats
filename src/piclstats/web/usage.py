@@ -82,7 +82,7 @@ def should_log(method: str, path: str, status: int) -> bool:
         and not path.startswith("/static")
         and not path.startswith(_TOKEN_PATHS)
         and status < 500
-        and path != "/favicon.ico"
+        and path not in ("/favicon.ico", "/healthz")
     )
 
 

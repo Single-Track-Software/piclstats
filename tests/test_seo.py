@@ -106,3 +106,35 @@ def test_description_appears_only_in_meta_tags(monkeypatch):
     assert "The PICL race schedule" in head and "The PICL race schedule" not in body
     assert h.lstrip().startswith("<!DOCTYPE html>")
     assert h.index("<head>") - h.index("<html") < 120  # nothing printed between html and head
+
+
+def test_healthz_is_ok_when_the_database_answers(monkeypatch):
+    from piclstats.web import app as app_mod
+
+    class _Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def execute(self, stmt):
+            return None
+
+    monkeypatch.setattr(app_mod, "get_session", lambda: _Session())
+    # Fly calls the private address; that must not 301 to the public host.
+    monkeypatch.setattr(app_mod.settings, "public_base_url", "https://piclstats.com")
+    r = TestClient(app).get("/healthz", headers={"host": "172.19.0.2:8080"}, follow_redirects=False)
+    assert r.status_code == 200 and r.text == "ok\n"
+    assert r.headers["cache-control"] == "no-store"
+
+
+def test_healthz_is_503_when_the_database_does_not(monkeypatch):
+    from piclstats.web import app as app_mod
+
+    def _broken():
+        raise RuntimeError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(app_mod, "get_session", _broken)
+    r = TestClient(app).get("/healthz")
+    assert r.status_code == 503
