@@ -17,13 +17,22 @@ primary_region = 'ord'
 [http_service]
   internal_port = 8080
   force_https = true
-  # Keep one machine warm so coaches never hit a cold start. Set back to 0 to
-  # scale to zero when idle (the machine then auto-starts on the next request,
-  # a few seconds later).
+  # Keep two machines warm (run `fly scale count 2` once; Fly spreads them
+  # across hosts). With one, a machine wedged on a bad host takes the site
+  # down (2026-10-02); with two, the health check below routes around it.
   auto_stop_machines = 'stop'
   auto_start_machines = true
-  min_machines_running = 1
+  min_machines_running = 2
   processes = ['app']
+
+  # /healthz answers 200 only when the machine can reach the database. Fly
+  # stops sending traffic to a machine that fails it.
+  [[http_service.checks]]
+    grace_period = '20s'
+    interval = '15s'
+    method = 'GET'
+    path = '/healthz'
+    timeout = '5s'
 
 [[vm]]
   memory = '512mb'

@@ -74,6 +74,10 @@ templates.env.globals["static_version"] = hashlib.sha256(
 async def _canonical_host_redirect(request: Request, call_next):
     # One public name: GET/HEAD on www / the fly.dev address 301 to the host in
     # PICLSTATS_PUBLIC_BASE_URL (see web/canonical.py). No-op when unset.
+    # Fly's health checks call the machine by its private address; answer
+    # them here rather than redirecting to the public host.
+    if request.url.path == "/healthz":
+        return await call_next(request)
     target = canonical.redirect_target(
         request.method,
         request.headers.get("host", ""),
@@ -783,6 +787,21 @@ def robots_txt():
     lines = ["User-agent: *"] + [f"Disallow: {p}" for p in _ROBOTS_DISALLOW]
     lines += ["", f"Sitemap: {SITE_URL}/sitemap.xml"]
     return Response("\n".join(lines) + "\n", media_type="text/plain")
+
+
+@app.get("/healthz")
+def healthz():
+    """Liveness for Fly's health check: 200 only when this machine can reach
+    the database. A machine that can't (2026-10-02: wedged on a bad host) fails
+    the check, so the proxy routes around it and the uptime monitor alerts."""
+    try:
+        with get_session() as session:
+            session.execute(text("SELECT 1"))
+    except Exception as exc:
+        # One line, not a traceback: this repeats every 15 s while it fails.
+        logger.warning("health check: database unreachable: %s", str(exc).splitlines()[0])
+        return Response("db unreachable\n", status_code=503, media_type="text/plain")
+    return Response("ok\n", media_type="text/plain", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/favicon.ico")
