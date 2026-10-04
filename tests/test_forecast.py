@@ -270,6 +270,16 @@ def test_finish_time_adds_the_prologue_onto_lap_one():
     assert "prologue" not in flat.inputs_summary["target_loop"]
 
 
+def test_finish_time_takes_off_a_short_first_lap():
+    flat = _model().predict(_inp(target_laps=3, target_loop_miles=2.0))
+    short = _model().predict(_inp(target_laps=3, target_loop_miles=2.0, target_prologue_miles=-0.5))
+    assert flat is not None and short is not None
+    assert flat.predicted_finish_minutes and short.predicted_finish_minutes
+    ratio = short.predicted_finish_minutes / flat.predicted_finish_minutes
+    assert ratio == pytest.approx(5.5 / 6.0, rel=0.01)
+    assert "lap 1 0.5 mi short" in short.inputs_summary["target_loop"]
+
+
 def test_finish_time_grows_with_target_climbing():
     ref = DEFAULT_CONFIG["reference_climbing_ft_per_mile"]
     flat = _model().predict(_inp(target_elevation_ft_per_mile=ref))

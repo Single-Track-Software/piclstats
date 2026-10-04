@@ -39,7 +39,7 @@
         {% if ms.elevation_ft or ms.elevation_loss_ft %}
         <div class="text-xs text-gray-500 mt-1">{% if ms.elevation_ft %}{{ ms.elevation_ft|int }} ft gain{% endif %}{% if ms.elevation_ft and ms.elevation_loss_ft %} · {% endif %}{% if ms.elevation_loss_ft %}{{ ms.elevation_loss_ft|int }} ft loss{% endif %}</div>
         {% endif %}
-        {% if prologue_miles %}<div class="text-xs text-gray-500 mt-1">+ {{ "%.2f"|format(prologue_miles) }} mi prologue onto lap 1</div>{% endif %}
+        {% if prologue_miles > 0 %}<div class="text-xs text-gray-500 mt-1">+ {{ "%.2f"|format(prologue_miles) }} mi prologue onto lap 1</div>{% elif prologue_miles < 0 %}<div class="text-xs text-gray-500 mt-1">Lap 1 is {{ "%.2f"|format(-prologue_miles) }} mi short (start joins the loop part-way)</div>{% endif %}
         <div class="text-xs text-gray-400 mt-1">6th-8th Grade, MS Advanced</div>
     </div>
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
@@ -50,7 +50,7 @@
         {% if hs.elevation_ft or hs.elevation_loss_ft %}
         <div class="text-xs text-gray-500 mt-1">{% if hs.elevation_ft %}{{ hs.elevation_ft|int }} ft gain{% endif %}{% if hs.elevation_ft and hs.elevation_loss_ft %} · {% endif %}{% if hs.elevation_loss_ft %}{{ hs.elevation_loss_ft|int }} ft loss{% endif %}</div>
         {% endif %}
-        {% if prologue_miles %}<div class="text-xs text-gray-500 mt-1">+ {{ "%.2f"|format(prologue_miles) }} mi prologue onto lap 1</div>{% endif %}
+        {% if prologue_miles > 0 %}<div class="text-xs text-gray-500 mt-1">+ {{ "%.2f"|format(prologue_miles) }} mi prologue onto lap 1</div>{% elif prologue_miles < 0 %}<div class="text-xs text-gray-500 mt-1">Lap 1 is {{ "%.2f"|format(-prologue_miles) }} mi short (start joins the loop part-way)</div>{% endif %}
         <div class="text-xs text-gray-400 mt-1">JV3, JV2, JV1, Varsity</div>
     </div>
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">

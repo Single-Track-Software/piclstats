@@ -48,7 +48,8 @@ class ForecastInput:
     target_loop_type: str
     source_loop_miles: float
     target_loop_miles: float
-    # Start onto lap 1 at the target course (shared by MS and HS); 0 if none.
+    # Lap 1 adjustment at the target course (shared by MS and HS): + for a
+    # prologue, - for a short first lap; 0 if none.
     target_prologue_miles: float = 0.0
     # Set when the forecast is for a specific course: its loop's climbing rate
     # (ft gain per mile) and which profile season the laps/loop came from.
@@ -439,7 +440,13 @@ class StatisticalForecastModel:
             "target_division": inp.target_division,
             "target_laps": inp.target_laps,
             "target_loop": f"{inp.target_loop_type} ({inp.target_loop_miles} mi)"
-            + (f" + {inp.target_prologue_miles} mi prologue" if inp.target_prologue_miles else ""),
+            + (
+                f" + {inp.target_prologue_miles} mi prologue"
+                if inp.target_prologue_miles > 0
+                else f", lap 1 {-inp.target_prologue_miles} mi short"
+                if inp.target_prologue_miles < 0
+                else ""
+            ),
             "target_avg_pace": round(target_avg, 1),
             "target_median_pace": round(target_med, 1),
             "target_sample_size": field_size,

@@ -161,9 +161,10 @@ course_race_types = Table(
     Index("idx_course_race_types_course", "course_id"),
 )
 
-# Distance from the start onto the first lap, shared by MS and HS. NULL season
-# is the course default; no row at all means 0.0. Pace divides by
-# laps x loop + prologue (queries._RACE_MILES).
+# Lap 1 adjustment, shared by MS and HS: + for a prologue from the start onto
+# lap 1, - when the start joins the loop part-way (a short first lap). NULL
+# season is the course default; no row at all means 0.0. Pace divides by
+# laps x loop + adjustment (queries._RACE_MILES).
 course_prologues = Table(
     "course_prologues",
     metadata,
@@ -171,7 +172,7 @@ course_prologues = Table(
     Column("course_id", Integer, ForeignKey("courses.id"), nullable=False),
     Column("season", SmallInteger),
     Column("prologue_miles", Float, nullable=False),
-    CheckConstraint("prologue_miles >= 0 AND prologue_miles < 5", name="ck_course_prologue_miles"),
+    CheckConstraint("prologue_miles > -2 AND prologue_miles < 2", name="ck_course_prologue_miles"),
     UniqueConstraint(
         "course_id", "season", name="uq_course_prologue", postgresql_nulls_not_distinct=True
     ),
