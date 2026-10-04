@@ -451,6 +451,7 @@ def rider_lookup(q: str = Query("", max_length=80)):
 @app.get("/rider/{rider_id}", response_class=HTMLResponse)
 def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
     from piclstats.web.timing_station import rider_local_results
+    from piclstats.web.standings import rider_conference_standings
 
     with get_session() as session:
         data = queries.rider_detail(session, rider_id)
@@ -491,11 +492,19 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
                     "form": other_form,
                 }
         local_races = rider_local_results(session, data["info"]["id"])
+        try:
+            conference_standings = rider_conference_standings(session, data["info"]["id"])
+        except Exception:
+            logger.exception("conference standings failed for rider %s", rider_id)
+            conference_standings = {}
+        current_season = queries.current_season(session)
     return templates.TemplateResponse(
         "rider_detail.html",
         _ctx(
             request,
             local_races=local_races,
+            conference_standings=conference_standings,
+            current_season=current_season,
             **data,
             form=form,
             form_by_event={f["event_id"]: f for f in form},
