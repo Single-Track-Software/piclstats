@@ -271,8 +271,8 @@ def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
         raise ValueError(f"Race type must be one of {', '.join(RACE_TYPES)}, got {race_type!r}")
 
     prologue = opt_float("prologue_miles")
-    if prologue is not None and not 0 <= prologue < 5:
-        raise ValueError(f"Prologue must be 0-5 miles, got {prologue}")
+    if prologue is not None and not -2 < prologue < 2:
+        raise ValueError(f"Lap 1 adjustment must be between -2 and 2 miles, got {prologue}")
 
     loops: dict[str, tuple[float | None, float | None, float | None]] = {}
     for loop_type in ("MS", "HS"):

@@ -118,8 +118,8 @@ def _lap_joins(*, inner: bool = False, loop_filter: str = "") -> str:
 
 
 _LAP_JOINS = _lap_joins()
-# Distance actually ridden: the laps plus the prologue from the start onto
-# lap 1 (shared by MS and HS; 0 when the course has none on record).
+# Distance actually ridden: the laps plus the lap 1 adjustment (+ prologue
+# onto lap 1, - short first lap; shared by MS and HS; 0 when none on record).
 _PROLOGUE = "COALESCE(pr.prologue_miles, 0)"
 _RACE_MILES = f"({_ACTUAL_LAPS} * cl.distance_miles + {_PROLOGUE})"
 _LAP_JOINS_INNER = _lap_joins(inner=True)

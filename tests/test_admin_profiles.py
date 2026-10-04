@@ -85,7 +85,12 @@ def test_prologue_parses_and_blank_is_none():
     assert parse_profile_form({"prologue_miles": "0"}).prologue_miles == 0.0
 
 
-@pytest.mark.parametrize("bad", ["-0.1", "5", "abc"])
+def test_lap1_adjustment_can_be_negative():
+    # Blue Mountain 2024/25: the start joined the loop part-way.
+    assert parse_profile_form({"prologue_miles": "-0.5"}).prologue_miles == -0.5
+
+
+@pytest.mark.parametrize("bad", ["-2", "2", "5", "abc"])
 def test_prologue_must_be_a_sane_distance(bad):
     with pytest.raises(ValueError):
         parse_profile_form({"prologue_miles": bad})
