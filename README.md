@@ -133,7 +133,11 @@ All four run in CI on every PR. Config lives in `pyproject.toml`.
 
 ## Backups
 
-`scripts/backup_prod.sh [DEST_DIR]` dumps the production database through a temporary `fly proxy` with `pg_dump` (custom format) and keeps the newest 30 dumps (`KEEP=n` to change). Default destination is `~/Backups/piclstats`; point `DEST_DIR` or `PICLSTATS_BACKUP_DIR` at a TrueNAS share to keep copies off the laptop. Needs flyctl logged in and `pg_dump` from `brew install libpq`. Fly's daily volume snapshots (retained a few days) are the only other backup, so run this after each results load at minimum. Restore into an empty database with `pg_restore --no-owner --no-privileges -d "$URL" file.dump`.
+Production runs on Fly Managed Postgres, which keeps its own backups (daily full plus hourly incremental: `fly mpg backup list n83v7rgj26xr5gxk`).
+
+`scripts/backup_prod.sh [DEST_DIR]` makes an independent copy outside Fly. It opens a temporary `fly mpg proxy`, reads the app's `DATABASE_URL` from a running machine (never printed), dumps with `pg_dump` (custom format) and keeps the newest 30 dumps (`KEEP=n` to change). Default destination is `~/Backups/piclstats`; point `DEST_DIR` or `PICLSTATS_BACKUP_DIR` at a TrueNAS share to keep copies off the laptop. Needs flyctl logged in, `pg_dump` 17+ (`brew install libpq`), `jq` and `nc`.
+
+`scripts/refresh_nas.sh [TARGET_URL]` replaces the NAS verification database (default: `PICLSTATS_DATABASE_URL` in `.env`) with a fresh copy of prod: it backs up the target, runs `backup_prod.sh`, and restores in one transaction, so a failure leaves the target untouched. Fly-only extensions (`pg_stat_monitor`, `pgaudit`) are skipped. It refuses a target that looks like production. Refresh before verifying anything that depends on admin-entered config (loop distances, lap 1 adjustments) or recent race loads, which only happen on prod.
 
 The app sets a 15 s server-side `statement_timeout` on its connections (`PICLSTATS_STATEMENT_TIMEOUT_MS`, 0 disables) so one slow query fails one request rather than starving the small Postgres VM.
 
