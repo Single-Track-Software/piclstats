@@ -1,29 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{% if season %}{{ season }} {% endif %}Leaderboard — PICL Stats{% endblock %}
-{% block description %}Season leaderboards for PICL riders and teams: points, places and consistency.{% endblock %}
+{% block description %}PICL conference standings by division: total points for riders and teams each season.{% endblock %}
 
 {% block content %}
-{% macro th(col, label, align='right') %}
-{#- Sortable header: click sorts by this column; clicking the active column flips direction. -#}
-{% set active = (col == metric) %}
-{% set next_dir = ('asc' if direction == 'desc' else 'desc') if active else sort_defaults.get(col, 'desc') %}
-{% set qs = {'view': view, 'season': season or '', 'division': division or '', 'gender': gender or '', 'metric': col, 'dir': next_dir} %}
-<th class="px-4 py-3 {{ 'text-right' if align == 'right' else '' }}">
-    <a href="?{{ qs | urlencode }}" class="hover:text-picl-700 {{ 'text-picl-700' if active else '' }}" title="Sort by {{ label }}">
-        {{ label }}{% if active %} <span class="text-[10px]">{{ '▲' if direction == 'asc' else '▼' }}</span>{% endif %}
-    </a>
-</th>
-{% endmacro %}
-
 <h1 class="text-3xl font-bold text-gray-900 mb-6">Leaderboard</h1>
 
-<!-- Filters -->
-<form method="get" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
+<!-- Filters: View / Season / Conference (required) / Division / Gender -->
+<form method="get" id="standingsForm" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
     <div class="grid md:grid-cols-6 gap-4">
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">View</label>
-            <select name="view" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm"
-                    onchange="this.form.submit()">
+            <select name="view" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
                 <option value="riders" {{ 'selected' if view == 'riders' }}>Riders</option>
                 <option value="teams" {{ 'selected' if view == 'teams' }}>Teams</option>
             </select>
@@ -37,6 +24,19 @@
                 {% endfor %}
             </select>
         </div>
+        <fieldset class="md:col-span-2">
+            <legend class="block text-xs font-medium text-gray-500 mb-1">Conference <span class="text-red-600" aria-hidden="true">*</span><span class="sr-only">(required, pick at least one)</span></legend>
+            <div class="flex flex-wrap gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-sm {{ 'border-red-300 bg-red-50' if not conferences else 'border-gray-300' }}">
+                {% for c in conference_choices %}
+                <label class="inline-flex items-center gap-1.5 whitespace-nowrap">
+                    <input type="checkbox" name="conference" value="{{ c }}" {{ 'checked' if c in conferences }} class="rounded border-gray-300 text-picl-600">
+                    {{ c }}
+                </label>
+                {% else %}
+                <span class="text-gray-400">No conferences on record for this season</span>
+                {% endfor %}
+            </div>
+        </fieldset>
         {% if view == 'riders' %}
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Division</label>
@@ -55,128 +55,140 @@
                 <option value="Female" {{ 'selected' if gender == 'Female' }}>Female</option>
             </select>
         </div>
-        <div>
-            <label class="block text-xs font-medium text-gray-500 mb-1">Rank By</label>
-            <select name="metric" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
-                <option value="avg_points" {{ 'selected' if metric == 'avg_points' }}>Avg Points</option>
-                <option value="total_points" {{ 'selected' if metric == 'total_points' }}>Total Points</option>
-                <option value="avg_place" {{ 'selected' if metric == 'avg_place' }}>Avg Place</option>
-                <option value="best_place" {{ 'selected' if metric == 'best_place' }}>Best Place</option>
-                <option value="races" {{ 'selected' if metric == 'races' }}>Most Races</option>
-            </select>
-            <input type="hidden" name="dir" value="">
-        </div>
         {% endif %}
-        <div class="flex items-end">
-            <button type="submit" class="w-full bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700">
-                Apply
-            </button>
-        </div>
+    </div>
+    <div class="mt-4 flex items-center gap-3">
+        <button type="submit" id="applyBtn" class="bg-picl-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-picl-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            Apply
+        </button>
+        <span id="confHint" class="text-xs text-red-600 {{ 'hidden' if conferences }}">Pick at least one conference.</span>
     </div>
 </form>
 
+{% if not conferences %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-500">
+    Standings are kept by conference. Choose at least one conference above to see them.
+</div>
+{% elif view == 'teams' %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    {% if view == 'teams' %}
-    <!-- Team leaderboard -->
+    <div class="px-4 py-3 border-b bg-gray-50 text-sm font-semibold text-gray-700">Teams · {{ conferences | join(', ') }}</div>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
         <thead>
-            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
                 <th class="px-4 py-3 w-12">#</th>
-                {{ th('team', 'Team', 'left') }}
-                {{ th('riders', 'Riders') }}
-                {{ th('races', 'Races') }}
-                {{ th('avg_points', 'Avg Pts') }}
-                {{ th('avg_place', 'Avg Place') }}
-                {{ th('best_place', 'Best Place') }}
-                {{ th('total_points', 'Total Pts') }}
+                <th class="px-4 py-3">Team</th>
+                <th class="px-4 py-3 text-right">Riders</th>
+                <th class="px-4 py-3 text-right">Races</th>
+                <th class="px-4 py-3 text-right">Avg Pts</th>
+                <th class="px-4 py-3 text-right">Avg Place</th>
+                <th class="px-4 py-3 text-right">Best Place</th>
+                <th class="px-4 py-3 text-right">Total Pts</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-            {% for t in results %}
+            {% for t in teams %}
             <tr class="hover:bg-picl-50 transition-colors">
-                <td class="px-4 py-3 text-gray-400 font-mono">{{ loop.index }}</td>
+                <td class="px-4 py-3 text-gray-400 font-mono">{{ t.rank }}</td>
                 <td class="px-4 py-3">
                     <a href="/team/{{ t.team | urlencode }}{% if season %}?season={{ season }}{% endif %}" class="text-picl-700 font-medium hover:underline">{{ t.team }}</a>
                 </td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.riders }}</td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.races }}</td>
-                <td class="px-4 py-3 text-right font-mono font-medium">{{ t.avg_points or '—' }}</td>
+                <td class="px-4 py-3 text-right font-mono">{{ t.avg_points or '—' }}</td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.avg_place or '—' }}</td>
                 <td class="px-4 py-3 text-right font-mono">{{ t.best_place or '—' }}</td>
-                <td class="px-4 py-3 text-right font-mono">{{ "{:,}".format(t.total_points or 0) }}</td>
+                <td class="px-4 py-3 text-right font-mono font-medium">{{ "{:,}".format(t.total_points or 0) }}</td>
             </tr>
+            {% else %}
+            <tr><td colspan="8" class="px-6 py-12 text-center text-gray-400">No results match the selected filters</td></tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
-    {% else %}
-    <!-- Rider leaderboard -->
+</div>
+{% else %}
+{% if not groups %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
+{% endif %}
+{% for g in groups %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="text-sm font-semibold text-gray-800">{{ g.division or 'Unknown division' }} {{ g.gender or '' }}</h2>
+        <span class="text-xs text-gray-400">{{ g.rows | length }} rider{{ '' if g.rows | length == 1 else 's' }} · {{ conferences | join(', ') }}</span>
+    </div>
     <div class="overflow-x-auto">
     <table class="w-full text-sm">
         <thead>
-            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
-                <th class="px-4 py-3 w-12">#</th>
-                {{ th('name', 'Rider', 'left') }}
-                <th class="px-4 py-3">Team</th>
-                {{ th('division', 'Division', 'left') }}
-                {{ th('races', 'Races') }}
-                {{ th('avg_points', 'Avg Pts') }}
-                {{ th('avg_place', 'Avg Place') }}
-                {{ th('best_place', 'Best') }}
-                {{ th('total_points', 'Total Pts') }}
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
+                <th class="px-4 py-2 w-12">#</th>
+                <th class="px-4 py-2">Rider</th>
+                <th class="px-4 py-2">Team</th>
+                <th class="px-4 py-2 text-right">Races</th>
+                <th class="px-4 py-2 text-right">Avg Pts</th>
+                <th class="px-4 py-2 text-right">Avg Place</th>
+                <th class="px-4 py-2 text-right">Best</th>
+                <th class="px-4 py-2 text-right">Total Pts</th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
-            {% for r in results %}
+            {% for r in g.rows %}
             <tr class="hover:bg-picl-50 transition-colors">
-                <td class="px-4 py-3 text-gray-400 font-mono">{{ loop.index }}</td>
-                <td class="px-4 py-3">
+                <td class="px-4 py-2 text-gray-400 font-mono">{{ r.rank }}</td>
+                <td class="px-4 py-2">
                     <a href="/rider/{{ r.rider_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
                 </td>
-                <td class="px-4 py-3 text-gray-600 text-xs">
+                <td class="px-4 py-2 text-gray-600 text-xs">
                     {% for tm in (r.team or '').split(' / ') if tm %}<a href="/team/{{ tm | urlencode }}" class="hover:underline">{{ tm }}</a>{% if not loop.last %} / {% endif %}{% endfor %}
                 </td>
-                <td class="px-4 py-3 text-gray-500 text-xs">{{ r.division or '' }} {{ r.gender or '' }}</td>
-                <td class="px-4 py-3 text-right font-mono">{{ r.races }}</td>
-                <td class="px-4 py-3 text-right font-mono font-medium">{{ r.avg_points or '—' }}</td>
-                <td class="px-4 py-3 text-right font-mono">{{ r.avg_place or '—' }}</td>
-                <td class="px-4 py-3 text-right font-mono">{{ r.best_place or '—' }}</td>
-                <td class="px-4 py-3 text-right font-mono">{{ "{:,}".format(r.total_points or 0) }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.races }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.avg_points or '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.avg_place or '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono">{{ r.best_place or '—' }}</td>
+                <td class="px-4 py-2 text-right font-mono font-medium">{{ "{:,}".format(r.total_points or 0) }}</td>
             </tr>
             {% endfor %}
         </tbody>
     </table>
     </div>
-    {% endif %}
-
-    {% if not results %}
-    <div class="px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
-    {% else %}
-    <div class="px-4 py-2 text-xs text-gray-400 border-t bg-gray-50">{{ results|length }} {{ 'teams' if view == 'teams' else 'riders' }} · click a column to sort</div>
-    {% endif %}
 </div>
+{% endfor %}
 
-{% if view == 'riders' and results and metric in ('avg_points', 'total_points', 'avg_place', 'best_place', 'races') %}
-<!-- Chart: first 25 rows in the current sort -->
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-8">
-    <h2 class="text-lg font-semibold text-gray-900 mb-1">Top {{ [results|length, 25] | min }} Riders by {{ metric.replace('_', ' ') }}</h2>
-    {% if metric == 'total_points' and points_by_event %}
+{% if groups | length == 1 and points_by_event %}
+<!-- Chart: the top rows of the one division shown, each bar split by race -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mt-2">
+    <h2 class="text-lg font-semibold text-gray-900 mb-1">Top {{ [groups[0].rows | length, chart_rows] | min }} by total points</h2>
     <p class="text-sm text-gray-400 mb-4">Each bar is split by {{ 'season' if not season else 'race' }}, oldest first, so a missed or weak week stands out. Hover a segment for the points.</p>
-    {% else %}
-    <div class="mb-3"></div>
-    {% endif %}
     <canvas id="leaderChart" height="150"></canvas>
 </div>
+{% endif %}
 {% endif %}
 {% endblock %}
 
 {% block scripts %}
-{% include "_chartjs.html" %}
-{% if view == 'riders' and results and metric in ('avg_points', 'total_points', 'avg_place', 'best_place', 'races') %}
 <script>
-const data = {{ results[:25] | tojson }};
-const metric = '{{ metric }}';
+// Conference is required: Apply stays disabled until at least one is ticked.
+(() => {
+    const form = document.getElementById('standingsForm');
+    const boxes = [...form.querySelectorAll('input[name="conference"]')];
+    const apply = document.getElementById('applyBtn'), hint = document.getElementById('confHint');
+    const sync = () => {
+        const any = boxes.some(b => b.checked);
+        apply.disabled = !any;
+        hint.classList.toggle('hidden', any);
+    };
+    boxes.forEach(b => b.addEventListener('change', sync));
+    // Switching Riders/Teams resubmits right away when a conference is chosen.
+    form.querySelector('select[name="view"]').addEventListener('change', () => {
+        if (boxes.some(b => b.checked)) form.submit();
+    });
+    sync();
+})();
+</script>
+{% if view == 'riders' and groups | length == 1 and points_by_event %}
+{% include "_chartjs.html" %}
+<script>
+const data = {{ groups[0].rows[:chart_rows] | tojson }};
 const byEvent = {{ points_by_event | tojson }};
 const bySeason = {{ 'false' if season else 'true' }};
 const labels = data.map(r => r.name.length > 15 ? r.name.substring(0, 15) + '…' : r.name);
@@ -184,7 +196,7 @@ const labels = data.map(r => r.name.length > 15 ? r.name.substring(0, 15) + '…
 const rowKey = r => `${r.rider_id}|${r.division || ''}|${r.gender || ''}`;
 
 let datasets, stacked = false;
-if (metric === 'total_points' && byEvent.length) {
+if (byEvent.length) {
     // One segment per race (or per season for "All Seasons"), oldest first, so a
     // bar reads left-to-right through the season. Single-hue ordinal ramp,
     // light -> dark; past 6 segments the ramp repeats (adjacent steps still differ).
@@ -224,15 +236,6 @@ if (metric === 'total_points' && byEvent.length) {
         borderRadius: j === n - 1 ? {topRight: 4, bottomRight: 4} : 0,
     }));
     stacked = true;
-} else {
-    datasets = [{
-        label: metric.replace('_', ' '),
-        data: data.map(r => r[metric]),
-        backgroundColor: 'rgba(42,90,153,0.2)',
-        borderColor: 'rgb(42,90,153)',
-        borderWidth: 1.5,
-        borderRadius: 4,
-    }];
 }
 new Chart(document.getElementById('leaderChart'), {
     type: 'bar',
