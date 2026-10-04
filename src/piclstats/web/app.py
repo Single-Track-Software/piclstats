@@ -25,7 +25,7 @@ from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from piclstats.config import settings
-from piclstats.web import canonical, mail, usage
+from piclstats.web import canonical, mail, monitoring, usage
 from piclstats.web.exports import csv_safe_row, filename_part
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
@@ -55,6 +55,8 @@ async def lifespan(app: FastAPI):
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+# Before the app exists, so Sentry's FastAPI integration hooks it.
+monitoring.init()
 app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))

@@ -93,6 +93,7 @@ def test_privacy_page_is_public_and_linked_from_the_footer():
     r = TestClient(app).get("/privacy")
     assert r.status_code == 200
     assert "support@piclstats.com" in r.text and "hide the rider" in r.text
+    assert "Sentry" in r.text  # every service that receives data is named
     assert 'href="/privacy"' in r.text  # the footer link, on every page
     assert 'name="robots"' not in r.text
 
