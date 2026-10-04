@@ -686,6 +686,8 @@ def team_profile(
 
 # Rows the leaderboard chart shows (the table shows everyone).
 CHART_ROWS = 25
+# Riders each division table shows before "Show all" (the podium, ties included).
+STANDINGS_TOP_N = 5
 
 
 @app.get("/leaderboard", response_class=HTMLResponse)
@@ -760,6 +762,7 @@ def leaderboard_page(
             gender=gender,
             view=view,
             chart_rows=CHART_ROWS,
+            top_n=STANDINGS_TOP_N,
         ),
     )
 

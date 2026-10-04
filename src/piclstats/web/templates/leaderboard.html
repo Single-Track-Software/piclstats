@@ -3,7 +3,8 @@
 {% block description %}PICL conference standings by division: total points for riders and teams each season.{% endblock %}
 
 {% block content %}
-<h1 class="text-3xl font-bold text-gray-900 mb-6">Leaderboard</h1>
+<h1 class="text-3xl font-bold text-gray-900">Leaderboard</h1>
+<p class="text-sm text-gray-500 mt-1 mb-6">Results do not include bonus TTC points.</p>
 
 <!-- Filters: View / Season / Conference (required) / Division / Gender -->
 <form method="get" id="standingsForm" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
@@ -131,9 +132,11 @@
                 <th class="px-4 py-2 text-right">Total Pts</th>
             </tr>
         </thead>
+        {# Top 5 (ties at 5th included) show by default; the rest expand per table. #}
+        {% set extra = g.rows | selectattr('rank', 'gt', top_n) | list | length %}
         <tbody class="divide-y divide-gray-100">
             {% for r in g.rows %}
-            <tr class="hover:bg-picl-50 transition-colors">
+            <tr class="hover:bg-picl-50 transition-colors {{ 'hidden' if r.rank > top_n }}"{{ ' data-standings-extra' if r.rank > top_n }}>
                 <td class="px-4 py-2 text-gray-400 font-mono">{{ r.rank }}</td>
                 <td class="px-4 py-2">
                     <a href="/rider/{{ r.rider_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
@@ -151,6 +154,12 @@
         </tbody>
     </table>
     </div>
+    {% if extra %}
+    <button type="button" data-standings-toggle class="w-full px-4 py-2 border-t text-xs font-medium text-picl-700 hover:bg-picl-50"
+            data-more="Show all {{ g.rows | length }} riders" data-less="Show top {{ top_n }} only" aria-expanded="false">
+        Show all {{ g.rows | length }} riders
+    </button>
+    {% endif %}
 </div>
 {% endfor %}
 
@@ -184,6 +193,15 @@
     });
     sync();
 })();
+// Each division table shows its top 5; its button reveals the full standings.
+document.addEventListener("click", e => {
+    const btn = e.target.closest("[data-standings-toggle]");
+    if (!btn) return;
+    const open = btn.getAttribute("aria-expanded") !== "true";
+    btn.parentElement.querySelectorAll("[data-standings-extra]").forEach(tr => tr.classList.toggle("hidden", !open));
+    btn.setAttribute("aria-expanded", String(open));
+    btn.textContent = open ? btn.dataset.less : btn.dataset.more;
+});
 </script>
 {% if view == 'riders' and groups | length == 1 and points_by_event %}
 {% include "_chartjs.html" %}
