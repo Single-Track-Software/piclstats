@@ -76,8 +76,10 @@ _LAPS_CONSISTENT = f"""
 def _lap_joins(*, inner: bool = False, loop_filter: str = "") -> str:
     """Join the lap profile (dl) and loop (cl) for a result row `r` at event `e`.
 
-    Course profiles are per season: a division_laps / course_loops row whose
-    season matches the event wins, otherwise the season-NULL default applies.
+    Course profiles are per season: a division_laps / course_loops /
+    course_prologues row whose season matches the event wins, otherwise the
+    season-NULL default applies. `pr` (the prologue) may be absent: use
+    _RACE_MILES / _PROLOGUE, which treat that as 0.
     `inner` drops results with no profile at all (staging needs that);
     `loop_filter` is extra SQL against alias `d` (e.g. an age-group filter).
     """
@@ -104,10 +106,22 @@ def _lap_joins(*, inner: bool = False, loop_filter: str = "") -> str:
             ORDER BY l.season NULLS LAST
             LIMIT 1
         ) cl ON true
+        LEFT JOIN LATERAL (
+            SELECT p.prologue_miles
+            FROM course_prologues p
+            WHERE p.course_id = e.course_id
+              AND (p.season = e.season OR p.season IS NULL)
+            ORDER BY p.season NULLS LAST
+            LIMIT 1
+        ) pr ON true
     """
 
 
 _LAP_JOINS = _lap_joins()
+# Distance actually ridden: the laps plus the prologue from the start onto
+# lap 1 (shared by MS and HS; 0 when the course has none on record).
+_PROLOGUE = "COALESCE(pr.prologue_miles, 0)"
+_RACE_MILES = f"({_ACTUAL_LAPS} * cl.distance_miles + {_PROLOGUE})"
 _LAP_JOINS_INNER = _lap_joins(inner=True)
 _LAP_JOINS_AGE_GROUP = _lap_joins(inner=True, loop_filter="AND d.loop_type = :age_group")
 
@@ -440,6 +454,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             dl.loop_type,
             dl.lap_count AS expected_laps,
             cl.distance_miles AS loop_distance,
+            {_PROLOGUE} AS prologue_miles,
             {_ACTUAL_LAPS} AS laps_ridden,
             -- Fastest lap in seconds. Lap 1 often includes a start loop of a
             -- different length, so on a 3+ lap race it is left out (same
@@ -477,7 +492,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
                       AND {_LAPS_CONSISTENT}
                  THEN round((
                      ({_RIDE_SECS} / 60.0)
-                     / ({_ACTUAL_LAPS} * cl.distance_miles)
+                     / {_RACE_MILES}
                  )::numeric, 1)
             END AS min_per_mile
         FROM results r
@@ -613,6 +628,7 @@ def team_season_rows(session: Session, team_name: str, season: int) -> list[dict
                END AS percentile,
                CASE WHEN r.dq_status <> 'excluded' THEN {_ACTUAL_LAPS} ELSE 0 END AS laps_ridden,
                cl.distance_miles AS loop_distance,
+               {_PROLOGUE} AS prologue_miles,
                CASE WHEN {_LAPS_CONSISTENT} AND r.lap3 IS NOT NULL AND r.lap2 > interval '0'
                     THEN round((EXTRACT(EPOCH FROM (
                                     COALESCE(r.lap6, r.lap5, r.lap4, r.lap3) - r.lap2))
@@ -1171,7 +1187,7 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
                ) FILTER (WHERE {_LAPS_CONSISTENT})::numeric, 1) AS avg_pace_per_lap_secs,
                round(avg(
                    ({_RIDE_SECS} / 60.0)
-                   / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
+                   / NULLIF({_RACE_MILES}, 0)
                ) FILTER (WHERE {_LAPS_CONSISTENT} AND cl.distance_miles > 0)::numeric, 1) AS avg_min_per_mile
         FROM {_COURSE_RESULTS}
         JOIN events e ON r.event_id = e.id AND e.is_published
@@ -1225,10 +1241,20 @@ def course_detail(session: Session, course_id: int, season: int | None = None) -
         r[0]: {"distance_miles": r[1], "elevation_ft": r[2], "elevation_loss_ft": r[3]}
         for r in loops
     }
+    prologue = session.execute(
+        text("""
+        SELECT prologue_miles FROM course_prologues
+        WHERE course_id = :id AND (season IS NULL OR season = :season)
+        ORDER BY season NULLS LAST
+        LIMIT 1
+    """),
+        {"id": course_id, "season": season},
+    ).scalar()
 
     return {
         "info": _serialize(info._mapping),
         "loops": loops_dict,
+        "prologue_miles": float(prologue or 0),
         "events": [_serialize(r._mapping) for r in events_at],
         "laps": [_serialize(r._mapping) for r in laps],
         "division_stats": [_serialize(r._mapping) for r in division_stats],
@@ -1291,13 +1317,14 @@ def rider_forecast_data(session: Session, rider_id: int) -> dict | None:
             dl.loop_type,
             dl.lap_count,
             cl.distance_miles AS loop_distance,
+            {_PROLOGUE} AS prologue_miles,
             CASE WHEN r.total_time IS NOT NULL
                       AND r.dq_status <> 'excluded'
                       AND cl.distance_miles > 0
                       AND {_LAPS_CONSISTENT}
                  THEN round((
                      ({_RIDE_SECS} / 60.0)
-                     / ({_ACTUAL_LAPS} * cl.distance_miles)
+                     / {_RACE_MILES}
                  )::numeric, 1)
             END AS min_per_mile,
             CASE WHEN cl.distance_miles > 0 AND cl.elevation_ft IS NOT NULL
@@ -1389,7 +1416,7 @@ def rider_speed_rating(session: Session, rider_id: int, min_field: int = 8) -> l
                           AND cl.distance_miles > 0
                           AND {_LAPS_CONSISTENT}
                      THEN ({_RIDE_SECS} / 60.0)
-                          / ({_ACTUAL_LAPS} * cl.distance_miles)
+                          / {_RACE_MILES}
                 END AS min_per_mile
             FROM results r
             JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
@@ -1459,7 +1486,9 @@ def staging_rows(
                      WHEN r.status = 'DNF' AND {_ACTUAL_LAPS} > 0
                          THEN EXTRACT(EPOCH FROM {_SUM_LAPS}) / {_ACTUAL_LAPS}
                 END AS lap_secs,
-                cl.distance_miles
+                {_ACTUAL_LAPS} AS laps_ridden,
+                cl.distance_miles,
+                {_PROLOGUE} AS prologue_miles
             FROM results r
             JOIN events e ON r.event_id = e.id AND e.is_published AND e.event_type = 'points'
                 AND e.season = :season
@@ -1473,8 +1502,10 @@ def staging_rows(
         ),
         clean AS (
             SELECT *,
-                CASE WHEN distance_miles > 0 THEN (lap_secs / 60.0) / distance_miles END
-                    AS min_per_mile
+                CASE WHEN distance_miles > 0 AND laps_ridden > 0
+                     THEN (lap_secs * laps_ridden / 60.0)
+                          / (laps_ridden * distance_miles + prologue_miles)
+                END AS min_per_mile
             FROM base
         ),
         ranged AS (
@@ -1552,7 +1583,7 @@ def division_pace_distribution(
             count(*) OVER (PARTITION BY r.event_id) AS field_size,
             round((
                 ({_RIDE_SECS} / 60.0)
-                / NULLIF({_ACTUAL_LAPS} * cl.distance_miles, 0)
+                / NULLIF({_RACE_MILES}, 0)
             )::numeric, 1) AS min_per_mile
         FROM results r
         JOIN events e ON r.event_id = e.id AND e.is_published
@@ -1600,7 +1631,7 @@ def past_race_fields(session: Session, event_ids: list[int], gender: str) -> lis
                       AND {_LAPS_CONSISTENT}
                  THEN round((
                      ({_RIDE_SECS} / 60.0)
-                     / ({_ACTUAL_LAPS} * cl.distance_miles)
+                     / {_RACE_MILES}
                  )::numeric, 1)
             END AS min_per_mile
         FROM results r
@@ -1840,7 +1871,7 @@ def division_profile_lookup(
     course_id: int | None = None,
     season: int | None = None,
 ) -> dict | None:
-    """Lap count, loop type, loop distance and climbing for a division.
+    """Lap count, loop type, loop distance, prologue and climbing for a division.
 
     With a course, that course's profile is used — its row for `season` when
     one exists, else the course default. Without a course the league-wide
@@ -1859,7 +1890,14 @@ def division_profile_lookup(
 
     row = session.execute(
         text(f"""
-        SELECT dl.lap_count, dl.loop_type, cl.distance_miles, cl.elevation_ft, dl.season
+        SELECT dl.lap_count, dl.loop_type, cl.distance_miles, cl.elevation_ft, dl.season,
+               COALESCE((
+                   SELECT p.prologue_miles FROM course_prologues p
+                   WHERE p.course_id = dl.course_id
+                     AND (p.season = :season OR p.season IS NULL)
+                   ORDER BY p.season NULLS LAST
+                   LIMIT 1
+               ), 0) AS prologue_miles
         FROM division_laps dl
         JOIN LATERAL (
             SELECT l.distance_miles, l.elevation_ft
@@ -1881,12 +1919,14 @@ def division_profile_lookup(
 
     if not row:
         return None
-    lap_count, loop_type, miles, elev, profile_season = row
+    lap_count, loop_type, miles, elev, profile_season, prologue = row
     climb = round(elev / miles, 1) if miles and elev is not None else None
     return {
         "lap_count": lap_count,
         "loop_type": loop_type,
         "loop_miles": float(miles),
+        # Only a known course has a prologue; league-wide defaults carry none.
+        "prologue_miles": float(prologue) if course_id is not None else 0.0,
         "elevation_ft_per_mile": climb,
         "profile_season": profile_season,
     }
@@ -2077,7 +2117,7 @@ _VENUE_ROW_SQL = f"""
                   AND {_LAPS_CONSISTENT}
              THEN round((
                  ({_RIDE_SECS} / 60.0)
-                 / ({_ACTUAL_LAPS} * cl.distance_miles)
+                 / {_RACE_MILES}
              )::numeric, 2)
         END AS min_per_mile
     FROM results r

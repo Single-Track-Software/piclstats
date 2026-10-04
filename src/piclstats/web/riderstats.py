@@ -9,6 +9,14 @@ from __future__ import annotations
 from typing import Any
 
 
+def miles_ridden(r: dict[str, Any]) -> float:
+    """Laps x loop plus the prologue onto lap 1; 0 when the loop is unknown."""
+    laps = int(r.get("laps_ridden") or 0)
+    if not laps or not r.get("loop_distance"):
+        return 0.0
+    return laps * float(r["loop_distance"]) + float(r.get("prologue_miles") or 0)
+
+
 def _avg(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 1) if values else None
 
@@ -103,11 +111,7 @@ def career_highlights(races: list[dict[str, Any]]) -> dict[str, Any] | None:
         return None
 
     laps = sum(int(r.get("laps_ridden") or 0) for r in clean)
-    miles = sum(
-        int(r.get("laps_ridden") or 0) * float(r["loop_distance"])
-        for r in clean
-        if r.get("loop_distance")
-    )
+    miles = sum(miles_ridden(r) for r in clean)
 
     def best(key, rows_):
         rows_ = [r for r in rows_ if r.get(key) is not None]

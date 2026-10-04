@@ -256,6 +256,20 @@ def test_finish_time_is_pace_times_distance():
     assert result.inputs_summary["predicted_finish_display"]
 
 
+def test_finish_time_adds_the_prologue_onto_lap_one():
+    flat = _model().predict(_inp(target_laps=3, target_loop_miles=2.0))
+    with_prologue = _model().predict(
+        _inp(target_laps=3, target_loop_miles=2.0, target_prologue_miles=0.4)
+    )
+    assert flat is not None and with_prologue is not None
+    assert flat.predicted_finish_minutes and with_prologue.predicted_finish_minutes
+    # same pace, 6.4 mi instead of 6.0
+    ratio = with_prologue.predicted_finish_minutes / flat.predicted_finish_minutes
+    assert ratio == pytest.approx(6.4 / 6.0, rel=0.01)
+    assert "0.4 mi prologue" in with_prologue.inputs_summary["target_loop"]
+    assert "prologue" not in flat.inputs_summary["target_loop"]
+
+
 def test_finish_time_grows_with_target_climbing():
     ref = DEFAULT_CONFIG["reference_climbing_ft_per_mile"]
     flat = _model().predict(_inp(target_elevation_ft_per_mile=ref))
