@@ -44,3 +44,74 @@ def group_standings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         {"division": division, "gender": gender, "rows": rank_by_total(groups[(division, gender)])}
         for division, gender in keys
     ]
+
+
+def ordinal(n: int) -> str:
+    """1 -> 1st, 2 -> 2nd, 11 -> 11th, 23 -> 23rd."""
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def standing_in(ranked: list[dict[str, Any]], rider_id: int) -> dict[str, Any] | None:
+    """The rider's place in one ranked table: rank, field size, total, tie flag."""
+    row = next((r for r in ranked if r.get("rider_id") == rider_id), None)
+    if row is None:
+        return None
+    tied = sum(1 for r in ranked if r["rank"] == row["rank"]) > 1
+    return {
+        "rank": row["rank"],
+        "label": ("T" if tied else "") + ordinal(row["rank"]),
+        "of": len(ranked),
+        "total_points": row.get("total_points") or 0,
+    }
+
+
+def rider_conference_standings(session: Any, rider_id: int) -> dict[int, list[dict[str, Any]]]:
+    """Season -> the rider's conference standing(s), computed like the leaderboard.
+
+    One entry per (conference, division, gender) the rider scored in that
+    season; usually one, more if they moved division or team. `standing` is
+    None when they haven't yet ridden enough races to rank (the leaderboard's
+    two-race minimum).
+    """
+    from sqlalchemy import text
+
+    from piclstats.web import queries
+
+    combos = session.execute(
+        text(r"""
+        SELECT DISTINCT e.season, regexp_replace(tc.conference, '\s+', ' ', 'g') AS conference,
+               r.division, r.gender
+        FROM results r
+        JOIN events e ON e.id = r.event_id AND e.is_published AND e.event_type = 'points'
+        JOIN riders ri ON ri.id = r.rider_id
+        JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
+        WHERE r.rider_id IN (
+                SELECT rider_id FROM rider_aliases WHERE canonical_id = :cid
+                UNION SELECT CAST(:cid AS int)
+              )
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+        ORDER BY e.season
+    """),
+        {"cid": rider_id},
+    ).all()
+    out: dict[int, list[dict[str, Any]]] = {}
+    for season, conference, division, gender in combos:
+        rows = queries.leaderboard(
+            session,
+            season,
+            division,
+            gender,
+            "total_points",
+            limit=None,
+            conferences=[conference],
+        )
+        out.setdefault(season, []).append(
+            {
+                "conference": conference,
+                "division": division,
+                "gender": gender,
+                "standing": standing_in(rank_by_total(rows), rider_id),
+            }
+        )
+    return out

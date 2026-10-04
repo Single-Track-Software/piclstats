@@ -137,6 +137,21 @@
                 <div class="font-mono font-medium">{{ ss.total_points or '—' }}{% if ss.avg_points %} <span class="text-[10px] text-gray-400">avg {{ "%.0f"|format(ss.avg_points) }}</span>{% endif %}</div>
             </div>
         </div>
+        {# Conference standing, ranked exactly as the leaderboard ranks it. #}
+        {% for cs in conference_standings.get(ss.season, []) %}
+        <div class="mt-3 pt-3 border-t border-gray-100">
+            <div class="flex items-baseline justify-between gap-2">
+                <span class="text-gray-400 text-xs">{{ 'Current' if ss.season == current_season else 'Final' }} standing</span>
+                <a href="/leaderboard?{{ {'season': ss.season, 'conference': cs.conference, 'division': cs.division or '', 'gender': cs.gender or ''} | urlencode }}"
+                   class="text-xs text-picl-700 hover:underline text-right" title="Open these standings">{{ cs.conference }} · {{ cs.division }}{% if cs.gender %} {{ cs.gender }}{% endif %}</a>
+            </div>
+            {% if cs.standing %}
+            <div class="mt-0.5"><span class="text-xl font-bold text-picl-700">{{ cs.standing.label }}</span> <span class="text-sm text-gray-500">of {{ cs.standing.of }} · <span class="font-mono">{{ "{:,}".format(cs.standing.total_points) }}</span> pts</span></div>
+            {% else %}
+            <div class="mt-0.5 text-sm text-gray-400">Not ranked{{ ' yet' if ss.season == current_season }}: standings need two races</div>
+            {% endif %}
+        </div>
+        {% endfor %}
     </div>
     {% endfor %}
 </div>

@@ -44,3 +44,39 @@ def test_each_group_is_ranked_on_its_own():
     jv1 = next(g for g in groups if g["division"] == "JV1")
     assert [(r["name"], r["rank"]) for r in jv1["rows"]] == [("b", 1), ("a", 2)]
     assert groups[0]["division"] == "Varsity" and groups[0]["rows"][0]["rank"] == 1
+
+
+def test_ordinals():
+    from piclstats.web.standings import ordinal
+
+    assert [ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 101, 111)] == [
+        "1st",
+        "2nd",
+        "3rd",
+        "4th",
+        "11th",
+        "12th",
+        "13th",
+        "21st",
+        "22nd",
+        "23rd",
+        "101st",
+        "111th",
+    ]
+
+
+def test_standing_in_finds_the_rider_and_marks_ties():
+    from piclstats.web.standings import standing_in
+
+    ranked = rank_by_total(
+        [
+            {"rider_id": 1, "name": "A", "total_points": 900},
+            {"rider_id": 2, "name": "B", "total_points": 700},
+            {"rider_id": 3, "name": "C", "total_points": 700},
+            {"rider_id": 4, "name": "D", "total_points": 100},
+        ]
+    )
+    assert standing_in(ranked, 1) == {"rank": 1, "label": "1st", "of": 4, "total_points": 900}
+    assert standing_in(ranked, 3)["label"] == "T2nd"
+    assert standing_in(ranked, 4)["label"] == "4th"
+    assert standing_in(ranked, 99) is None
