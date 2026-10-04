@@ -18,7 +18,7 @@
         </div>
         <div>
             <label class="block text-xs font-medium text-gray-500 mb-1">Season</label>
-            <select name="season" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
+            <select name="season" id="seasonSelect" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm">
                 <option value="all" {{ 'selected' if season is none }}>All Seasons</option>
                 {% for s in seasons %}
                 <option value="{{ s }}" {{ 'selected' if s == season }}>{{ s }}</option>
@@ -27,11 +27,12 @@
         </div>
         <fieldset class="md:col-span-2">
             <legend class="block text-xs font-medium text-gray-500 mb-1">Conference <span class="text-red-600" aria-hidden="true">*</span><span class="sr-only">(required, pick at least one)</span></legend>
-            <div class="flex flex-wrap gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-sm {{ 'border-red-300 bg-red-50' if not conferences else 'border-gray-300' }}">
-                {% for c in conference_choices %}
+            {# West to east; the season select rebuilds this list in place (see script). #}
+            <div id="confBox" class="flex flex-wrap gap-x-4 gap-y-1 rounded-lg border px-3 py-2 text-sm {{ 'border-red-300 bg-red-50' if not conferences else 'border-gray-300' }}">
+                {% for c in conference_entries %}
                 <label class="inline-flex items-center gap-1.5 whitespace-nowrap">
-                    <input type="checkbox" name="conference" value="{{ c }}" {{ 'checked' if c in conferences }} class="rounded border-gray-300 text-picl-600">
-                    {{ c }}
+                    <input type="checkbox" name="conference" value="{{ c.name }}" data-region="{{ c.region }}" {{ 'checked' if c.name in conferences }} class="rounded border-gray-300 text-picl-600">
+                    {{ c.name }}
                 </label>
                 {% else %}
                 <span class="text-gray-400">No conferences on record for this season</span>
@@ -178,18 +179,52 @@
 <script>
 // Conference is required: Apply stays disabled until at least one is ticked.
 (() => {
-    const form = document.getElementById('standingsForm');
-    const boxes = [...form.querySelectorAll('input[name="conference"]')];
-    const apply = document.getElementById('applyBtn'), hint = document.getElementById('confHint');
+    const form = document.getElementById("standingsForm");
+    const confBox = document.getElementById("confBox");
+    const apply = document.getElementById("applyBtn"), hint = document.getElementById("confHint");
+    // Each season's conferences, west to east (2024 had one Eastern; 2025 on, Blue and Gold).
+    const BY_SEASON = {{ conferences_by_season | tojson }};
+    const boxes = () => [...confBox.querySelectorAll("input[name=conference]")];
     const sync = () => {
-        const any = boxes.some(b => b.checked);
+        const any = boxes().some(b => b.checked);
         apply.disabled = !any;
-        hint.classList.toggle('hidden', any);
+        hint.classList.toggle("hidden", any);
+        confBox.classList.toggle("border-red-300", !any);
+        confBox.classList.toggle("bg-red-50", !any);
+        confBox.classList.toggle("border-gray-300", any);
     };
-    boxes.forEach(b => b.addEventListener('change', sync));
+    confBox.addEventListener("change", sync);
+    // A new season swaps in its conferences right away. A ticked conference
+    // stays ticked; one the new season lacks carries to the same region
+    // (Eastern Blue in 2025 -> Eastern in 2024, and back to Blue and Gold).
+    document.getElementById("seasonSelect").addEventListener("change", e => {
+        const ticked = boxes().filter(b => b.checked).map(b => ({name: b.value, region: b.dataset.region}));
+        const confs = BY_SEASON[e.target.value] || [];
+        const names = new Set(confs.map(c => c.name));
+        const carried = new Set(ticked.filter(t => !names.has(t.name)).map(t => t.region));
+        const keep = new Set(ticked.map(t => t.name));
+        confBox.replaceChildren(...confs.map(c => {
+            const label = document.createElement("label");
+            label.className = "inline-flex items-center gap-1.5 whitespace-nowrap";
+            const box = document.createElement("input");
+            Object.assign(box, {type: "checkbox", name: "conference", value: c.name,
+                                checked: keep.has(c.name) || carried.has(c.region)});
+            box.dataset.region = c.region;
+            box.className = "rounded border-gray-300 text-picl-600";
+            label.append(box, " " + c.name);
+            return label;
+        }));
+        if (!confs.length) {
+            const none = document.createElement("span");
+            none.className = "text-gray-400";
+            none.textContent = "No conferences on record for this season";
+            confBox.append(none);
+        }
+        sync();
+    });
     // Switching Riders/Teams resubmits right away when a conference is chosen.
-    form.querySelector('select[name="view"]').addEventListener('change', () => {
-        if (boxes.some(b => b.checked)) form.submit();
+    form.querySelector("select[name=view]").addEventListener("change", () => {
+        if (boxes().some(b => b.checked)) form.submit();
     });
     sync();
 })();

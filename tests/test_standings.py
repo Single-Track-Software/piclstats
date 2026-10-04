@@ -80,3 +80,25 @@ def test_standing_in_finds_the_rider_and_marks_ties():
     assert standing_in(ranked, 3)["label"] == "T2nd"
     assert standing_in(ranked, 4)["label"] == "4th"
     assert standing_in(ranked, 99) is None
+
+
+def test_conferences_run_west_to_east():
+    from piclstats.web.queries import _conference_sort_key
+
+    confs = {
+        "Eastern Gold": "Eastern",
+        "Central": "Central",
+        "Eastern Blue": "Eastern",
+        "Western": "Western",
+        "Eastern": "Eastern",
+        "Northern Tier": "",  # unknown region sorts last
+    }
+    ordered = sorted(confs, key=lambda n: _conference_sort_key(n, confs[n]))
+    assert ordered == [
+        "Western",
+        "Central",
+        "Eastern",
+        "Eastern Blue",
+        "Eastern Gold",
+        "Northern Tier",
+    ]
