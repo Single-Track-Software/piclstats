@@ -903,6 +903,40 @@ TEAM_SORTS: dict[str, tuple[str, str]] = {
 }
 
 
+# A result counts toward a conference's standings when the rider's team was in
+# that conference that season (team_conferences; names normalised for stray
+# whitespace). Bound with an expanding `conferences` parameter.
+_CONFERENCE_FILTER = """
+    EXISTS (
+        SELECT 1 FROM riders cr
+        JOIN team_conferences tc ON tc.team = cr.team AND tc.season = e.season
+        WHERE cr.id = r.rider_id
+          AND regexp_replace(tc.conference, '\\s+', ' ', 'g') IN :conferences
+    )
+"""
+
+
+def conference_options(session: Session, season: int | None) -> list[str]:
+    """Conferences on record for a season (every season when None), A-Z."""
+    rows = session.execute(
+        text(r"""
+        SELECT DISTINCT regexp_replace(conference, '\s+', ' ', 'g') AS conference
+        FROM team_conferences
+        WHERE CAST(:season AS int) IS NULL OR season = CAST(:season AS int)
+        ORDER BY 1
+    """),
+        {"season": season},
+    ).all()
+    return [r[0] for r in rows]
+
+
+def _with_conferences(sql: str, conferences: list[str] | None):
+    stmt = text(sql)
+    if conferences:
+        stmt = stmt.bindparams(bindparam("conferences", expanding=True))
+    return stmt
+
+
 def leaderboard_order(
     sorts: dict[str, tuple[str, str]], metric: str, direction: str | None
 ) -> tuple[str, str, str]:
@@ -927,6 +961,7 @@ def leaderboard(
     metric: str = "avg_points",
     limit: int | None = 25,
     direction: str | None = None,
+    conferences: list[str] | None = None,
 ) -> list[dict]:
     """Top riders by chosen metric — merged riders unified.
 
@@ -947,6 +982,9 @@ def leaderboard(
     if gender:
         filters.append("r.gender = :gender")
         params["gender"] = gender
+    if conferences:
+        filters.append(_CONFERENCE_FILTER)
+        params["conferences"] = list(conferences)
 
     where = " AND ".join(filters)
     _, _, order_col = leaderboard_order(RIDER_SORTS, metric, direction)
@@ -974,12 +1012,12 @@ def leaderboard(
             SELECT count(*) FROM events e2
             WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
         ))
-        ORDER BY {order_col}
+        ORDER BY {order_col}, c.name
         {limit_sql}
     """
     if limit:
         params["limit"] = limit
-    rows = session.execute(text(sql), params).all()
+    rows = session.execute(_with_conferences(sql, conferences), params).all()
     return [_serialize(r._mapping) for r in rows]
 
 
@@ -989,6 +1027,7 @@ def leaderboard_points_by_event(
     division: str | None = None,
     gender: str | None = None,
     rider_ids: list[int] | None = None,
+    conferences: list[str] | None = None,
 ) -> list[dict]:
     """Points each rider scored in each event, for the leaderboard's stacked bars.
 
@@ -1013,6 +1052,9 @@ def leaderboard_points_by_event(
     if gender:
         filters.append("r.gender = :gender")
         params["gender"] = gender
+    if conferences:
+        filters.append(_CONFERENCE_FILTER)
+        params["conferences"] = list(conferences)
     where = " AND ".join(filters)
     sql = f"""
         WITH {_CANONICAL_CTE}
@@ -1028,7 +1070,8 @@ def leaderboard_points_by_event(
         GROUP BY c.cid, r.division, r.gender, e.id, e.season, e.event_order, e.event_name, co.name
         ORDER BY e.season, e.event_order, e.id
     """
-    rows = session.execute(text(sql).bindparams(bindparam("rider_ids", expanding=True)), params)
+    stmt = _with_conferences(sql, conferences).bindparams(bindparam("rider_ids", expanding=True))
+    rows = session.execute(stmt, params)
     return [_serialize(r._mapping) for r in rows]
 
 
@@ -1039,6 +1082,7 @@ def team_leaderboard(
     metric: str = "avg_points",
     direction: str | None = None,
     min_riders: int = 1,
+    conferences: list[str] | None = None,
 ) -> list[dict]:
     """Teams ranked by their riders' results.
 
@@ -1053,6 +1097,10 @@ def team_leaderboard(
     if season:
         season_filter = "AND e.season = :season"
         params["season"] = season
+    conference_filter = ""
+    if conferences:
+        conference_filter = "AND " + _CONFERENCE_FILTER
+        params["conferences"] = list(conferences)
     _, _, order_col = leaderboard_order(TEAM_SORTS, metric, direction)
     limit_sql = "LIMIT :limit" if limit else ""
 
@@ -1071,12 +1119,13 @@ def team_leaderboard(
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND ri.team IS NOT NULL
           AND {_POINTS_ONLY}
           {season_filter}
+          {conference_filter}
         GROUP BY ri.team_key
         HAVING count(DISTINCT ri.id) >= :min_riders
-        ORDER BY {order_col}
+        ORDER BY {order_col}, team
         {limit_sql}
     """
-    rows = session.execute(text(sql), params).all()
+    rows = session.execute(_with_conferences(sql, conferences), params).all()
     return [_serialize(r._mapping) for r in rows]
 
 

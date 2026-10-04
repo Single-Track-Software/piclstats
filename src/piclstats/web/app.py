@@ -692,61 +692,74 @@ CHART_ROWS = 25
 def leaderboard_page(
     request: Request,
     season_raw: str = Query("", alias="season"),
+    conference: list[str] = Query([]),
     division: str = Query(""),
     gender: str = Query(""),
-    metric: str = Query("avg_points"),
-    dir: str | None = Query(None),
     view: str = Query("riders"),
 ):
-    # Column headers sort: `metric` is the column, `dir` the direction; an
-    # unknown/missing direction uses the column's natural one. No row cap —
-    # the table shows everyone who qualifies, only the chart is trimmed.
-    sorts = queries.TEAM_SORTS if view == "teams" else queries.RIDER_SORTS
-    metric, direction, _ = queries.leaderboard_order(sorts, metric, dir)
+    # Standings are per conference (the state series has no standings, only
+    # the final's day-of results), so the page asks for at least one
+    # conference before showing anything. Ranked by total points only; riders
+    # come in one table per division and gender, oldest division first.
+    from piclstats.web.standings import group_standings, rank_by_total
+
+    view = "teams" if view == "teams" else "riders"
     with get_session() as session:
         season = season_or_current(season_raw, session)
         seasons = queries.seasons_list(session)
         divisions = queries.divisions_list(session)
-        if view == "teams":
-            results = queries.team_leaderboard(
-                session, season, limit=None, metric=metric, direction=direction
-            )
-        else:
-            results = queries.leaderboard(
-                session,
-                season,
-                division or None,
-                gender or None,
-                metric,
-                limit=None,
-                direction=direction,
-            )
-        # The total-points chart stacks each rider's bar by race (or by season
-        # for "All Seasons"), so a bad week shows. Only the charted rows.
+        conference_choices = queries.conference_options(session, season)
+        chosen = [c for c in conference if c in conference_choices]
+        groups: list[dict] = []
+        teams: list[dict] = []
         points_by_event: list[dict] = []
-        if view != "teams" and metric == "total_points":
-            points_by_event = queries.leaderboard_points_by_event(
+        if chosen and view == "teams":
+            teams = rank_by_total(
+                [
+                    {**t, "name": t["team"]}
+                    for t in queries.team_leaderboard(
+                        session, season, limit=None, metric="total_points", conferences=chosen
+                    )
+                ]
+            )
+        elif chosen:
+            rows = queries.leaderboard(
                 session,
                 season,
                 division or None,
                 gender or None,
-                rider_ids=[r["rider_id"] for r in results[:CHART_ROWS]],
+                "total_points",
+                limit=None,
+                conferences=chosen,
             )
+            groups = group_standings(rows)
+            # The stacked points-by-race chart compares like with like, so it
+            # only shows when the filters leave a single division and gender.
+            if len(groups) == 1:
+                points_by_event = queries.leaderboard_points_by_event(
+                    session,
+                    season,
+                    division or None,
+                    gender or None,
+                    rider_ids=[r["rider_id"] for r in groups[0]["rows"][:CHART_ROWS]],
+                    conferences=chosen,
+                )
     return templates.TemplateResponse(
         "leaderboard.html",
         _ctx(
             request,
-            results=results,
+            groups=groups,
+            teams=teams,
             points_by_event=points_by_event,
             seasons=seasons,
             divisions=divisions,
+            conference_choices=conference_choices,
+            conferences=chosen,
             season=season,
             division=division,
             gender=gender,
-            metric=metric,
-            direction=direction,
-            sort_defaults={k: v[1] for k, v in sorts.items()},
             view=view,
+            chart_rows=CHART_ROWS,
         ),
     )
 
