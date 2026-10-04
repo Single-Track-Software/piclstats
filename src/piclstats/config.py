@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     # the whole site down, as happened on 2026-09-15. 0 disables.
     statement_timeout_ms: int = 15000
     log_level: str = "INFO"
+    # Error reporting to Sentry (web/monitoring.py). Off when unset, so dev and
+    # tests send nothing; prod sets PICLSTATS_SENTRY_DSN as a Fly secret.
+    sentry_dsn: str = ""
+    sentry_traces_sample_rate: float = 0.1
     admin_password: str = ""
     # Bootstrap admin login and the key that signs session cookies. Set both
     # admin_email and admin_password to seed the first admin on startup.
