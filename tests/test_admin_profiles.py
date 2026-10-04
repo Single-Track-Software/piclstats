@@ -77,3 +77,15 @@ def test_race_type_summary_for_courses_table():
         race_type_summary([(2023, "race"), (2022, "rally"), (2024, "race")]) == "Race · rally 2022"
     )
     assert race_type_summary([]) == ""
+
+
+def test_prologue_parses_and_blank_is_none():
+    assert parse_profile_form({}).prologue_miles is None
+    assert parse_profile_form({"prologue_miles": " 0.4 "}).prologue_miles == 0.4
+    assert parse_profile_form({"prologue_miles": "0"}).prologue_miles == 0.0
+
+
+@pytest.mark.parametrize("bad", ["-0.1", "5", "abc"])
+def test_prologue_must_be_a_sane_distance(bad):
+    with pytest.raises(ValueError):
+        parse_profile_form({"prologue_miles": bad})

@@ -48,6 +48,8 @@ class ForecastInput:
     target_loop_type: str
     source_loop_miles: float
     target_loop_miles: float
+    # Start onto lap 1 at the target course (shared by MS and HS); 0 if none.
+    target_prologue_miles: float = 0.0
     # Set when the forecast is for a specific course: its loop's climbing rate
     # (ft gain per mile) and which profile season the laps/loop came from.
     target_elevation_ft_per_mile: float | None = None
@@ -70,7 +72,7 @@ class ForecastResult:
     readiness_detail: str
     confidence: str  # "High", "Medium", "Low"
     inputs_summary: dict
-    # Finish time on the target course: adjusted pace × laps × loop distance,
+    # Finish time on the target course: adjusted pace × (laps × loop + prologue),
     # re-scaled for the target loop's climbing. None if laps/loop are unknown.
     predicted_finish_minutes: float | None = None
 
@@ -399,7 +401,10 @@ class StatisticalForecastModel:
                     (inp.target_elevation_ft_per_mile - ref_climb) / 100.0
                 )
             predicted_finish = round(
-                adjusted_pace * target_climb_adj * inp.target_laps * inp.target_loop_miles, 1
+                adjusted_pace
+                * target_climb_adj
+                * (inp.target_laps * inp.target_loop_miles + inp.target_prologue_miles),
+                1,
             )
 
         # Step 8: Transparency
@@ -433,7 +438,8 @@ class StatisticalForecastModel:
             "source_loop": f"{inp.source_loop_type} ({inp.source_loop_miles} mi)",
             "target_division": inp.target_division,
             "target_laps": inp.target_laps,
-            "target_loop": f"{inp.target_loop_type} ({inp.target_loop_miles} mi)",
+            "target_loop": f"{inp.target_loop_type} ({inp.target_loop_miles} mi)"
+            + (f" + {inp.target_prologue_miles} mi prologue" if inp.target_prologue_miles else ""),
             "target_avg_pace": round(target_avg, 1),
             "target_median_pace": round(target_med, 1),
             "target_sample_size": field_size,

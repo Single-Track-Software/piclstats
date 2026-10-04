@@ -254,10 +254,13 @@ class ProfileForm:
     loops: dict[str, tuple[float | None, float | None, float | None]]  # -> (miles, gain, loss)
     laps: dict[int, int | None]  # index into PROFILE_KEYS -> lap count
     race_type: str | None = None  # 'race' | 'rally' | None (blank = default / by name)
+    prologue_miles: float | None = None  # None = blank (season: use default; default: 0)
 
 
 def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
-    """Parse the loop, lap and race-type fields of a season block. Raises ValueError on bad input."""
+    """Parse the loop, lap, race-type and prologue fields of a season block.
+
+    Raises ValueError on bad input."""
 
     def opt_float(key: str) -> float | None:
         raw = form.get(key, "").strip()
@@ -266,6 +269,10 @@ def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
     race_type: str | None = form.get("race_type", "").strip().lower() or None
     if race_type is not None and race_type not in RACE_TYPES:
         raise ValueError(f"Race type must be one of {', '.join(RACE_TYPES)}, got {race_type!r}")
+
+    prologue = opt_float("prologue_miles")
+    if prologue is not None and not 0 <= prologue < 5:
+        raise ValueError(f"Prologue must be 0-5 miles, got {prologue}")
 
     loops: dict[str, tuple[float | None, float | None, float | None]] = {}
     for loop_type in ("MS", "HS"):
@@ -285,7 +292,7 @@ def parse_profile_form(form: Mapping[str, str]) -> ProfileForm:
         if not 1 <= count <= 6:
             raise ValueError(f"Lap count must be 1-6, got {raw}")
         laps[i] = count
-    return ProfileForm(loops=loops, laps=laps, race_type=race_type)
+    return ProfileForm(loops=loops, laps=laps, race_type=race_type, prologue_miles=prologue)
 
 
 def _season_key(season: int | None) -> str:
@@ -312,6 +319,7 @@ def _course_seasons(s: Session, course_id: int) -> list[int]:
         UNION SELECT season FROM course_loops WHERE course_id = :cid AND season IS NOT NULL
         UNION SELECT season FROM division_laps WHERE course_id = :cid AND season IS NOT NULL
         UNION SELECT season FROM course_race_types WHERE course_id = :cid AND season IS NOT NULL
+        UNION SELECT season FROM course_prologues WHERE course_id = :cid AND season IS NOT NULL
         ORDER BY season DESC
     """),
         {"cid": course_id},
@@ -370,6 +378,16 @@ def _profile_block(
     """),
         {"cid": course_id, "season": season},
     ).all()
+    prologue_rows = s.execute(
+        text("""
+        SELECT season, prologue_miles FROM course_prologues
+        WHERE course_id = :cid AND (season IS NULL OR season = :season)
+    """),
+        {"cid": course_id, "season": season},
+    ).all()
+    own_prologue = next((r[1] for r in prologue_rows if r[0] == season), None)
+    default_prologue = next((r[1] for r in prologue_rows if r[0] is None), None)
+
     own_type = next((r[1] for r in type_rows if r[0] == season), None)
     default_type = next((r[1] for r in type_rows if r[0] is None), None)
     # What classify_event_types will use: the season row, else the default,
@@ -433,6 +451,9 @@ def _profile_block(
         "season": season,
         "key": _season_key(season),
         "race_type": own_type,
+        "prologue_miles": own_prologue,
+        # Placeholder: what applies when this block's field is blank.
+        "prologue_fallback": (default_prologue or 0.0) if season is not None else 0.0,
         "race_type_in_effect": in_effect,
         "race_type_from": in_effect_from,
         "loops": loops,
@@ -550,6 +571,26 @@ async def profile_save(
                 ON CONFLICT (course_id, season) DO UPDATE SET race_type = :rt
             """),
                 {"cid": course_id, "season": season, "rt": parsed.race_type},
+            )
+
+        # Blank removes the row: a season falls back to the default, the
+        # default to no prologue (0.0).
+        if parsed.prologue_miles is None:
+            s.execute(
+                text("""
+                DELETE FROM course_prologues
+                WHERE course_id = :cid AND season IS NOT DISTINCT FROM :season
+            """),
+                {"cid": course_id, "season": season},
+            )
+        else:
+            s.execute(
+                text("""
+                INSERT INTO course_prologues (course_id, season, prologue_miles)
+                VALUES (:cid, :season, :pm)
+                ON CONFLICT (course_id, season) DO UPDATE SET prologue_miles = :pm
+            """),
+                {"cid": course_id, "season": season, "pm": parsed.prologue_miles},
             )
 
         for loop_type, (dist, elev, loss) in parsed.loops.items():

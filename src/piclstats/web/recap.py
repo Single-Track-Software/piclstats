@@ -14,6 +14,7 @@ from __future__ import annotations
 from statistics import pstdev
 from typing import Any
 
+from piclstats.web.riderstats import miles_ridden
 from piclstats.web.staging import division_sort_key
 
 # Placed scoring races needed before an average means anything.
@@ -53,11 +54,7 @@ def rider_lines(rows: list[dict[str, Any]], movers: list[dict[str, Any]]) -> lis
         fades = [float(r["lap_fade"]) for r in placed if r.get("lap_fade") is not None]
         latest = placed[-1] if placed else races[-1]
         laps = sum(int(r.get("laps_ridden") or 0) for r in races if _clean(r))
-        miles = sum(
-            int(r.get("laps_ridden") or 0) * float(r["loop_distance"])
-            for r in races
-            if _clean(r) and r.get("loop_distance")
-        )
+        miles = sum(miles_ridden(r) for r in races if _clean(r))
         out.append(
             {
                 "id": cid,

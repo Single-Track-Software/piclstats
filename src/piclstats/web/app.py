@@ -1177,6 +1177,7 @@ def rider_forecast(
                         target_loop_type=target_profile["loop_type"],
                         source_loop_miles=source_profile["loop_miles"],
                         target_loop_miles=target_profile["loop_miles"],
+                        target_prologue_miles=target_profile["prologue_miles"],
                         target_elevation_ft_per_mile=target_profile["elevation_ft_per_mile"],
                         target_course=course["name"] if course else None,
                         target_profile_season=target_profile["profile_season"],
