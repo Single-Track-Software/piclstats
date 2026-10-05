@@ -1,10 +1,12 @@
 {% extends "base.html" %}
-{% block title %}{% if season %}{{ season }} {% endif %}Leaderboard — PICL Stats{% endblock %}
+{% block title %}{% if season %}{{ season }} {% endif %}Conference Standings — PICL Stats{% endblock %}
 {% block description %}PICL conference standings by division: total points for riders and teams each season.{% endblock %}
 
 {% block content %}
-<h1 class="text-3xl font-bold text-gray-900">Leaderboard</h1>
-<p class="text-sm text-gray-500 mt-1 mb-6">Results do not include bonus TTC points.</p>
+<div class="mb-6">
+    {% set results_section = 'standings' %}{% include "_results_sections.html" %}
+    <p class="mt-3 text-sm text-gray-500">Results do not include bonus TTC points.</p>
+</div>
 
 <!-- Filters: View / Season / Conference (required) / Division / Gender -->
 <form method="get" id="standingsForm" class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">

@@ -346,38 +346,73 @@ def optional_event_id(event_id: str = Query("")) -> int | None:
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     with get_session() as session:
-        stats = queries.overview_stats(session)
         seasons = queries.seasons_list(session)
         season = queries.current_season(session)
         latest = queries.latest_event(session)
         top_riders = queries.leaderboard(session, season, limit=10)
         top_teams = queries.team_leaderboard(session, season, limit=10, min_riders=3)
-        # This season's conferences (west to east) and its riders per division,
-        # split by conference, for the stats bar and the dashboard chart.
-        from piclstats.web.standings import division_conference_matrix
-
-        season_confs = [
-            c["name"] for c in queries.conferences_by_season(session).get(str(season), [])
-        ]
-        division_mix = (
-            division_conference_matrix(
-                queries.division_conference_counts(session, season), season_confs
-            )
-            if season
-            else None
-        )
     return templates.TemplateResponse(
         "home.html",
         _ctx(
             request,
-            stats=stats,
-            conference_count=len(season_confs),
-            division_mix=division_mix,
             seasons=seasons,
             season=season,
             latest=latest,
             top_riders=top_riders,
             top_teams=top_teams,
+        ),
+    )
+
+
+@app.get("/league", response_class=HTMLResponse)
+def league_page(request: Request, season_raw: str = Query("", alias="season")):
+    """League-wide numbers: the all-time stats bar, plus the season's
+    conferences and its riders per division split by conference."""
+    from piclstats.web import league
+    from piclstats.web.standings import division_conference_matrix
+
+    with get_session() as session:
+        stats = queries.overview_stats(session)
+        seasons = queries.seasons_list(session)
+        season = (
+            int(season_raw)
+            if season_raw.isdigit() and int(season_raw) in seasons
+            else queries.current_season(session)
+        )
+        season_confs = [
+            c["name"] for c in queries.conferences_by_season(session).get(str(season), [])
+        ]
+        counts = queries.division_conference_counts(session, season) if season else []
+        if not season_confs:
+            # Conference assignments start in 2024; earlier seasons get one
+            # series instead of an all-"Unassigned" split.
+            counts = [{**r, "conference": "All riders"} for r in counts]
+        division_mix = (
+            division_conference_matrix(counts, season_confs or ["All riders"]) if season else None
+        )
+        # Conferences head to head (mixed-conference races only) and riders per
+        # season; conference order is west to east across every season.
+        all_confs = [c["name"] for c in queries.conferences_by_season(session).get("all", [])]
+        head_to_head = division_table = None
+        if season and season_confs:
+            perf = queries.cross_conference_performance(session, season)
+            head_to_head = league.conference_comparison(perf, season_confs)
+            division_table = league.division_comparison(perf, season_confs)
+        trend = league.riders_trend(queries.riders_per_season_by_conference(session), all_confs)
+        current = queries.current_season(session)
+    return templates.TemplateResponse(
+        "league.html",
+        _ctx(
+            request,
+            stats=stats,
+            seasons=seasons,
+            season=season,
+            conference_count=len(season_confs),
+            division_mix=division_mix,
+            head_to_head=head_to_head,
+            division_table=division_table,
+            trend=trend,
+            current_season=current,
         ),
     )
 
@@ -863,7 +898,16 @@ def sitemap_urls(session) -> list[str]:
 
     urls = [
         f"{SITE_URL}{p}"
-        for p in ("/", "/results", "/riders", "/teams", "/leaderboard", "/courses", "/schedule")
+        for p in (
+            "/",
+            "/results",
+            "/riders",
+            "/teams",
+            "/leaderboard",
+            "/league",
+            "/courses",
+            "/schedule",
+        )
     ]
     urls += [f"{SITE_URL}/results?event_id={e['id']}" for e in queries.events_list(session)]
     urls += [f"{SITE_URL}/team/{quote(t, safe='')}" for t in queries.teams_list(session)]
