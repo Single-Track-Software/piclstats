@@ -13,9 +13,9 @@
 {% endblock %}
 
 {% block content %}
-<!-- Hero: brand navy with the mountain silhouette from the logo set; the latest race rides on it. -->
-<section class="relative overflow-hidden rounded-2xl bg-picl-800 text-white shadow-md mb-8">
-    <svg class="absolute inset-x-0 bottom-0 w-full h-24 md:h-32 text-gold-500" viewBox="0 0 1200 160" preserveAspectRatio="none" aria-hidden="true">
+<!-- Hero: brand navy with the mountain silhouette from the logo set. -->
+<section class="relative overflow-hidden rounded-2xl bg-picl-800 text-white shadow-md mb-4">
+    <svg class="absolute inset-x-0 bottom-0 w-full h-20 md:h-24 text-gold-500" viewBox="0 0 1200 160" preserveAspectRatio="none" aria-hidden="true">
         <path d="M0 160 L0 120 L80 70 L140 105 L210 45 L280 100 L340 75 L420 20 L500 90 L560 60 L640 110 L720 40 L800 95 L860 70 L940 15 L1020 85 L1090 55 L1200 120 L1200 160 Z" fill="currentColor" opacity="0.18"/>
         <path d="M0 160 L0 135 L60 110 L120 130 L200 85 L270 125 L330 105 L400 60 L480 120 L540 95 L620 135 L700 80 L780 125 L850 100 L930 55 L1010 115 L1080 90 L1200 140 L1200 160 Z" fill="currentColor" opacity="0.35"/>
     </svg>
@@ -23,89 +23,36 @@
         <div class="text-xs font-semibold uppercase tracking-[0.2em] text-gold-400">PA Interscholastic Cycling League</div>
         <h1 class="mt-1 text-3xl md:text-4xl font-extrabold tracking-tight">Race Results &amp; Analytics</h1>
         <div class="mt-3 h-1 w-16 bg-gold-500 rounded"></div>
-        {% if latest %}
-        <a href="/results?event_id={{ latest.id }}" class="mt-6 inline-flex flex-wrap items-baseline gap-x-3 gap-y-1 rounded-lg bg-picl-900/70 border border-picl-700 px-4 py-3 hover:border-gold-500">
-            <span class="text-[11px] font-semibold uppercase tracking-wider text-gold-400">Latest results</span>
-            <span class="font-semibold">{% if not latest.event_name.startswith(latest.season|string) %}{{ latest.season }} · {% endif %}{{ latest.event_name }}{% if latest.course_name %} <span class="text-picl-200 font-normal">at {{ latest.course_name }}</span>{% endif %}</span>
-            <span class="text-sm text-picl-200">{{ "{:,}".format(latest.finishers) }} finishers · full results &rarr;</span>
-        </a>
-        {% endif %}
     </div>
 </section>
 
-<!-- Stats cards -->
-<div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-8">
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
-        <div class="text-2xl font-bold text-picl-800">{{ stats.seasons }}</div>
-        <div class="text-xs text-gray-500 mt-1">Seasons</div>
+{% if latest %}
+<!-- Latest results: its own navy box, the first thing to click -->
+<a href="/results?event_id={{ latest.id }}" class="group flex flex-wrap items-center justify-between gap-4 rounded-2xl bg-picl-800 text-white shadow-md px-6 py-5 md:px-10 mb-6 hover:bg-picl-900">
+    <div class="min-w-0">
+        <div class="text-xs font-semibold uppercase tracking-[0.2em] text-gold-400">Latest results</div>
+        <div class="mt-1 text-lg md:text-xl font-bold">{% if not latest.event_name.startswith(latest.season|string) %}{{ latest.season }} · {% endif %}{{ latest.event_name }}</div>
+        <div class="mt-0.5 text-sm text-picl-200">{% if latest.course_name %}{{ latest.course_name }} · {% endif %}{{ "{:,}".format(latest.finishers) }} finishers</div>
     </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500"{% if season %} title="Conferences in the {{ season }} season"{% endif %}>
-        <div class="text-2xl font-bold text-picl-800">{{ conference_count }}</div>
-        <div class="text-xs text-gray-500 mt-1">Conferences</div>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
-        <div class="text-2xl font-bold text-picl-800">{{ stats.events }}</div>
-        <div class="text-xs text-gray-500 mt-1">Events</div>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
-        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.results) }}</div>
-        <div class="text-xs text-gray-500 mt-1">Race Results</div>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
-        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.riders) }}</div>
-        <div class="text-xs text-gray-500 mt-1">Riders</div>
-    </div>
-    <div class="bg-white rounded-xl shadow-sm p-5 border border-gray-100 border-t-4 border-t-gold-500">
-        <div class="text-2xl font-bold text-picl-800">{{ "{:,}".format(stats.teams) }}</div>
-        <div class="text-xs text-gray-500 mt-1">Teams</div>
-    </div>
-</div>
-
-{% if division_mix and division_mix.divisions %}
-<!-- Riders by division, split by conference: who the league is, at a glance -->
-{% set mix_total = division_mix.totals | sum %}
-<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-    <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 class="text-lg font-semibold text-gray-900">{{ season }} riders by division</h2>
-        <span class="text-sm text-gray-500"><span class="font-mono font-medium text-gray-900">{{ "{:,}".format(mix_total) }}</span> riders across {{ division_mix.conferences | length }} conference{{ '' if division_mix.conferences | length == 1 else 's' }}</span>
-    </div>
-    <p class="text-sm text-gray-500 mb-4">Each bar is one division, split by conference (west to east). A rider counts once, in their latest division this season.</p>
-    <div class="relative" style="height: {{ 60 + 34 * (division_mix.divisions | length) }}px">
-        <canvas id="divisionMixChart" role="img" aria-label="{{ season }} riders per division, split by conference; the table below has the numbers"></canvas>
-    </div>
-    <details class="mt-4 text-sm">
-        <summary class="cursor-pointer text-picl-700 hover:underline">Show as table</summary>
-        <div class="overflow-x-auto mt-2">
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b">
-                    <th class="py-2 pr-4">Division</th>
-                    {% for c in division_mix.conferences %}<th class="py-2 px-2 text-right">{{ c }}</th>{% endfor %}
-                    <th class="py-2 pl-2 text-right">Total</th>
-                </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100">
-                {% for d in division_mix.divisions %}{% set i = loop.index0 %}
-                <tr>
-                    <td class="py-1.5 pr-4 text-gray-700">{{ d }}</td>
-                    {% for c in division_mix.conferences %}<td class="py-1.5 px-2 text-right font-mono">{{ division_mix.counts[c][i] }}</td>{% endfor %}
-                    <td class="py-1.5 pl-2 text-right font-mono font-medium">{{ division_mix.totals[i] }}</td>
-                </tr>
-                {% endfor %}
-                <tr class="border-t-2 border-gray-200">
-                    <td class="py-1.5 pr-4 font-medium text-gray-700">All divisions</td>
-                    {% for c in division_mix.conferences %}<td class="py-1.5 px-2 text-right font-mono font-medium">{{ division_mix.counts[c] | sum }}</td>{% endfor %}
-                    <td class="py-1.5 pl-2 text-right font-mono font-semibold">{{ mix_total }}</td>
-                </tr>
-            </tbody>
-        </table>
-        </div>
-    </details>
-</div>
+    <span class="shrink-0 rounded-lg bg-gold-500 px-5 py-2.5 text-sm font-semibold text-picl-900 group-hover:bg-gold-400">Full results &rarr;</span>
+</a>
 {% endif %}
 
-<!-- Quick search -->
+<!-- What this is, and where to start -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
+    <p class="text-gray-700 leading-relaxed">PICL Stats is an independent site for the Pennsylvania Interscholastic Cycling League. It gathers every race result the league has published since 2022 and turns them into rider, team and course pages: conference standings, how riders are trending, lap pace, and forecasts for the next race.</p>
+    <div class="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        <span class="text-gray-500 mr-1">Where to start:</span>
+        <a href="#search" class="rounded-full bg-picl-50 px-3 py-1 font-medium text-picl-700 hover:bg-picl-100">Find a rider or team</a>
+        <a href="/leaderboard" class="rounded-full bg-picl-50 px-3 py-1 font-medium text-picl-700 hover:bg-picl-100">Conference standings</a>
+        <a href="/results" class="rounded-full bg-picl-50 px-3 py-1 font-medium text-picl-700 hover:bg-picl-100">Race results</a>
+        <a href="/schedule" class="rounded-full bg-picl-50 px-3 py-1 font-medium text-picl-700 hover:bg-picl-100">Schedule</a>
+        <a href="/league" class="rounded-full bg-picl-50 px-3 py-1 font-medium text-picl-700 hover:bg-picl-100">The league in numbers</a>
+    </div>
+</div>
+
+<!-- Quick search -->
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8 scroll-mt-4" id="search">
     <h2 class="text-lg font-semibold text-gray-900 mb-4">Quick Search</h2>
     <div class="grid md:grid-cols-2 gap-4">
         <form action="/riders" method="get" class="flex gap-2">
@@ -195,113 +142,4 @@
         </div>
     </div>
 </div>
-{% endblock %}
-
-{% block scripts %}
-{% if division_mix and division_mix.divisions %}
-{% include "_chartjs.html" %}
-<script>
-(() => {
-    const mix = {{ division_mix | tojson }};
-    // Fixed colour per conference (validated categorical slots, west to east),
-    // so a conference keeps its colour whatever else is on the chart.
-    const COLOR = {
-        "Western": "#2a78d6", "Central": "#eb6834", "Eastern Blue": "#1baf7a",
-        "Eastern Gold": "#eda100", "Eastern": "#e87ba4", "Unassigned": "#9ca3af",
-    };
-    const SPARE = ["#008300", "#4a3aa7", "#e34948"];
-    const colorOf = (c, i) => COLOR[c] || SPARE[i % SPARE.length];
-    const INK = "#1f2937", MUTED = "#6b7280", SURFACE = "#ffffff";
-    // Segment labels: dark or white ink, whichever contrasts more with the fill.
-    const lum = hex => {
-        const [r, g, b] = [1, 3, 5].map(k => parseInt(hex.slice(k, k + 2), 16) / 255)
-            .map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    };
-    const contrast = (a, b) => {
-        const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
-        return (hi + 0.05) / (lo + 0.05);
-    };
-    const inkFor = hex => (contrast(hex, INK) >= contrast(hex, "#ffffff") ? INK : "#ffffff");
-    // Last non-empty segment of each bar gets the rounded data end.
-    const lastSeg = mix.divisions.map((_, i) => {
-        let last = -1;
-        mix.conferences.forEach((c, j) => { if (mix.counts[c][i] > 0) last = j; });
-        return last;
-    });
-    const datasets = mix.conferences.map((c, j) => ({
-        label: c,
-        data: mix.counts[c],
-        backgroundColor: colorOf(c, j),
-        borderColor: SURFACE,
-        borderWidth: {left: 1, right: 1, top: 0, bottom: 0},
-        borderSkipped: false,
-        borderRadius: ctx => lastSeg[ctx.dataIndex] === j ? {topRight: 4, bottomRight: 4} : 0,
-        barThickness: 22,
-    }));
-    const labels = {
-        id: "segmentLabels",
-        afterDatasetsDraw(chart) {
-            const {ctx} = chart;
-            ctx.save();
-            ctx.textBaseline = "middle";
-            chart.data.datasets.forEach((ds, j) => {
-                chart.getDatasetMeta(j).data.forEach((bar, i) => {
-                    const v = ds.data[i];
-                    if (!v || bar.width < 22) return;  // too thin to label; the tooltip and table have it
-                    ctx.font = "600 11px ui-sans-serif, system-ui, sans-serif";
-                    ctx.fillStyle = inkFor(ds.backgroundColor);
-                    ctx.textAlign = "center";
-                    ctx.fillText(v, bar.x - bar.width / 2, bar.y);
-                });
-            });
-            // Division totals just past the end of each bar.
-            const lastMeta = chart.getSortedVisibleDatasetMetas();
-            mix.divisions.forEach((_, i) => {
-                const ends = lastMeta.map(m => m.data[i]).filter(Boolean).map(b => b.x);
-                const x = Math.max(...ends);
-                const y = lastMeta[0].data[i].y;
-                const total = lastMeta.reduce((s, m) => s + (chart.data.datasets[m.index].data[i] || 0), 0);
-                ctx.font = "600 12px ui-sans-serif, system-ui, sans-serif";
-                ctx.fillStyle = INK;
-                ctx.textAlign = "left";
-                ctx.fillText(total, x + 6, y);
-            });
-            ctx.restore();
-        },
-    };
-    new Chart(document.getElementById("divisionMixChart"), {
-        type: "bar",
-        data: {labels: mix.divisions, datasets},
-        plugins: [labels],
-        options: {
-            indexAxis: "y",
-            maintainAspectRatio: false,
-            layout: {padding: {right: 36}},
-            plugins: {
-                legend: {position: "top", align: "start",
-                         labels: {boxWidth: 12, boxHeight: 12, color: INK, padding: 14}},
-                tooltip: {
-                    callbacks: {
-                        title: items => items.length ? items[0].label : "",
-                        label: item => {
-                            const i = item.dataIndex, total = mix.totals[i];
-                            const pct = total ? Math.round(100 * item.parsed.x / total) : 0;
-                            return `${item.dataset.label}: ${item.parsed.x} riders (${pct}%)`;
-                        },
-                        footer: items => items.length ? `Division total: ${mix.totals[items[0].dataIndex]}` : "",
-                    },
-                },
-            },
-            scales: {
-                x: {stacked: true, beginAtZero: true, grid: {color: "#f3f4f6"}, border: {display: false},
-                    ticks: {color: MUTED}, title: {display: true, text: "Riders", color: MUTED}},
-                y: {stacked: true, grid: {display: false}, border: {display: false},
-                    ticks: {color: INK, font: {weight: 500}}},
-            },
-        },
-    });
-})();
-</script>
-{% endif %}
 {% endblock %}

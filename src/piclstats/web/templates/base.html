@@ -41,7 +41,7 @@
     {% set path = request.url.path if request else '/' %}
     {% set section = '/' if path == '/' else '/' ~ path.strip('/').split('/')[0] %}
     {% macro nav_link(href, label) -%}
-    {%- set active = (href == section) or (href == '/riders' and section == '/rider') or (href == '/teams' and section == '/team') or (href == '/courses' and section == '/course') -%}
+    {%- set active = (href == section) or (href == '/results' and section == '/leaderboard') or (href == '/riders' and section == '/rider') or (href == '/teams' and section == '/team') or (href == '/courses' and section == '/course') -%}
     <a href="{{ href }}" class="px-3 py-2 text-sm font-medium border-b-2 {{ 'text-white border-gold-500' if active else 'text-picl-200 border-transparent hover:text-white hover:border-picl-500' }}">{{ label }}</a>
     {%- endmacro %}
     <nav class="bg-picl-800 border-b-4 border-gold-500 shadow-lg">
@@ -55,7 +55,8 @@
                         </span>
                     </a>
                     {% set user = request.state.user if request and request.state else None %}
-                    {% set nav_links = [('/', 'Dashboard'), ('/results', 'Results'), ('/riders', 'Riders'), ('/teams', 'Teams'), ('/leaderboard', 'Leaderboard'), ('/courses', 'Courses'), ('/schedule', 'Schedule')] %}
+                    {#- No Dashboard link: the logo goes home. Results covers race results and conference standings (/leaderboard). -#}
+                    {% set nav_links = [('/results', 'Results'), ('/league', 'League'), ('/teams', 'Teams'), ('/riders', 'Riders'), ('/courses', 'Courses'), ('/schedule', 'Schedule')] %}
                     <div class="hidden md:flex space-x-1 self-stretch items-stretch">
                         {% for href, label in nav_links %}
                         {{ nav_link(href, label) }}
@@ -82,6 +83,7 @@
                             <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
                         </summary>
                         <div class="absolute right-0 mt-2 w-48 bg-picl-800 border border-picl-700 rounded-lg shadow-lg py-1 z-50 text-sm">
+                            <a href="/" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">Home</a>
                             {% for href, label in nav_links %}
                             <a href="{{ href }}" class="block px-4 py-2 text-picl-200 hover:text-white hover:bg-picl-700">{{ label }}</a>
                             {% endfor %}
