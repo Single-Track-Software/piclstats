@@ -102,3 +102,22 @@ def test_conferences_run_west_to_east():
         "Eastern Gold",
         "Northern Tier",
     ]
+
+
+def test_division_conference_matrix_orders_and_fills():
+    from piclstats.web.standings import division_conference_matrix
+
+    rows = [
+        {"division": "JV2", "conference": "Central", "riders": 4},
+        {"division": "Varsity", "conference": "Western", "riders": 3},
+        {"division": "Varsity", "conference": "Eastern Blue", "riders": 5},
+        {"division": "6th Grade", "conference": None, "riders": 2},
+        {"division": "JV2", "conference": "Western", "riders": 1},
+    ]
+    m = division_conference_matrix(rows, ["Western", "Central", "Eastern Blue", "Eastern Gold"])
+    assert m["divisions"] == ["Varsity", "JV2", "6th Grade"]
+    # Eastern Gold has no riders, so it is left out; Unassigned comes last.
+    assert m["conferences"] == ["Western", "Central", "Eastern Blue", "Unassigned"]
+    assert m["counts"]["Western"] == [3, 1, 0]
+    assert m["counts"]["Unassigned"] == [0, 0, 2]
+    assert m["totals"] == [8, 5, 2]
