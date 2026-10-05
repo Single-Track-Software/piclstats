@@ -719,8 +719,11 @@ def leaderboard_page(
         season = season_or_current(season_raw, session)
         seasons = queries.seasons_list(session)
         divisions = queries.divisions_list(session)
-        conference_choices = queries.conference_options(session, season)
-        chosen = [c for c in conference if c in conference_choices]
+        by_season = queries.conferences_by_season(session)
+        conference_entries = by_season.get(str(season) if season else "all", [])
+        conference_choices = [c["name"] for c in conference_entries]
+        # Kept in west-to-east order whatever order the URL lists them in.
+        chosen = [c for c in conference_choices if c in conference]
         groups: list[dict] = []
         teams: list[dict] = []
         points_by_event: list[dict] = []
@@ -764,7 +767,8 @@ def leaderboard_page(
             points_by_event=points_by_event,
             seasons=seasons,
             divisions=divisions,
-            conference_choices=conference_choices,
+            conference_entries=conference_entries,
+            conferences_by_season=by_season,
             conferences=chosen,
             season=season,
             division=division,

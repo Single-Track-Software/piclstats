@@ -916,18 +916,42 @@ _CONFERENCE_FILTER = """
 """
 
 
-def conference_options(session: Session, season: int | None) -> list[str]:
-    """Conferences on record for a season (every season when None), A-Z."""
+# Conference filter order: west to east across the state.
+_REGION_ORDER = ("Western", "Central", "Eastern")
+
+
+def _conference_sort_key(name: str, group: str) -> tuple[int, str]:
+    region = group if group in _REGION_ORDER else name.split(" ")[0]
+    return (_REGION_ORDER.index(region) if region in _REGION_ORDER else len(_REGION_ORDER), name)
+
+
+def conferences_by_season(session: Session) -> dict[str, list[dict[str, str]]]:
+    """Season ("2026", ..., plus "all") -> its conferences, west to east.
+
+    Each entry carries its region (`conference_group`: Eastern Blue and Gold
+    are both Eastern), so the leaderboard can carry a ticked conference over
+    when the season changes (2025's Eastern Blue -> 2024's Eastern).
+    """
     rows = session.execute(
         text(r"""
-        SELECT DISTINCT regexp_replace(conference, '\s+', ' ', 'g') AS conference
+        SELECT DISTINCT season,
+               regexp_replace(conference, '\s+', ' ', 'g') AS conference,
+               regexp_replace(COALESCE(conference_group, ''), '\s+', ' ', 'g') AS region
         FROM team_conferences
-        WHERE CAST(:season AS int) IS NULL OR season = CAST(:season AS int)
-        ORDER BY 1
-    """),
-        {"season": season},
+    """)
     ).all()
-    return [r[0] for r in rows]
+    out: dict[str, dict[str, str]] = {"all": {}}
+    for season, name, region in rows:
+        region = region or name.split(" ")[0]
+        out.setdefault(str(season), {})[name] = region
+        out["all"][name] = region
+    return {
+        key: [
+            {"name": n, "region": r}
+            for n, r in sorted(confs.items(), key=lambda kv: _conference_sort_key(*kv))
+        ]
+        for key, confs in out.items()
+    }
 
 
 def _with_conferences(sql: str, conferences: list[str] | None):
