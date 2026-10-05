@@ -49,11 +49,13 @@
 
 {# Tabs keep the event/category (and top-N) context across views #}
 {% set base_qs = 'event_id=' ~ (event.id if event else '') ~ '&category=' ~ (category | urlencode) %}
-<div class="flex gap-1 border-b border-gray-200 mb-6">
+{# Segmented tabs: the selected view is filled navy so it reads at a glance. #}
+<div class="inline-flex gap-1 rounded-lg bg-gray-100 p-1 mb-6" role="tablist" aria-label="Results views">
     {% for key, label in [('results', 'Results'), ('position', 'Race Position')] %}
     <a href="?tab={{ key }}&{{ base_qs }}{% if key == 'position' and top %}&top={{ top }}{% endif %}"
-       class="px-4 py-2 text-sm font-medium -mb-px border-b-2 {% if tab == key %}border-picl-600 text-picl-700{% else %}border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300{% endif %}">
-        {{ label }}{% if key == 'position' and not has_laps %} <span class="text-[10px] text-gray-400" title="No lap timing for this category">(no splits)</span>{% endif %}
+       role="tab" aria-selected="{{ 'true' if tab == key else 'false' }}"{% if tab == key %} aria-current="page"{% endif %}
+       class="px-4 py-2 rounded-md text-sm font-semibold transition-colors {% if tab == key %}bg-picl-700 text-white shadow-sm{% else %}text-gray-600 hover:bg-white hover:text-picl-700{% endif %}">
+        {{ label }}{% if key == 'position' and not has_laps %} <span class="text-[10px] font-normal {{ 'text-picl-100' if tab == key else 'text-gray-400' }}" title="No lap timing for this category">(no splits)</span>{% endif %}
     </a>
     {% endfor %}
 </div>
