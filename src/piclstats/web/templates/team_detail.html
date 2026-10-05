@@ -27,6 +27,8 @@
             {% if user %}
             <a href="/team/{{ team_name | urlencode }}/raceday" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Staging and forecast for every rider at the next race">Race-day sheet</a>
             {% endif %}
+            {# Recap for the season shown; on All Seasons the recap opens its latest season. #}
+            <a href="/team/{{ team_name | urlencode }}/recap{% if season %}?season={{ season }}{% endif %}" class="border border-picl-600 text-picl-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-50" title="Awards and totals for the season">Season recap</a>
             <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
         </div>
     </div>
