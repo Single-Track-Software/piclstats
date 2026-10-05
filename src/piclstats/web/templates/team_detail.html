@@ -23,10 +23,10 @@
             </div>
         </div>
         <div class="flex items-center gap-3">
-            {% set user = request.state.user if request and request.state else None %}
-            {% if user %}
-            <a href="/team/{{ team_name | urlencode }}/raceday" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Staging and forecast for every rider at the next race">Race-day sheet</a>
-            {% endif %}
+            {# Recap for the season shown; on All Seasons the recap opens its latest season.
+               The Race-day sheet link (/team/<name>/raceday) is off this page until staging
+               moves here and becomes the source of truth; the route itself still works. #}
+            <a href="/team/{{ team_name | urlencode }}/recap{% if season %}?season={{ season }}{% endif %}" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Awards and totals for the season">Season recap</a>
             <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
         </div>
     </div>
@@ -180,31 +180,33 @@
         <table class="w-full text-sm">
             <thead>
                 <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
-                    <th class="px-4 py-3">Rider</th>
-                    <th class="px-4 py-3" title="From the rider's latest race">Division</th>
-                    <th class="px-4 py-3">Gender</th>
-                    <th class="px-4 py-3 text-right">Races</th>
-                    <th class="px-4 py-3 text-right" title="Average share of the field beaten">Pctl</th>
-                    <th class="px-4 py-3 text-right">Avg Pts</th>
-                    <th class="px-4 py-3 text-right">Avg Place</th>
-                    <th class="px-4 py-3 text-right">Best Place</th>
-                    <th class="px-4 py-3 text-right">Total Pts</th>
+                    <th class="px-4 py-3" aria-sort="none"><button type="button" data-roster-sort="0" data-sort-type="text" data-sort-dir="asc" class="uppercase tracking-wider hover:text-picl-700">Rider<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3" title="From the rider's latest race" aria-sort="none"><button type="button" data-roster-sort="1" data-sort-type="order" data-sort-dir="asc" class="uppercase tracking-wider hover:text-picl-700">Division<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3" aria-sort="none"><button type="button" data-roster-sort="2" data-sort-type="text" data-sort-dir="asc" class="uppercase tracking-wider hover:text-picl-700">Gender<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" aria-sort="none"><button type="button" data-roster-sort="3" data-sort-type="num" data-sort-dir="desc" class="uppercase tracking-wider hover:text-picl-700">Races<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" title="Average share of the field beaten" aria-sort="none"><button type="button" data-roster-sort="4" data-sort-type="num" data-sort-dir="desc" class="uppercase tracking-wider hover:text-picl-700">Pctl<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" aria-sort="none"><button type="button" data-roster-sort="5" data-sort-type="num" data-sort-dir="desc" class="uppercase tracking-wider hover:text-picl-700">Avg Pts<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" aria-sort="none"><button type="button" data-roster-sort="6" data-sort-type="num" data-sort-dir="asc" class="uppercase tracking-wider hover:text-picl-700">Avg Place<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" aria-sort="none"><button type="button" data-roster-sort="7" data-sort-type="num" data-sort-dir="asc" class="uppercase tracking-wider hover:text-picl-700">Best Place<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
+                    <th class="px-4 py-3 text-right" aria-sort="none"><button type="button" data-roster-sort="8" data-sort-type="num" data-sort-dir="desc" class="uppercase tracking-wider hover:text-picl-700">Total Pts<span class="text-[10px] ml-0.5" data-sort-arrow></span></button></th>
                 </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            {# data-sort on each cell = the value the column sorts by ("" = blank, sorts last).
+               The roster arrives in category order, so Division sorts by that order. #}
+            <tbody class="divide-y divide-gray-100" id="rosterBody">
                 {% for r in roster %}
                 <tr class="hover:bg-picl-50 transition-colors">
-                    <td class="px-4 py-2">
+                    <td class="px-4 py-2" data-sort="{{ r.name }}">
                         <a href="/rider/{{ r.id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
                     </td>
-                    <td class="px-4 py-2 text-gray-600">{{ r.division or '—' }}</td>
-                    <td class="px-4 py-2 text-gray-500 text-xs">{{ r.gender or '' }}</td>
-                    <td class="px-4 py-2 text-right font-mono">{{ r.races }}</td>
-                    <td class="px-4 py-2 text-right font-mono font-medium {% if r.avg_percentile is not none %}{{ 'text-green-600' if r.avg_percentile >= 50 else ('text-amber-600' if r.avg_percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.avg_percentile is not none %}{{ "%.0f"|format(r.avg_percentile) }}%{% else %}—{% endif %}</td>
-                    <td class="px-4 py-2 text-right font-mono font-medium">{{ r.avg_points or '—' }}</td>
-                    <td class="px-4 py-2 text-right font-mono">{{ r.avg_place or '—' }}</td>
-                    <td class="px-4 py-2 text-right font-mono">{{ r.best_place or '—' }}</td>
-                    <td class="px-4 py-2 text-right font-mono">{{ r.total_points or '—' }}</td>
+                    <td class="px-4 py-2 text-gray-600" data-sort="{{ loop.index0 if r.division else '' }}">{{ r.division or '—' }}</td>
+                    <td class="px-4 py-2 text-gray-500 text-xs" data-sort="{{ r.gender or '' }}">{{ r.gender or '' }}</td>
+                    <td class="px-4 py-2 text-right font-mono" data-sort="{{ r.races if r.races is not none else '' }}">{{ r.races }}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium {% if r.avg_percentile is not none %}{{ 'text-green-600' if r.avg_percentile >= 50 else ('text-amber-600' if r.avg_percentile >= 25 else 'text-red-500') }}{% endif %}" data-sort="{{ r.avg_percentile if r.avg_percentile is not none else '' }}">{% if r.avg_percentile is not none %}{{ "%.0f"|format(r.avg_percentile) }}%{% else %}—{% endif %}</td>
+                    <td class="px-4 py-2 text-right font-mono font-medium" data-sort="{{ r.avg_points if r.avg_points is not none else '' }}">{{ r.avg_points or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono" data-sort="{{ r.avg_place if r.avg_place is not none else '' }}">{{ r.avg_place or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono" data-sort="{{ r.best_place if r.best_place is not none else '' }}">{{ r.best_place or '—' }}</td>
+                    <td class="px-4 py-2 text-right font-mono" data-sort="{{ r.total_points if r.total_points is not none else '' }}">{{ r.total_points or '—' }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -214,6 +216,37 @@
 {% endblock %}
 
 {% block scripts %}
+<script>
+// Roster: click a header to sort by it, again to reverse. Each column starts
+// in its natural direction (names A-Z, points high first, places low first);
+// blanks always sort last.
+(() => {
+    const body = document.getElementById("rosterBody");
+    if (!body) return;
+    const buttons = [...document.querySelectorAll("[data-roster-sort]")];
+    let active = null, dir = null;
+    buttons.forEach(btn => btn.addEventListener("click", () => {
+        const col = Number(btn.dataset.rosterSort), type = btn.dataset.sortType;
+        dir = active === col ? (dir === "asc" ? "desc" : "asc") : btn.dataset.sortDir;
+        active = col;
+        const key = tr => tr.children[col].dataset.sort;
+        const rows = [...body.querySelectorAll("tr")];
+        rows.sort((a, b) => {
+            const x = key(a), y = key(b);
+            if (x === "" || y === "") return (x === "") - (y === "");
+            const c = type === "text" ? x.localeCompare(y) : Number(x) - Number(y);
+            return dir === "asc" ? c : -c;
+        });
+        body.append(...rows);
+        buttons.forEach(b => {
+            const on = b === btn;
+            b.querySelector("[data-sort-arrow]").textContent = on ? (dir === "asc" ? " ▲" : " ▼") : "";
+            b.classList.toggle("text-picl-700", on);
+            b.closest("th").setAttribute("aria-sort", on ? (dir === "asc" ? "ascending" : "descending") : "none");
+        });
+    }));
+})();
+</script>
 {% include "_chartjs.html" %}
 <script>
 const events = {{ event_performance | tojson }};
