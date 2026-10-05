@@ -368,6 +368,7 @@ def home(request: Request):
 def league_page(request: Request, season_raw: str = Query("", alias="season")):
     """League-wide numbers: the all-time stats bar, plus the season's
     conferences and its riders per division split by conference."""
+    from piclstats.web import league
     from piclstats.web.standings import division_conference_matrix
 
     with get_session() as session:
@@ -389,6 +390,16 @@ def league_page(request: Request, season_raw: str = Query("", alias="season")):
         division_mix = (
             division_conference_matrix(counts, season_confs or ["All riders"]) if season else None
         )
+        # Conferences head to head (mixed-conference races only) and riders per
+        # season; conference order is west to east across every season.
+        all_confs = [c["name"] for c in queries.conferences_by_season(session).get("all", [])]
+        head_to_head = division_table = None
+        if season and season_confs:
+            perf = queries.cross_conference_performance(session, season)
+            head_to_head = league.conference_comparison(perf, season_confs)
+            division_table = league.division_comparison(perf, season_confs)
+        trend = league.riders_trend(queries.riders_per_season_by_conference(session), all_confs)
+        current = queries.current_season(session)
     return templates.TemplateResponse(
         "league.html",
         _ctx(
@@ -398,6 +409,10 @@ def league_page(request: Request, season_raw: str = Query("", alias="season")):
             season=season,
             conference_count=len(season_confs),
             division_mix=division_mix,
+            head_to_head=head_to_head,
+            division_table=division_table,
+            trend=trend,
+            current_season=current,
         ),
     )
 

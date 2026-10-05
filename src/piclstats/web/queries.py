@@ -205,6 +205,122 @@ def division_conference_counts(session: Session, season: int) -> list[dict]:
     return [_serialize(r._mapping) for r in rows]
 
 
+# Results at races whose field mixes conferences (in practice the state
+# events: two state series races and the championship each season). They are
+# the only head-to-head between conferences; conference races only pit a
+# conference against itself, so their points and places can't be compared.
+_CROSS_CONFERENCE_RESULTS = rf"""
+    WITH {_CANONICAL_CTE},
+    conf AS (
+        SELECT r.id AS result_id, r.event_id, e.season, r.category, r.division, r.place,
+               r.points, r.total_time, c.cid,
+               {_ACTUAL_LAPS} AS laps,
+               (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+                 WHERE tc.team = c.team AND tc.season = e.season LIMIT 1) AS conference
+        FROM results r
+        JOIN canonical c ON c.rider_id = r.rider_id
+        JOIN events e ON e.id = r.event_id AND e.is_published
+        WHERE {_POINTS_ONLY} AND e.season = :season
+          AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
+    ),
+    mixed AS (
+        SELECT event_id FROM conf WHERE conference IS NOT NULL
+        GROUP BY event_id HAVING count(DISTINCT conference) >= 2
+    ),
+    field AS (
+        SELECT conf.*,
+               count(*) OVER w AS field_size,
+               first_value(total_time) OVER (w ORDER BY place) AS winner_time,
+               first_value(laps) OVER (w ORDER BY place) AS winner_laps
+        FROM conf
+        WHERE event_id IN (SELECT event_id FROM mixed)
+        WINDOW w AS (PARTITION BY event_id, category)
+    )
+"""
+
+
+def cross_conference_performance(session: Session, season: int) -> dict:
+    """How each conference fares against the others at mixed-conference races.
+
+    Per conference: riders, results and their share of the field, top-10
+    and podium finishes (and the share of all top-10s), average share of
+    the category beaten, average points, and median time behind the winner
+    for riders who did the winner's laps. Also the share beaten per
+    (conference, division), and the number of mixed races counted.
+    """
+    params = {"season": season}
+    events = session.execute(
+        text(_CROSS_CONFERENCE_RESULTS + "SELECT count(*) FROM mixed"), params
+    ).scalar()
+    rows = session.execute(
+        text(
+            _CROSS_CONFERENCE_RESULTS
+            + """
+        SELECT conference,
+               count(DISTINCT cid) AS riders,
+               count(*) AS results,
+               count(*) FILTER (WHERE place <= 10) AS top10,
+               count(*) FILTER (WHERE place <= 3) AS podiums,
+               round(avg((1 - place::numeric / field_size) * 100), 1) AS avg_beaten,
+               round(avg(points), 1) AS avg_points,
+               round((percentile_cont(0.5) WITHIN GROUP (ORDER BY
+                   EXTRACT(EPOCH FROM (total_time - winner_time)) / NULLIF(EXTRACT(EPOCH FROM winner_time), 0) * 100
+               ) FILTER (WHERE laps = winner_laps AND total_time IS NOT NULL AND winner_time > interval '0'))::numeric, 1)
+                   AS median_behind
+        FROM field
+        WHERE conference IS NOT NULL
+        GROUP BY conference
+    """
+        ),
+        params,
+    ).all()
+    by_division = session.execute(
+        text(
+            _CROSS_CONFERENCE_RESULTS
+            + """
+        SELECT conference, division,
+               count(*) AS results,
+               round(avg((1 - place::numeric / field_size) * 100), 1) AS avg_beaten
+        FROM field
+        WHERE conference IS NOT NULL AND division IS NOT NULL
+        GROUP BY conference, division
+    """
+        ),
+        params,
+    ).all()
+    return {
+        "events": events or 0,
+        "conferences": [_serialize(r._mapping) for r in rows],
+        "by_division": [_serialize(r._mapping) for r in by_division],
+    }
+
+
+def riders_per_season_by_conference(session: Session) -> list[dict]:
+    """Distinct riders who raced each season, by their team's conference that
+    season (None where no conference is on record, as before 2024)."""
+    rows = session.execute(
+        text(rf"""
+        WITH {_CANONICAL_CTE},
+        latest AS (
+            SELECT DISTINCT ON (e.season, c.cid) e.season, c.cid, c.team
+            FROM results r
+            JOIN canonical c ON c.rider_id = r.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published
+            WHERE {_POINTS_ONLY} AND r.dq_status <> 'excluded'
+            ORDER BY e.season, c.cid, e.event_order DESC, e.id DESC
+        )
+        SELECT l.season,
+               (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+                 WHERE tc.team = l.team AND tc.season = l.season LIMIT 1) AS conference,
+               count(*) AS riders
+        FROM latest l
+        GROUP BY 1, 2
+        ORDER BY 1
+    """)
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def current_season(session: Session) -> int | None:
     """The newest season with a published race: what every page defaults to."""
     return session.execute(text("SELECT max(season) FROM events WHERE is_published")).scalar()
