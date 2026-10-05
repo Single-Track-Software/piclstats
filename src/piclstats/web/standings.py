@@ -115,3 +115,22 @@ def rider_conference_standings(session: Any, rider_id: int) -> dict[int, list[di
             }
         )
     return out
+
+
+def division_conference_matrix(
+    rows: list[dict[str, Any]], conferences: list[str]
+) -> dict[str, Any]:
+    """Shape (division, conference, riders) rows for the dashboard's stacked bars.
+
+    Divisions run oldest first; conferences in the order given (west to
+    east), with any extra conference, and riders with none ("Unassigned"),
+    after them. Returns divisions, conferences, counts[conference][i], totals[i].
+    """
+    divisions = sorted({r["division"] for r in rows}, key=division_sort_key)
+    extra = sorted({r["conference"] or "Unassigned" for r in rows} - set(conferences))
+    confs = [c for c in conferences if any((r["conference"] or "") == c for r in rows)] + extra
+    counts = {c: [0] * len(divisions) for c in confs}
+    for r in rows:
+        counts[r["conference"] or "Unassigned"][divisions.index(r["division"])] += r["riders"]
+    totals = [sum(counts[c][i] for c in confs) for i in range(len(divisions))]
+    return {"divisions": divisions, "conferences": confs, "counts": counts, "totals": totals}

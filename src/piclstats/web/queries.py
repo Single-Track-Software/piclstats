@@ -175,6 +175,36 @@ def overview_stats(session: Session) -> dict:
     return _serialize(row._mapping)
 
 
+def division_conference_counts(session: Session, season: int) -> list[dict]:
+    """Riders per (division, conference) for a season, for the dashboard chart.
+
+    Each rider counts once: in the division and team of their latest points
+    race that season (a rider who moved up shows in the higher division).
+    Riders on a team with no conference row come back as conference None.
+    """
+    rows = session.execute(
+        text(rf"""
+        WITH {_CANONICAL_CTE},
+        latest AS (
+            SELECT DISTINCT ON (c.cid) c.cid, r.division, c.team
+            FROM results r
+            JOIN canonical c ON c.rider_id = r.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+            WHERE {_POINTS_ONLY} AND r.dq_status <> 'excluded' AND r.division IS NOT NULL
+            ORDER BY c.cid, e.event_order DESC, e.id DESC
+        )
+        SELECT l.division,
+               (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+                 WHERE tc.team = l.team AND tc.season = :season LIMIT 1) AS conference,
+               count(*) AS riders
+        FROM latest l
+        GROUP BY 1, 2
+    """),
+        {"season": season},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def current_season(session: Session) -> int | None:
     """The newest season with a published race: what every page defaults to."""
     return session.execute(text("SELECT max(season) FROM events WHERE is_published")).scalar()

@@ -352,11 +352,27 @@ def home(request: Request):
         latest = queries.latest_event(session)
         top_riders = queries.leaderboard(session, season, limit=10)
         top_teams = queries.team_leaderboard(session, season, limit=10, min_riders=3)
+        # This season's conferences (west to east) and its riders per division,
+        # split by conference, for the stats bar and the dashboard chart.
+        from piclstats.web.standings import division_conference_matrix
+
+        season_confs = [
+            c["name"] for c in queries.conferences_by_season(session).get(str(season), [])
+        ]
+        division_mix = (
+            division_conference_matrix(
+                queries.division_conference_counts(session, season), season_confs
+            )
+            if season
+            else None
+        )
     return templates.TemplateResponse(
         "home.html",
         _ctx(
             request,
             stats=stats,
+            conference_count=len(season_confs),
+            division_mix=division_mix,
             seasons=seasons,
             season=season,
             latest=latest,
