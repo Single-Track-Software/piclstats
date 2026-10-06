@@ -10,6 +10,10 @@ from piclstats.scraper.registry import RESULT_LIST_PATTERNS
 
 logger = logging.getLogger(__name__)
 
+# Sent on every request to raceresult.com and pamtb.org: says who we are and
+# how to reach us, so a site operator can ask rather than block.
+USER_AGENT = "piclstats/1.0 (+https://piclstats.com; support@piclstats.com)"
+
 CONFIG_URL = "https://my.raceresult.com/{event_id}/results/config?lang=en"
 RESULTS_URL = "https://{server}/{event_id}/results/list"
 
@@ -21,7 +25,7 @@ def _get_client() -> httpx.Client:
     if _client is None:
         _client = httpx.Client(
             timeout=settings.request_timeout_seconds,
-            headers={"User-Agent": "piclstats/0.1 (PAMTB results archiver)"},
+            headers={"User-Agent": USER_AGENT},
         )
     return _client
 
