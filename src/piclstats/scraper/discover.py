@@ -15,6 +15,7 @@ import httpx
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from piclstats.scraper.client import USER_AGENT
 from piclstats.scraper.registry import SEASONS
 
 RESULTS_URL = "https://www.pamtb.org/results-standings"
@@ -43,7 +44,7 @@ def parse_links(html: str) -> list[Discovered]:
 def fetch_page(url: str = RESULTS_URL) -> str:
     resp = httpx.get(
         url,
-        headers={"User-Agent": "piclstats/1.0 (+https://piclstats.com)"},
+        headers={"User-Agent": USER_AGENT},
         follow_redirects=True,
         timeout=30,
     )

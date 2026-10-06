@@ -22,3 +22,11 @@ def test_parse_links_dedupes_and_cleans_names():
 
 def test_season_is_the_calendar_year():
     assert current_season(date(2026, 9, 16)) == 2026
+
+
+def test_scrapers_identify_with_contact_details():
+    from piclstats.scraper import client, discover
+
+    assert "support@piclstats.com" in client.USER_AGENT
+    assert "https://piclstats.com" in client.USER_AGENT
+    assert discover.USER_AGENT is client.USER_AGENT
