@@ -299,6 +299,22 @@ async def head_as_get(
     )
 
 
+@app.middleware("http")
+async def origin_lock(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Refuse requests that didn't come through Cloudflare (web/edge.py).
+
+    Registered last, so it runs first: a request that skipped Cloudflare is
+    turned away before any other middleware, page or log write.
+    """
+    from piclstats.web import edge
+
+    if not edge.allowed(request):
+        return Response("Forbidden\n", status_code=403, media_type="text/plain")
+    return await call_next(request)
+
+
 def parse_season(raw: str | None) -> int | None:
     """Season from a query string: a 4-digit year or nothing.
 
