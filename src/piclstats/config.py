@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # admin_email and admin_password to seed the first admin on startup.
     admin_email: str = ""
     session_secret: str = ""
+    # Shared with Cloudflare's Transform Rule (header X-Origin-Auth). When set,
+    # requests that didn't come through Cloudflare are refused (web/edge.py).
+    origin_secret: str = ""
     # Mark the session cookie Secure (https-only). Keep True in production (Fly
     # serves https); set False for local http dev or the cookie won't be sent.
     session_https_only: bool = True

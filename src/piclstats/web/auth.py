@@ -231,17 +231,10 @@ def login_form(request: Request, next: str = "/", error: str = ""):
 
 
 def client_ip(request: Request) -> str | None:
-    """Caller's IP, trusting Fly's proxy headers ahead of the socket address.
+    """Caller's IP (Cloudflare-aware; see web/edge.py)."""
+    from piclstats.web import edge
 
-    On Fly the socket peer is always the edge proxy, so without this every
-    request would throttle under one key.
-    """
-    fly_ip = request.headers.get("fly-client-ip")
-    if fly_ip:
-        return fly_ip
-    # No X-Forwarded-For fallback: off Fly there is no trusted proxy, and the
-    # throttle key must not be something the caller can choose.
-    return request.client.host if request.client else None
+    return edge.client_ip(request)
 
 
 @router.post("/login")

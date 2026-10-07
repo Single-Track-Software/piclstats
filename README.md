@@ -141,6 +141,14 @@ Production runs on Fly Managed Postgres, which keeps its own backups (daily full
 
 The app sets a 15 s server-side `statement_timeout` on its connections (`PICLSTATS_STATEMENT_TIMEOUT_MS`, 0 disables) so one slow query fails one request rather than starving the small Postgres VM.
 
+## Cloudflare in front of Fly
+
+piclstats.com is proxied by Cloudflare (free plan) for bot protection. Cloudflare adds a secret header, `X-Origin-Auth`, to every request it forwards; the same value is the Fly secret `PICLSTATS_ORIGIN_SECRET`. While that secret is set, the app refuses any request without the header (403), so scrapers can't go around Cloudflare by calling `piclstats.fly.dev` or Fly's IP. `/healthz` stays open for Fly's health check. The visitor's IP comes from `CF-Connecting-IP`, but only on requests carrying the header. See `web/edge.py`.
+
+- **DNS:** the web records (`piclstats.com`, `www`) are proxied (orange cloud). Mail records (ImprovMX MX, SPF, Resend `send.` / DKIM, DMARC) and the two `_acme-challenge` CNAMEs (→ `piclstats.com.m11k9xz.flydns.net` and `www.piclstats.com.m11k9xz.flydns.net`, which keep Fly's Let's Encrypt renewals working) are **DNS only** (grey cloud).
+- **SSL/TLS:** Full (strict).
+- **Rotating the secret:** update the Cloudflare Transform Rule first, then `fly secrets set PICLSTATS_ORIGIN_SECRET=...`. Doing it the other way round locks everyone out until both match. Unsetting the Fly secret turns the lock off.
+
 ## Deployment
 
 Push to `main` runs the CI checks and, only if they pass, auto-deploys via GitHub Actions (`.github/workflows/fly-deploy.yml` calls `ci.yml` as a required job; needs the `FLY_API_TOKEN` repo secret). `fly.toml`'s `release_command` runs `alembic upgrade head` before the new version serves traffic. Prod secrets are set with `flyctl secrets set`, not `.env`.
