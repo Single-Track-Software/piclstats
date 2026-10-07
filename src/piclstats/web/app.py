@@ -880,6 +880,11 @@ def privacy_page(request: Request):
     return templates.TemplateResponse("privacy.html", _ctx(request))
 
 
+@app.get("/terms", response_class=HTMLResponse)
+def terms_page(request: Request):
+    return templates.TemplateResponse("terms.html", _ctx(request))
+
+
 @app.get("/robots.txt")
 def robots_txt():
     lines = ["User-agent: *"] + [f"Disallow: {p}" for p in _ROBOTS_DISALLOW]
@@ -923,6 +928,8 @@ def sitemap_urls(session) -> list[str]:
             "/league",
             "/courses",
             "/schedule",
+            "/privacy",
+            "/terms",
         )
     ]
     urls += [f"{SITE_URL}/results?event_id={e['id']}" for e in queries.events_list(session)]
