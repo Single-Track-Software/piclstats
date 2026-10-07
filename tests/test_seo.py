@@ -139,3 +139,12 @@ def test_healthz_is_503_when_the_database_does_not(monkeypatch):
     monkeypatch.setattr(app_mod, "get_session", _broken)
     r = TestClient(app).get("/healthz")
     assert r.status_code == 503
+
+
+def test_terms_page_is_public_linked_and_forbids_scraping():
+    r = TestClient(app).get("/terms")
+    assert r.status_code == 200
+    assert "Automated collection" in r.text and "machine-learning or AI models" in r.text
+    assert 'href="/robots.txt"' in r.text and 'href="/privacy"' in r.text
+    assert 'href="/terms"' in r.text  # the footer link, on every page
+    assert 'name="robots"' not in r.text
