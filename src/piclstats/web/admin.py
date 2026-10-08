@@ -32,7 +32,7 @@ from piclstats.db.seed import (
 )
 from piclstats.db.settings_store import get_forecast_config, set_value
 from piclstats.db.tables import courses, events, scheduled_races
-from piclstats.web import mail
+from piclstats.web import mail, queries
 from piclstats.web.auth import ROLE_HELP, ROLES, build_link, require_admin, require_same_origin
 from piclstats.web.forecast import DEFAULT_CONFIG
 from piclstats.web.templating import Jinja2Templates
@@ -1130,6 +1130,71 @@ async def rider_hidden(
         if not queries.set_rider_hidden(s, rider_id, hidden):
             raise HTTPException(404, "Rider not found")
     return RedirectResponse(f"/rider/{rider_id}", status_code=303)
+
+
+# ── API keys (/api/v1, web/api.py) ─────────────────────────────────────
+
+
+def _api_keys_page(request: Request, *, new_key: str = "", error: str = "", status_code: int = 200):
+    from piclstats.db import api_keys_store
+
+    with get_session() as s:
+        teams = queries.teams_list(s)
+    return templates.TemplateResponse(
+        "admin/api_keys.html",
+        {
+            "request": request,
+            "keys": api_keys_store.list_all(),
+            "teams": teams,
+            "new_key": new_key,
+            "error": error,
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/api-keys", response_class=HTMLResponse)
+def api_keys_list(request: Request, _: dict = Depends(require_admin)):
+    return _api_keys_page(request)
+
+
+@router.post("/api-keys", response_class=HTMLResponse)
+async def api_keys_create(
+    request: Request,
+    admin: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    """Create a key and show it once.
+
+    Renders the page directly rather than redirecting, so the raw key never
+    lands in a URL, browser history or proxy log.
+    """
+    from piclstats.db import api_keys_store
+
+    form = await request.form()
+    name = _form_str(form, "name").strip()
+    picked = [t for t in form.getlist("teams") if isinstance(t, str)]
+    with get_session() as s:
+        known = set(queries.teams_list(s))
+    teams = [t for t in picked if t in known]
+    if not name or not teams:
+        return _api_keys_page(
+            request, error="Give the key a name and pick at least one team", status_code=400
+        )
+    raw = api_keys_store.create(name, teams, created_by=admin["id"])
+    return _api_keys_page(request, new_key=raw)
+
+
+@router.post("/api-keys/{key_id}/revoke")
+def api_keys_revoke(
+    key_id: int,
+    _: dict = Depends(require_admin),
+    __: None = Depends(require_same_origin),
+):
+    from piclstats.db import api_keys_store
+
+    api_keys_store.revoke(key_id)
+    return RedirectResponse("/admin/api-keys", status_code=303)
 
 
 @router.get("/users", response_class=HTMLResponse)

@@ -23,6 +23,9 @@ from piclstats.config import settings
 
 ORIGIN_HEADER = "x-origin-auth"
 OPEN_PATHS = frozenset({"/healthz"})
+# The keyed API is called directly on Fly (Cloudflare's Bot Fight Mode
+# challenges every automated client); web/api.py's key check guards it.
+OPEN_PREFIXES = ("/api/v1/",)
 
 
 def lock_enabled() -> bool:
@@ -38,7 +41,13 @@ def via_cloudflare(request: Request) -> bool:
 
 def allowed(request: Request) -> bool:
     """Whether the origin lock lets this request through."""
-    return not lock_enabled() or request.url.path in OPEN_PATHS or via_cloudflare(request)
+    path = request.url.path
+    return (
+        not lock_enabled()
+        or path in OPEN_PATHS
+        or path.startswith(OPEN_PREFIXES)
+        or via_cloudflare(request)
+    )
 
 
 def client_ip(request: Request) -> str | None:

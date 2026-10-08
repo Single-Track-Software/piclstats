@@ -81,6 +81,8 @@ def should_log(method: str, path: str, status: int) -> bool:
         method == "GET"
         and not path.startswith("/static")
         and not path.startswith(_TOKEN_PATHS)
+        # JSON for scripts and the page's own lookups, not page views
+        and not path.startswith("/api/")
         and status < 500
         and path not in ("/favicon.ico", "/healthz")
     )
