@@ -84,9 +84,10 @@ templates.env.globals["static_version"] = hashlib.sha256(
 async def _canonical_host_redirect(request: Request, call_next):
     # One public name: GET/HEAD on www / the fly.dev address 301 to the host in
     # PICLSTATS_PUBLIC_BASE_URL (see web/canonical.py). No-op when unset.
-    # Fly's health checks call the machine by its private address; answer
-    # them here rather than redirecting to the public host.
-    if request.url.path == "/healthz":
+    # Fly's health checks call the machine by its private address, and API
+    # clients call piclstats.fly.dev on purpose (Cloudflare challenges bots on
+    # the public host): answer both here rather than redirecting.
+    if request.url.path == "/healthz" or request.url.path.startswith("/api/v1/"):
         return await call_next(request)
     target = canonical.redirect_target(
         request.method,
