@@ -73,3 +73,19 @@ def test_digest_is_scoped_to_the_keys_teams(monkeypatch):
     assert c.get("/api/v1/teams/Lower%20Bucks%20Composite/digest").status_code == 401
     t = c.get("/api/v1/teams", headers=h).json()
     assert t["teams"][0]["name"] == "Lower Bucks Composite"
+
+
+def test_api_on_the_fly_host_is_not_redirected_to_the_public_host(monkeypatch):
+    # Production: PUBLIC_BASE_URL is piclstats.com and API clients call
+    # piclstats.fly.dev. A 301 would send them into Cloudflare's bot challenge.
+    _valid(monkeypatch)
+    from piclstats.web import app as app_mod
+
+    monkeypatch.setattr(app_mod.settings, "public_base_url", "https://piclstats.com")
+    monkeypatch.setattr(edge.settings, "origin_secret", "s3cret")
+    c = TestClient(app, base_url="https://piclstats.fly.dev")
+    h = {"Authorization": "Bearer pcls_good"}
+    r = c.get("/api/v1/me", headers=h, follow_redirects=False)
+    assert r.status_code == 200 and r.json()["key"] == "Lower Bucks news agent"
+    # Other pages on the fly.dev host are still locked (and would redirect).
+    assert c.get("/riders", follow_redirects=False).status_code == 403
