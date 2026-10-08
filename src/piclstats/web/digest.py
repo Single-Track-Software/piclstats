@@ -163,7 +163,7 @@ def _highlights(row, rider, earlier) -> list[dict[str, str]]:
         out.append(
             {
                 "type": "season_best",
-                "text": f"Best finish of the season ({ordinal(place)} in {cat})",
+                "text": f"Best finish of the season ({ordinal(place)} of {row['field_size']} in {cat})",
             }
         )
     prev = earlier[-1] if earlier else None
@@ -203,6 +203,34 @@ def _highlights(row, rider, earlier) -> list[dict[str, str]]:
     return out
 
 
+_LEADS = ("podium", "top10")
+
+
+def _rider_line(rider: dict[str, Any]) -> str:
+    """One Markdown bullet per rider: the leading result, then the rest.
+
+    "Tyler Massey: 3rd of 18 in Varsity Male — best finish of the season;
+    beat 83% of the field, up from 53% last race". Built only from the
+    rider's highlight texts, so it can't say anything the facts don't.
+    """
+    hs = rider["highlights"]
+    lead = next((h["text"] for h in hs if h["type"] in _LEADS), None)
+    rest = []
+    for h in hs:
+        if h["type"] in _LEADS:
+            continue
+        if h["type"] == "season_best" and lead:
+            rest.append("best finish of the season")  # the place is already in the lead
+        else:
+            rest.append(h["text"][:1].lower() + h["text"][1:])
+    if lead:
+        body = lead + (" — " + "; ".join(rest) if rest else "")
+    else:
+        body = "; ".join(rest)
+        body = body[:1].upper() + body[1:]
+    return f"- **{rider['name'].title()}:** {body}"
+
+
 def _markdown(team: str, races: list[dict[str, Any]]) -> str:
     """A plain summary from the facts above, for a person or an agent to edit."""
     if not races:
@@ -222,7 +250,7 @@ def _markdown(team: str, races: list[dict[str, Any]]) -> str:
         if race["highlights"]:
             parts.append(
                 "**Highlights**\n\n"
-                + "\n".join(f"- {h['rider'].title()}: {h['text']}" for h in race["highlights"])
+                + "\n".join(_rider_line(r) for r in race["riders"] if r["highlights"])
             )
         lines = [
             "| Rider | Category | Place | Field beaten | Points | Standing |",
