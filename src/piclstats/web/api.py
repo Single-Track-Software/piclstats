@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict, deque
+from datetime import date, timedelta
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from piclstats.db import api_keys_store
+from piclstats.db.engine import get_session
+from piclstats.quality.keys import team_key
 
 router = APIRouter(prefix="/api/v1", tags=["api"])
 
@@ -59,3 +63,64 @@ def require_api_key(request: Request) -> dict:
 def me(key: dict = Depends(require_api_key)) -> dict:
     """Which key this is and the teams it can read: a connection check."""
     return {"key": key["name"], "teams": key["team_names"]}
+
+
+def _team_in_scope(key: dict, team: str) -> str:
+    """The key's own spelling of `team`, or 403 if the key doesn't cover it."""
+    wanted = team_key(team)
+    for name in key["team_names"]:
+        if team_key(name) == wanted:
+            return name
+    raise HTTPException(status_code=403, detail="This key doesn't cover that team")
+
+
+@router.get("/teams")
+def teams(key: dict = Depends(require_api_key)) -> dict:
+    """The teams this key can read, with their digest URLs."""
+    return {
+        "teams": [
+            {"name": t, "digest_url": f"/api/v1/teams/{t.replace(' ', '%20')}/digest"}
+            for t in key["team_names"]
+        ]
+    }
+
+
+@router.get("/teams/{team}/digest")
+def team_digest(
+    team: str,
+    since: date | None = Query(
+        None, description="Races on or after this date (YYYY-MM-DD); default: the last 8 days"
+    ),
+    key: dict = Depends(require_api_key),
+) -> dict[str, Any]:
+    """A team's races since a date: each rider's result, change since their
+    previous race, current conference standing, named highlights, team
+    totals, and a Markdown summary built from those facts (web/digest.py)."""
+    from piclstats.web import digest, queries
+    from piclstats.web.standings import rank_by_total, standing_in
+
+    name = _team_in_scope(key, team)
+    since = since or (date.today() - timedelta(days=8))
+    with get_session() as s:
+        season = queries.current_season(s)
+        rows = queries.team_race_rows(s, name, season) if season else []
+        cache: dict[tuple[str, str, str], dict[int, dict[str, Any]]] = {}
+
+        def standings(conference: str, division: str, gender: str) -> dict[int, dict[str, Any]]:
+            k = (conference, division, gender)
+            if k not in cache:
+                ranked = rank_by_total(
+                    queries.leaderboard(
+                        s,
+                        season,
+                        division,
+                        gender,
+                        "total_points",
+                        limit=None,
+                        conferences=[conference],
+                    )
+                )
+                cache[k] = {r["rider_id"]: standing_in(ranked, r["rider_id"]) or {} for r in ranked}
+            return cache[k]
+
+        return digest.build(name, rows, since, standings)

@@ -797,6 +797,55 @@ def team_season_rows(session: Session, team_name: str, season: int) -> list[dict
     return [_serialize(r._mapping) for r in rows]
 
 
+def team_race_rows(session: Session, team_name: str, season: int) -> list[dict]:
+    """Every points result in `season` for riders who raced for the team, for
+    the API digest: one row per (rider, race), oldest race first.
+
+    `for_team` marks the races the rider rode for this team (a rider can
+    switch teams). `race_date` is the scheduled date where known, else the
+    day the results were loaded. Share beaten follows the rider page's
+    percentile; `behind_secs` is only for riders on the winner's laps.
+    """
+    rows = session.execute(
+        text(rf"""
+        WITH {_CANONICAL_CTE},
+        {_FIELD_CTE},
+        members AS (
+            SELECT DISTINCT c.cid
+            FROM canonical c
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+            WHERE c.team_key = :team_key AND {_POINTS_ONLY}
+        )
+        SELECT c.cid, c.name, c.team, (c.team_key = :team_key) AS for_team,
+               e.id AS event_id, e.event_name, e.event_order, e.season,
+               COALESCE(e.event_date, e.scraped_at::date) AS race_date,
+               e.raceresult_id, co.name AS course,
+               r.category, r.division, r.gender, r.place, r.status, r.points,
+               r.total_time_raw, f.field_size,
+               (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+                 WHERE tc.team = c.team AND tc.season = e.season LIMIT 1) AS conference,
+               CASE WHEN r.place IS NOT NULL AND f.field_size > 0
+                    THEN round(((1 - r.place::numeric / f.field_size) * 100)::numeric, 1)
+               END AS percentile,
+               CASE WHEN r.total_time IS NOT NULL AND f.winner_time IS NOT NULL
+                         AND {_ACTUAL_LAPS} = f.winner_laps
+                    THEN round(EXTRACT(EPOCH FROM (r.total_time - f.winner_time))::numeric, 1)
+               END AS behind_secs
+        FROM members m
+        JOIN canonical c ON c.cid = m.cid
+        JOIN results r ON r.rider_id = c.rider_id AND r.dq_status <> 'excluded'
+        JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+        LEFT JOIN courses co ON co.id = e.course_id
+        LEFT JOIN field f ON f.event_id = r.event_id AND f.category = r.category
+        WHERE {_POINTS_ONLY}
+        ORDER BY e.event_order, e.id, c.name
+        """),
+        {"team_key": team_key(team_name), "season": season, "seasons": [season]},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def team_rider_seasons(session: Session, team_name: str, season: int) -> list[dict]:
     """Each rider on the team this season, with this and last season's form.
 

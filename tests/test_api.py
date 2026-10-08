@@ -63,3 +63,13 @@ def test_keys_are_hashed_and_prefixed():
 def test_api_calls_are_not_page_views():
     assert not should_log("GET", "/api/v1/me", 200)
     assert not should_log("GET", "/api/riders", 200)
+
+
+def test_digest_is_scoped_to_the_keys_teams(monkeypatch):
+    _valid(monkeypatch)
+    c = TestClient(app)
+    h = {"Authorization": "Bearer pcls_good"}
+    assert c.get("/api/v1/teams/Some%20Other%20Team/digest", headers=h).status_code == 403
+    assert c.get("/api/v1/teams/Lower%20Bucks%20Composite/digest").status_code == 401
+    t = c.get("/api/v1/teams", headers=h).json()
+    assert t["teams"][0]["name"] == "Lower Bucks Composite"
