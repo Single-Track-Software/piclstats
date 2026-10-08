@@ -64,10 +64,10 @@ The team's races on or after `since` (default: the last 8 days) in the current s
 |---|---|
 | `podium` | Top 3, always with the field size ("2nd of 2" is not "2nd of 30") |
 | `top10` | 4th–10th |
-| `season_best` | Better place than any earlier race this season in the same division |
+| `season_best` | Better place than any earlier race this season in the same division (text includes place and field) |
 | `big_move` | Beat at least 15 points more of the field than at their previous race |
 | `moved_up` | First race in an older division |
 | `first_race` | First race of the season |
 | `standing` | Top 3 in their conference standings |
 
-**`markdown`** is a plain summary built only from these facts: a team line, highlights, a results table and a link to the full results. Edit it freely, but keep the numbers as given. Many riders are minors; please don't add personal details beyond what the results show.
+**`markdown`** is a plain summary built only from these facts: a team line, one highlight line per rider (their best result first, then the rest), a results table and a link to the full results. Edit it freely, but keep the numbers as given. Many riders are minors; please don't add personal details beyond what the results show.

@@ -118,3 +118,26 @@ def test_gap_format():
         and fmt_gap(0) is None
         and fmt_gap(None) is None
     )
+
+
+def test_markdown_gives_each_rider_one_highlight_line():
+    d = build("Lower Bucks Composite", ROWS, date(2026, 9, 15), _standings(STAND))
+    md = d["markdown"]
+    assert (
+        "- **Wolf Snyder:** 1st of 22 in JV2 Male — best finish of the season; "
+        "beat 96% of the field, up from 73% last race; 1st of 24 in the Eastern Blue JV2 Male standings"
+    ) in md
+    # No podium or top 10 to lead with: the first clause leads, capitalised.
+    assert "- **Mason Covrljan:** First race in 8th Grade after moving up from 7th Grade" in md
+    assert md.count("Wolf Snyder:") == 1
+
+
+def test_season_best_carries_the_field_size():
+    rows = [
+        _row(5, "SAM RIDER", 10, 1, 20, 30, 33.3),
+        _row(5, "SAM RIDER", 20, 2, 14, 30, 53.3),
+    ]
+    d = build("Lower Bucks Composite", rows, date(2026, 9, 15), _standings({}))
+    sam = d["races"][0]["riders"][0]
+    assert sam["highlights"][0]["text"] == "Best finish of the season (14th of 30 in JV2 Male)"
+    assert "- **Sam Rider:** Best finish of the season (14th of 30 in JV2 Male)" in d["markdown"]
