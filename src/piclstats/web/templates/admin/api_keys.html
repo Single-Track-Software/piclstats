@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}API keys — Admin{% endblock %}
+{% block content %}
+<div class="max-w-4xl">
+    <div class="mb-4"><a href="/admin" class="text-sm text-picl-700 hover:underline">&larr; Admin</a></div>
+    <h1 class="text-2xl font-bold text-gray-900 mb-2">API keys</h1>
+    <p class="text-sm text-gray-500 mb-6">Read-only keys for scripts and agents (for example, a Team Director's weekly news summary). A key only sees the teams it's issued for. Clients call <code class="text-xs bg-gray-100 px-1 rounded">https://piclstats.fly.dev/api/v1/…</code> with <code class="text-xs bg-gray-100 px-1 rounded">Authorization: Bearer &lt;key&gt;</code>; start with <code class="text-xs bg-gray-100 px-1 rounded">/api/v1/me</code>.</p>
+
+    {% if error %}
+    <div class="mb-4 px-4 py-2 rounded bg-red-50 text-red-800 text-sm border border-red-200">{{ error }}</div>
+    {% endif %}
+
+    {% if new_key %}
+    <div class="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-4">
+        <div class="font-semibold text-amber-900">Copy this key now: it won't be shown again.</div>
+        <div class="mt-2 flex items-center gap-2">
+            <code id="newKey" class="flex-1 break-all rounded bg-white border border-amber-200 px-2 py-1.5 text-sm">{{ new_key }}</code>
+            <button type="button" class="bg-picl-700 text-white px-3 py-1.5 rounded text-sm hover:bg-picl-800"
+                    onclick="navigator.clipboard.writeText(document.getElementById('newKey').textContent); this.textContent='Copied';">Copy</button>
+        </div>
+        <p class="mt-2 text-xs text-amber-800">Only its hash is stored. If it's lost, revoke it and create another.</p>
+    </div>
+    {% endif %}
+
+    <div class="bg-white rounded-lg shadow border border-gray-200 p-4 mb-6">
+        <h2 class="font-semibold text-picl-800 mb-3">Create a key</h2>
+        <form method="post" action="/admin/api-keys" class="space-y-3">
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Name (who or what uses it)</label>
+                <input name="name" required maxlength="80" placeholder="e.g. Lower Bucks news agent" class="w-full sm:w-96 border rounded px-2 py-1 text-sm">
+            </div>
+            <div>
+                <label class="block text-xs text-gray-600 mb-1">Teams this key can read (hold ⌘ / Ctrl to pick several)</label>
+                <select name="teams" multiple required size="8" class="w-full sm:w-96 border rounded px-2 py-1 text-sm">
+                    {% for t in teams %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="bg-picl-700 text-white px-4 py-1.5 rounded text-sm hover:bg-picl-800">Create key</button>
+        </form>
+    </div>
+
+    <div class="bg-white rounded-lg shadow border border-gray-200 overflow-hidden">
+        <table class="w-full text-sm">
+            <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
+                <tr><th class="px-4 py-2 text-left">Name</th><th class="px-4 py-2 text-left">Key</th><th class="px-4 py-2 text-left">Teams</th><th class="px-4 py-2 text-left">Created</th><th class="px-4 py-2 text-left">Last used</th><th class="px-4 py-2"></th></tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for k in keys %}
+                <tr class="{{ 'text-gray-400' if k.revoked_at else '' }}">
+                    <td class="px-4 py-2 font-medium">{{ k.name }}</td>
+                    <td class="px-4 py-2 font-mono text-xs">{{ k.prefix }}…</td>
+                    <td class="px-4 py-2 text-xs">{{ k.team_names | join(', ') }}</td>
+                    <td class="px-4 py-2 text-xs">{{ k.created_at.strftime('%b %-d, %Y') }}</td>
+                    <td class="px-4 py-2 text-xs">{{ k.last_used_at.strftime('%b %-d, %H:%M UTC') if k.last_used_at else 'never' }}</td>
+                    <td class="px-4 py-2 text-right">
+                        {% if k.revoked_at %}<span class="text-xs">revoked {{ k.revoked_at.strftime('%b %-d') }}</span>
+                        {% else %}
+                        <form method="post" action="/admin/api-keys/{{ k.id }}/revoke" onsubmit="return confirm('Revoke {{ k.name }}? Anything using it stops working immediately.')">
+                            <button class="text-xs text-red-600 hover:underline">Revoke</button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="px-4 py-6 text-center text-gray-400">No keys yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -57,7 +57,15 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 # Before the app exists, so Sentry's FastAPI integration hooks it.
 monitoring.init()
-app = FastAPI(title="PICL Stats Dashboard", lifespan=lifespan)
+# No public /docs, /redoc or /openapi.json: FastAPI's defaults listed every
+# route in the app, admin and timing included, for anyone to read.
+app = FastAPI(
+    title="PICL Stats Dashboard",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 # Cache-buster for the built stylesheet: changes whenever app.css is rebuilt.
@@ -267,8 +275,10 @@ from piclstats.web.admin import router as admin_router  # noqa: E402
 from piclstats.web.timing import router as timing_router  # noqa: E402
 from piclstats.web.timing_station import router as station_router  # noqa: E402
 from piclstats.web.auth import router as auth_router  # noqa: E402
+from piclstats.web.api import router as api_router  # noqa: E402
 
 app.include_router(auth_router)
+app.include_router(api_router)
 app.include_router(admin_router)
 app.include_router(timing_router)
 app.include_router(station_router)

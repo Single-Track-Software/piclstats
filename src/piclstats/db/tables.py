@@ -18,7 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
 
@@ -643,4 +643,22 @@ local_results = Table(
     Column("published_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     UniqueConstraint("timing_event_id", "roster_plate", name="uq_local_result"),
     Index("idx_local_results_rider", "rider_id"),
+)
+
+
+# Read-only, team-scoped keys for /api/v1 (web/api.py). Only the SHA-256 hash
+# is stored; the raw key is shown once. team_keys are normalised team keys.
+api_keys = Table(
+    "api_keys",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", Text, nullable=False),
+    Column("prefix", Text, nullable=False),
+    Column("key_hash", Text, nullable=False, unique=True),
+    Column("team_names", ARRAY(Text), nullable=False),
+    Column("team_keys", ARRAY(Text), nullable=False),
+    Column("created_by", Integer, ForeignKey("users.id")),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Column("last_used_at", DateTime(timezone=True)),
+    Column("revoked_at", DateTime(timezone=True)),
 )
