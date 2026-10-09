@@ -263,8 +263,9 @@
 {% for r in races %}{% for i in range(4, 7) %}{% if r['lap' ~ i] and i > ns.laps %}{% set ns.laps = i %}{% endif %}{% endfor %}{% endfor %}
 {% set race_laps = ns.laps %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    <div class="px-6 py-3 border-b bg-gray-50">
+    <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
         <h2 class="text-lg font-semibold text-gray-900">Race History</h2>
+        <span class="text-xs text-gray-500">Unofficial copy of the league's published results · <a href="https://www.pamtb.org/results-standings" target="_blank" rel="noopener" class="text-picl-700 hover:underline">official results on pamtb.org&nbsp;&nearr;</a></span>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">

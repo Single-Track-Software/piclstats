@@ -148,3 +148,9 @@ def test_terms_page_is_public_linked_and_forbids_scraping():
     assert 'href="/robots.txt"' in r.text and 'href="/privacy"' in r.text
     assert 'href="/terms"' in r.text  # the footer link, on every page
     assert 'name="robots"' not in r.text
+
+
+def test_every_page_says_results_are_unofficial_and_links_the_official_source():
+    h = TestClient(app).get("/terms").text
+    assert "Unofficial results and statistics" in h
+    assert 'href="https://www.pamtb.org/results-standings"' in h
