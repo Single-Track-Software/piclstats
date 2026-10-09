@@ -4,7 +4,7 @@
 <div class="flex flex-wrap items-start justify-between gap-y-2 mb-6">
     <div>
         <h1 class="text-2xl font-bold text-gray-900">Usage</h1>
-        <p class="text-sm text-gray-600">First-party page log: no cookies, no third party. A visitor is a salted hash of IP and browser that changes every day. Bots and errors are left out of the counts.</p>
+        <p class="text-sm text-gray-600">First-party page log: no cookies, no third party. A visitor is a salted hash of IP and browser that changes every day. <strong>People</strong> are views a real browser confirmed (someone scrolled, tapped or kept the page on screen for 4 s); <strong>requests</strong> include link previews, prefetches and bots that look like browsers.{% if confirm_started %} Confirmation started {{ confirm_started.strftime('%b %-d, %Y') }}; earlier days show requests only.{% endif %}</p>
     </div>
     <div class="flex items-center gap-3 text-sm">
         {% for d in (7, 30, 90) %}<a href="?days={{ d }}" class="{{ 'font-semibold text-picl-700' if d == days else 'text-gray-500 hover:text-picl-700' }}">{{ d }} days</a>{% endfor %}
@@ -13,7 +13,7 @@
 </div>
 
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-    {% for label, v, sub in [("Visitors today", totals.visitors_1d, totals.views_1d ~ " views"), ("Visitors, 7 days", totals.visitors_7d, totals.views_7d ~ " views"), ("Visitors, 30 days", totals.visitors_30d, totals.views_30d ~ " views"), ("Coaches signed in, 7 days", totals.users_7d, totals.bot_views_7d ~ " bot hits ignored")] %}
+    {% for label, v, sub in [("People today", totals.visitors_1d, totals.views_1d ~ " confirmed views"), ("People, 7 days", totals.visitors_7d, totals.views_7d ~ " confirmed views · " ~ totals.requests_7d ~ " requests"), ("People, 30 days", totals.visitors_30d, totals.views_30d ~ " confirmed views"), ("Coaches signed in, 7 days", totals.users_7d, totals.bot_views_7d ~ " bot hits ignored")] %}
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-3">
         <div class="text-[11px] uppercase tracking-wide text-gray-500">{{ label }}</div>
         <div class="text-2xl font-semibold text-gray-900 font-mono">{{ v }}</div>
@@ -25,15 +25,16 @@
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-2">
         <h2 class="text-sm font-semibold text-gray-700">Daily, last {{ days }} days</h2>
-        <div class="flex items-center gap-4 text-xs text-gray-500"><span class="flex items-center gap-1">{{ spark_views | safe }} views</span><span class="flex items-center gap-1">{{ spark_visitors | safe }} visitors</span></div>
+        <div class="flex items-center gap-4 text-xs text-gray-500"><span class="flex items-center gap-1">{{ spark_visitors | safe }} people</span><span class="flex items-center gap-1">{{ spark_views | safe }} confirmed views</span><span class="flex items-center gap-1">{{ spark_requests | safe }} requests</span></div>
     </div>
     <div class="overflow-x-auto">
     <table class="text-xs font-mono">
         <tr class="text-gray-400">{% for d in daily %}<td class="px-1 text-center">{{ d.day.strftime('%-d') }}</td>{% endfor %}</tr>
-        <tr>{% for d in daily %}<td class="px-1 text-center {{ 'text-gray-300' if not d.visitors else '' }}">{{ d.visitors }}</td>{% endfor %}</tr>
-        <tr class="text-gray-500">{% for d in daily %}<td class="px-1 text-center">{{ d.views }}</td>{% endfor %}</tr>
+        <tr>{% for d in daily %}{% set before = confirm_started is none or d.day < confirm_started %}<td class="px-1 text-center {{ 'text-gray-300' if before or not d.visitors else '' }}">{{ '·' if before else d.visitors }}</td>{% endfor %}</tr>
+        <tr class="text-gray-500">{% for d in daily %}{% set before = confirm_started is none or d.day < confirm_started %}<td class="px-1 text-center {{ 'text-gray-300' if before else '' }}">{{ '·' if before else d.views }}</td>{% endfor %}</tr>
+        <tr class="text-gray-400">{% for d in daily %}<td class="px-1 text-center">{{ d.requests }}</td>{% endfor %}</tr>
     </table>
-    <div class="text-[11px] text-gray-400 mt-1">day · visitors · views</div>
+    <div class="text-[11px] text-gray-400 mt-1">day · people · confirmed views · requests ("·" = before confirmation started)</div>
     </div>
 </div>
 
@@ -87,7 +88,7 @@
     <div class="overflow-x-auto"><table class="w-full text-sm">
         <thead class="text-xs text-gray-500 uppercase"><tr><th class="px-4 py-2 text-left">When</th><th class="px-2 py-2 text-left">Page</th><th class="px-2 py-2 text-left">Who</th><th class="px-2 py-2 text-right">Status</th><th class="px-2 py-2 text-right">ms</th></tr></thead>
         <tbody class="divide-y divide-gray-100">
-        {% for p in recent %}<tr><td class="px-4 py-1 text-xs text-gray-500 whitespace-nowrap">{{ p.ts.strftime('%b %-d %H:%M:%S') }}</td><td class="px-2 py-1 font-mono text-xs"><a href="{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}" class="text-picl-700 hover:underline">{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}</a></td><td class="px-2 py-1 text-xs text-gray-500">{{ p.email or ('visitor ' ~ p.visitor[:6]) }}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.status }}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.duration_ms }}</td></tr>
+        {% for p in recent %}<tr><td class="px-4 py-1 text-xs text-gray-500 whitespace-nowrap">{{ p.ts.strftime('%b %-d %H:%M:%S') }}</td><td class="px-2 py-1 font-mono text-xs"><a href="{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}" class="text-picl-700 hover:underline">{{ p.path }}{% if p.query %}?{{ p.query }}{% endif %}</a></td><td class="px-2 py-1 text-xs text-gray-500">{{ p.email or ('visitor ' ~ p.visitor[:6]) }}{% if p.confirmed_via %} <span class="text-green-700" title="Confirmed by a real browser ({{ p.confirmed_via }})">✓</span>{% endif %}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.status }}</td><td class="px-2 py-1 text-right font-mono text-xs">{{ p.duration_ms }}</td></tr>
         {% endfor %}
         </tbody></table></div>
 </div>

@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from piclstats.quality.diagrams import sparkline_svg
 
 _HUMAN = "NOT is_bot AND status < 400"
+# People: views a real browser confirmed (web/usage.py). Everything else that
+# isn't a flagged bot is shown as raw requests: previewers, prefetches, bots
+# with browser user-agents, and anything before confirmation started.
+_PEOPLE = "confirmed_at IS NOT NULL AND status < 400"
 
 
 def _rows(session: Session, sql: str, **p: Any) -> list[dict[str, Any]]:
@@ -19,27 +23,37 @@ def _rows(session: Session, sql: str, **p: Any) -> list[dict[str, Any]]:
 def page(session: Session, days: int = 30) -> dict[str, Any]:
     totals = _rows(
         session,
-        """
+        f"""
         SELECT
-            count(*) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '1 day') AS views_1d,
-            count(DISTINCT visitor) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '1 day') AS visitors_1d,
-            count(*) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '7 days') AS views_7d,
-            count(DISTINCT visitor) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '7 days') AS visitors_7d,
-            count(*) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '30 days') AS views_30d,
-            count(DISTINCT visitor) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '30 days') AS visitors_30d,
-            count(DISTINCT user_id) FILTER (WHERE NOT is_bot AND status < 400 AND ts >= now() - interval '7 days' AND user_id IS NOT NULL) AS users_7d,
+            count(*) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '1 day') AS views_1d,
+            count(DISTINCT visitor) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '1 day') AS visitors_1d,
+            count(*) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '7 days') AS views_7d,
+            count(DISTINCT visitor) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '7 days') AS visitors_7d,
+            count(*) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '30 days') AS views_30d,
+            count(DISTINCT visitor) FILTER (WHERE {_PEOPLE} AND ts >= now() - interval '30 days') AS visitors_30d,
+            count(*) FILTER (WHERE {_HUMAN} AND ts >= now() - interval '7 days') AS requests_7d,
+            count(DISTINCT user_id) FILTER (WHERE {_HUMAN} AND ts >= now() - interval '7 days' AND user_id IS NOT NULL) AS users_7d,
             count(*) FILTER (WHERE is_bot AND ts >= now() - interval '7 days') AS bot_views_7d
         FROM page_views WHERE ts >= now() - interval '30 days'
         """,
     )[0]
+    # Confirmation began with the deploy that added it; earlier days have no
+    # confirmed views at all and are marked rather than shown as zero people.
+    started = session.execute(
+        text("SELECT min(ts)::date FROM page_views WHERE view_id IS NOT NULL")
+    ).scalar()
     daily = _rows(
         session,
         f"""
         SELECT d::date AS day,
-               COALESCE(v.views, 0) AS views, COALESCE(v.visitors, 0) AS visitors
+               COALESCE(v.views, 0) AS views, COALESCE(v.visitors, 0) AS visitors,
+               COALESCE(v.requests, 0) AS requests
         FROM generate_series((now() - make_interval(days => :days - 1))::date, now()::date, '1 day') d
         LEFT JOIN (
-            SELECT ts::date AS day, count(*) AS views, count(DISTINCT visitor) AS visitors
+            SELECT ts::date AS day,
+                   count(*) FILTER (WHERE confirmed_at IS NOT NULL) AS views,
+                   count(DISTINCT visitor) FILTER (WHERE confirmed_at IS NOT NULL) AS visitors,
+                   count(*) AS requests
             FROM page_views WHERE {_HUMAN} AND ts >= now() - make_interval(days => :days)
             GROUP BY ts::date
         ) v ON v.day = d::date
@@ -53,7 +67,7 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         SELECT route, count(*) AS views, count(DISTINCT visitor) AS visitors,
                round(percentile_cont(0.5) WITHIN GROUP (ORDER BY duration_ms)) AS p50_ms,
                round(percentile_cont(0.95) WITHIN GROUP (ORDER BY duration_ms)) AS p95_ms
-        FROM page_views WHERE {_HUMAN} AND ts >= now() - make_interval(days => :days)
+        FROM page_views WHERE {_PEOPLE} AND ts >= now() - make_interval(days => :days)
         GROUP BY route ORDER BY views DESC
         """,
         days=days,
@@ -63,7 +77,7 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         f"""
         SELECT ri.id, ri.name, ri.team, count(*) AS views, count(DISTINCT p.visitor) AS visitors
         FROM page_views p JOIN riders ri ON ri.id = p.entity::int
-        WHERE p.route = 'rider' AND {_HUMAN} AND p.entity ~ '^[0-9]+$'
+        WHERE p.route = 'rider' AND {_PEOPLE} AND p.entity ~ '^[0-9]+$'
           AND p.ts >= now() - make_interval(days => :days)
         GROUP BY ri.id, ri.name, ri.team ORDER BY views DESC, visitors DESC LIMIT 15
         """,
@@ -73,7 +87,7 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         session,
         f"""
         SELECT entity AS team, count(*) AS views, count(DISTINCT visitor) AS visitors
-        FROM page_views WHERE route = 'team' AND {_HUMAN}
+        FROM page_views WHERE route = 'team' AND {_PEOPLE}
           AND ts >= now() - make_interval(days => :days)
         GROUP BY entity ORDER BY views DESC, visitors DESC LIMIT 15
         """,
@@ -97,7 +111,7 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         session,
         f"""
         SELECT referrer, count(*) AS views, count(DISTINCT visitor) AS visitors
-        FROM page_views WHERE referrer IS NOT NULL AND {_HUMAN}
+        FROM page_views WHERE referrer IS NOT NULL AND {_PEOPLE}
           AND ts >= now() - make_interval(days => :days)
         GROUP BY referrer ORDER BY views DESC LIMIT 15
         """,
@@ -106,7 +120,8 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
     recent = _rows(
         session,
         f"""
-        SELECT p.ts, p.route, p.path, p.query, p.status, p.duration_ms, p.visitor, u.email
+        SELECT p.ts, p.route, p.path, p.query, p.status, p.duration_ms, p.visitor, u.email,
+               p.confirmed_via
         FROM page_views p LEFT JOIN users u ON u.id = p.user_id
         WHERE {_HUMAN}
         ORDER BY p.ts DESC LIMIT 60
@@ -115,9 +130,11 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
     return {
         "days": days,
         "totals": totals,
+        "confirm_started": started,
         "daily": daily,
         "spark_views": sparkline_svg([float(d["views"]) for d in daily]),
         "spark_visitors": sparkline_svg([float(d["visitors"]) for d in daily], "#16a34a"),
+        "spark_requests": sparkline_svg([float(d["requests"]) for d in daily], "#9ca3af"),
         "routes": routes,
         "riders": riders,
         "teams": teams,

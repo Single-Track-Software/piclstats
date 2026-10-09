@@ -13,6 +13,7 @@ import hashlib
 import logging
 import random
 import re
+import secrets
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from urllib.parse import parse_qsl, urlencode, urlsplit
@@ -116,7 +117,62 @@ def is_bot(user_agent: str | None) -> bool:
 
 def record(row: dict) -> None:
     """Queue one page view for the writer thread; never blocks the request."""
+    row.setdefault("view_id", None)
     _writer.submit(_write, row)
+
+
+# ── Browser confirmation ────────────────────────────────────────────────
+# Each HTML page view gets a random id, embedded in the page (base.html). A
+# small script posts it back to /v once a real, visible, non-automated
+# browser shows the page and someone interacts with it or keeps it on screen
+# for a few seconds. Link previewers, prefetches and most bots never do.
+
+CONFIRM_WITHIN_MINUTES = 30
+CONFIRM_VIA = frozenset({"interaction", "dwell"})
+_VIEW_ID = re.compile(r"^[A-Za-z0-9_-]{20,40}$")
+
+
+def new_view_id() -> str:
+    return secrets.token_urlsafe(16)
+
+
+def valid_view_id(value: object) -> bool:
+    return isinstance(value, str) and bool(_VIEW_ID.match(value))
+
+
+def confirm(view_id: str, visitors: list[str], via: str) -> None:
+    """Queue a confirmation behind any pending page-view insert.
+
+    The writer is a single thread, so a confirmation always runs after the
+    insert of the view it confirms, even when the beacon arrives at once.
+    """
+    _writer.submit(_confirm, view_id, visitors, via)
+
+
+def _confirm(view_id: str, visitors: list[str], via: str) -> None:
+    from piclstats.db.engine import get_session
+
+    try:
+        with get_session() as s:
+            s.execute(
+                text("""
+                UPDATE page_views
+                SET confirmed_at = now(), confirmed_via = :via
+                WHERE view_id = :view_id
+                  AND confirmed_at IS NULL
+                  AND visitor = ANY(:visitors)
+                  AND ts >= now() - make_interval(mins => :mins)
+                """),
+                {
+                    "view_id": view_id,
+                    "visitors": visitors,
+                    "via": via,
+                    "mins": CONFIRM_WITHIN_MINUTES,
+                },
+            )
+            s.commit()
+    except Exception:
+        logger.debug("page view not confirmed", exc_info=True)
 
 
 def _write(row: dict) -> None:
@@ -127,9 +183,10 @@ def _write(row: dict) -> None:
             s.execute(
                 text("""
                 INSERT INTO page_views
-                    (route, path, query, entity, status, duration_ms, visitor, user_id, referrer, is_bot)
+                    (route, path, query, entity, status, duration_ms, visitor, user_id, referrer,
+                     is_bot, view_id)
                 VALUES (:route, :path, :query, :entity, :status, :duration_ms, :visitor, :user_id,
-                        :referrer, :is_bot)
+                        :referrer, :is_bot, :view_id)
                 """),
                 row,
             )

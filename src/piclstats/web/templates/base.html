@@ -124,5 +124,42 @@
     </footer>
 
     {% block scripts %}{% endblock %}
+    {#- Browser confirmation for the usage log (web/usage.py): post this page's
+        one-time id back once a real, visible, non-automated browser shows it and
+        someone interacts or keeps it on screen for 4 s. Stores nothing locally. -#}
+    {% set view_id = request.state.view_id if request and request.state else None %}
+    {% if view_id %}
+    <script>
+    (() => {
+        if (navigator.webdriver) return;
+        const id = {{ view_id | tojson }};
+        const events = ["pointerdown", "keydown", "scroll", "wheel", "touchstart"];
+        let sent = false, timer = null;
+        const stop = () => {
+            events.forEach(e => removeEventListener(e, onAct, true));
+            document.removeEventListener("visibilitychange", arm);
+            document.removeEventListener("prerenderingchange", arm);
+            clearTimeout(timer);
+        };
+        const send = via => {
+            if (sent || document.visibilityState !== "visible" || document.prerendering) return;
+            sent = true;
+            stop();
+            const body = JSON.stringify({id, via});
+            const ok = navigator.sendBeacon && navigator.sendBeacon("/v", new Blob([body], {type: "text/plain"}));
+            if (!ok) fetch("/v", {method: "POST", body, keepalive: true, headers: {"Content-Type": "text/plain"}}).catch(() => {});
+        };
+        const onAct = () => send("interaction");
+        const arm = () => {
+            clearTimeout(timer);
+            if (document.visibilityState === "visible" && !document.prerendering) timer = setTimeout(() => send("dwell"), 4000);
+        };
+        events.forEach(e => addEventListener(e, onAct, {capture: true, passive: true}));
+        document.addEventListener("visibilitychange", arm);
+        document.addEventListener("prerenderingchange", arm);
+        arm();
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>
