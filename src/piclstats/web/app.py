@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import csv
+import json
 import io
 import logging
 import secrets
 import time
 from contextlib import asynccontextmanager
 import hashlib
+from datetime import date, timedelta
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
+from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
 
 from sqlalchemy import text
@@ -148,6 +151,9 @@ async def _security_headers(request: Request, call_next):
 async def _load_user_state(request: Request, call_next):
     # Expose the current user to every template (nav login state) via request.state.
     request.state.user = load_user(request)
+    # A fresh id for every page view; base.html embeds it so a real browser can
+    # confirm the view (POST /v). Only HTML pages carry it into the log.
+    request.state.view_id = usage.new_view_id() if request.method == "GET" else None
     started = time.perf_counter()
     response = await call_next(request)
     if usage.should_log(request.method, request.url.path, response.status_code):
@@ -168,6 +174,11 @@ async def _load_user_state(request: Request, call_next):
                     request.headers.get("referer"), request.headers.get("host")
                 ),
                 "is_bot": usage.is_bot(ua),
+                "view_id": (
+                    request.state.view_id
+                    if response.headers.get("content-type", "").startswith("text/html")
+                    else None
+                ),
             }
         )
     return response
@@ -916,6 +927,52 @@ def healthz():
         logger.warning("health check: database unreachable: %s", str(exc).splitlines()[0])
         return Response("db unreachable\n", status_code=503, media_type="text/plain")
     return Response("ok\n", media_type="text/plain", headers={"Cache-Control": "no-store"})
+
+
+# Per-IP budget for view confirmations: far above what a person generates,
+# low enough that the endpoint can't be used to load the database.
+_CONFIRM_LIMIT = 120
+_confirm_hits: dict[str, deque[float]] = defaultdict(deque)
+
+
+@app.post("/v", status_code=204)
+async def confirm_view(request: Request) -> Response:
+    """A browser saying a page view was real (see usage.py and base.html).
+
+    Always answers 204 with no body, so a caller learns nothing about which
+    ids exist. Only accepted from this site's own pages (Origin), for an id
+    the server issued, from the same visitor, within 30 minutes, once.
+    """
+    done = Response(status_code=204)
+    host = request.headers.get("host", "")
+    origin = request.headers.get("origin") or request.headers.get("referer") or ""
+    if not host or urlsplit(origin).netloc != host:
+        return done
+    ip = client_ip(request) or ""
+    now = time.monotonic()
+    hits = _confirm_hits[ip]
+    while hits and now - hits[0] > 60:
+        hits.popleft()
+    if len(hits) >= _CONFIRM_LIMIT:
+        return done
+    hits.append(now)
+    try:
+        body = json.loads((await request.body())[:300] or b"{}")
+    except ValueError:
+        return done
+    view_id, via = body.get("id"), body.get("via")
+    if not usage.valid_view_id(view_id) or via not in usage.CONFIRM_VIA:
+        return done
+    ua = request.headers.get("user-agent")
+    today = date.today()
+    # The visitor hash changes at midnight UTC; a view from just before it
+    # may be confirmed just after.
+    visitors = [
+        usage.visitor_id(ip, ua, _USAGE_SALT, today=day)
+        for day in (today, today - timedelta(days=1))
+    ]
+    usage.confirm(view_id, visitors, via)
+    return done
 
 
 @app.get("/favicon.ico")

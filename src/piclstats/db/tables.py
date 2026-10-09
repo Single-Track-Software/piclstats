@@ -1,6 +1,7 @@
 """SQLAlchemy Core table definitions."""
 
 from sqlalchemy import (
+    text,
     Boolean,
     CheckConstraint,
     Column,
@@ -410,9 +411,20 @@ page_views = Table(
     Column("user_id", Integer),
     Column("referrer", Text),
     Column("is_bot", Boolean, nullable=False, server_default="false"),
+    # Browser confirmation (web/usage.py): the id embedded in the page, and
+    # when / how ("interaction" | "dwell") a real browser reported it back.
+    Column("view_id", Text),
+    Column("confirmed_at", DateTime(timezone=True)),
+    Column("confirmed_via", Text),
     Index("idx_page_views_ts", "ts"),
     Index("idx_page_views_route_ts", "route", "ts"),
     Index("idx_page_views_visitor_ts", "visitor", "ts"),
+    Index(
+        "uq_page_views_view_id",
+        "view_id",
+        unique=True,
+        postgresql_where=text("view_id IS NOT NULL"),
+    ),
 )
 
 # The season calendar (/admin/schedule). A race is "upcoming" by date alone;
