@@ -154,3 +154,13 @@ def test_every_page_says_results_are_unofficial_and_links_the_official_source():
     h = TestClient(app).get("/terms").text
     assert "Unofficial results and statistics" in h
     assert 'href="https://www.pamtb.org/results-standings"' in h
+
+
+def test_states_page_is_a_results_tab(monkeypatch):
+    from piclstats.web import queries
+
+    monkeypatch.setattr(queries, "state_championships", lambda session: {})
+    r = TestClient(app).get("/states")
+    assert r.status_code == 200
+    assert 'href="/states"' in r.text and "State Results" in r.text
+    assert "No state championship results yet." in r.text

@@ -152,6 +152,21 @@
             {% endif %}
         </div>
         {% endfor %}
+        {# State Championship: the day-of result (there are no season-long state standings). #}
+        {% set st = state_results.get(ss.season) %}
+        {% if st %}
+        <div class="mt-3 pt-3 border-t border-gray-100">
+            <div class="flex items-baseline justify-between gap-2">
+                <span class="text-gray-400 text-xs">State Championship</span>
+                <a href="/states?season={{ ss.season }}" class="text-xs text-picl-700 hover:underline text-right" title="State Championship results">{{ st.division }}{% if st.gender %} {{ st.gender }}{% endif %}</a>
+            </div>
+            {% if st.place %}
+            <div class="mt-0.5"><span class="text-xl font-bold {{ 'text-gold-600' if st.place == 1 else 'text-picl-700' }}">{{ ordinal(st.place) }}</span> <span class="text-sm text-gray-500">of {{ st.field_size }}</span></div>
+            {% else %}
+            <div class="mt-0.5 text-sm text-gray-400">{{ st.status or 'Did not finish' }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
     {% endfor %}
 </div>

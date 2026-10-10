@@ -30,6 +30,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from piclstats.config import settings
 from piclstats.web import canonical, mail, monitoring, usage
 from piclstats.web.exports import csv_safe_row, filename_part
+from piclstats.web.standings import ordinal as standings_ordinal
 from piclstats.db.engine import get_session
 from piclstats.web.templating import Jinja2Templates
 from piclstats.web import queries
@@ -75,6 +76,7 @@ templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 # Absolute origin for canonical links, Open Graph and the sitemap.
 SITE_URL = (settings.public_base_url or "https://piclstats.com").rstrip("/")
 templates.env.globals["site_url"] = SITE_URL
+templates.env.globals["ordinal"] = standings_ordinal
 templates.env.globals["static_version"] = hashlib.sha256(
     (STATIC_DIR / "app.css").read_bytes()
 ).hexdigest()[:12]
@@ -587,12 +589,18 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
             logger.exception("conference standings failed for rider %s", rider_id)
             conference_standings = {}
         current_season = queries.current_season(session)
+        try:
+            state_results = queries.rider_state_results(session, data["info"]["id"])
+        except Exception:
+            logger.exception("state results failed for rider %s", rider_id)
+            state_results = {}
     return templates.TemplateResponse(
         "rider_detail.html",
         _ctx(
             request,
             local_races=local_races,
             conference_standings=conference_standings,
+            state_results=state_results,
             current_season=current_season,
             **data,
             form=form,
@@ -869,6 +877,49 @@ def leaderboard_page(
     )
 
 
+@app.get("/states", response_class=HTMLResponse)
+def state_results(request: Request, season_raw: str = Query("", alias="season")):
+    """PA State Championship results: the top 5 in every category.
+
+    There are no state standings across the season, only the championship's
+    day-of results, so this shows that one race (queries.state_championships).
+    """
+    from piclstats.web.digest import fmt_gap
+    from piclstats.web.standings import GENDER_ORDER
+    from piclstats.web.staging import division_sort_key
+
+    with get_session() as session:
+        champs = queries.state_championships(session)
+        seasons = sorted(champs, reverse=True)
+        season = (
+            int(season_raw)
+            if season_raw.isdigit() and int(season_raw) in champs
+            else (seasons[0] if seasons else None)
+        )
+        event = champs.get(season) if season else None
+        rows = queries.state_top_finishers(session, event["id"]) if event else []
+    groups: dict[tuple[str, str], list[dict]] = {}
+    for r in rows:
+        groups.setdefault((r["division"], r["gender"]), []).append(
+            {**r, "behind": fmt_gap(r["behind_secs"])}
+        )
+    ordered = sorted(
+        groups.items(),
+        key=lambda kv: (
+            division_sort_key(kv[0][0]),
+            GENDER_ORDER.index(kv[0][1]) if kv[0][1] in GENDER_ORDER else 9,
+        ),
+    )
+    categories = [
+        {"division": d, "gender": g, "category": rs[0]["category"], "rows": rs}
+        for (d, g), rs in ordered
+    ]
+    return templates.TemplateResponse(
+        "states.html",
+        _ctx(request, seasons=seasons, season=season, event=event, categories=categories),
+    )
+
+
 def _schedule_season(session, season_raw: str) -> tuple[int | None, list[int]]:
     """The season to show: the one asked for, else the one with the next race, else the latest."""
     from datetime import date
@@ -993,6 +1044,7 @@ def sitemap_urls(session) -> list[str]:
             "/riders",
             "/teams",
             "/leaderboard",
+            "/states",
             "/league",
             "/courses",
             "/schedule",

@@ -50,6 +50,7 @@ _ROUTES: list[tuple[re.Pattern[str], str, int | None]] = [
     (re.compile(r"^/team/(.+)$"), "team", 1),
     (re.compile(r"^/teams$"), "teams", None),
     (re.compile(r"^/leaderboard$"), "leaderboard", None),
+    (re.compile(r"^/states$"), "states", None),
     (re.compile(r"^/results$"), "results", None),
     (re.compile(r"^/racechart$"), "results", None),
     (re.compile(r"^/course/(\d+)$"), "course", 1),

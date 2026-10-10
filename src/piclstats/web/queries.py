@@ -321,6 +321,120 @@ def riders_per_season_by_conference(session: Session) -> list[dict]:
     return [_serialize(r._mapping) for r in rows]
 
 
+def state_championships(session: Session) -> dict[int, dict]:
+    """Season -> its state championship race.
+
+    A race named "State Championship(s)" wins (2024, 2026). Otherwise it is
+    the last of the season's mixed-conference races when there are at least
+    three of them, since the championship closes the state series (2025's
+    was "Hershey Hustle …"). Seasons without conference data (before 2024)
+    have none.
+    """
+    rows = session.execute(
+        text(r"""
+        WITH mixed AS (
+            SELECT e.id, e.season, e.event_order
+            FROM events e
+            JOIN results r ON r.event_id = e.id
+            JOIN riders ri ON ri.id = r.rider_id
+            JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
+            WHERE e.is_published AND e.event_type = 'points'
+            GROUP BY e.id, e.season, e.event_order
+            HAVING count(DISTINCT tc.conference) >= 2
+        ),
+        last_mixed AS (
+            SELECT DISTINCT ON (season) season, id
+            FROM mixed
+            WHERE season IN (SELECT season FROM mixed GROUP BY season HAVING count(*) >= 3)
+            ORDER BY season, event_order DESC
+        ),
+        named AS (
+            SELECT DISTINCT ON (season) season, id
+            FROM events
+            WHERE is_published AND event_type = 'points' AND event_name ~* 'state championship'
+            ORDER BY season, event_order DESC
+        )
+        SELECT e.season, e.id, e.event_name, e.raceresult_id,
+               COALESCE(e.event_date, e.scraped_at::date) AS race_date, c.name AS course
+        FROM events e
+        LEFT JOIN courses c ON c.id = e.course_id
+        WHERE e.id IN (
+            SELECT COALESCE(n.id, l.id)
+            FROM (SELECT season FROM named UNION SELECT season FROM last_mixed) s
+            LEFT JOIN named n ON n.season = s.season
+            LEFT JOIN last_mixed l ON l.season = s.season
+        )
+        ORDER BY e.season
+    """)
+    ).all()
+    return {r.season: _serialize(r._mapping) for r in rows}
+
+
+_CHAMPS_CACHE: tuple[float, dict[int, dict]] | None = None
+_CHAMPS_TTL_SECONDS = 600.0
+
+
+def state_championships_cached(session: Session) -> dict[int, dict]:
+    """state_championships, kept for 10 minutes: rider pages call it on every
+    view and it only changes when a championship race is loaded."""
+    import time as _time
+
+    global _CHAMPS_CACHE
+    now = _time.monotonic()
+    if _CHAMPS_CACHE is None or now - _CHAMPS_CACHE[0] > _CHAMPS_TTL_SECONDS:
+        _CHAMPS_CACHE = (now, state_championships(session))
+    return _CHAMPS_CACHE[1]
+
+
+def rider_state_results(session: Session, rider_id: int) -> dict[int, dict]:
+    """Season -> the rider's result at that season's state championship."""
+    champs = state_championships_cached(session)
+    if not champs:
+        return {}
+    ids = rider_group_ids(session, rider_id)
+    rows = session.execute(
+        text("""
+        SELECT e.season, r.place, r.status, r.category, r.division, r.gender,
+               (SELECT count(*) FROM results x WHERE x.event_id = r.event_id
+                  AND x.category = r.category AND x.place IS NOT NULL
+                  AND x.dq_status <> 'excluded') AS field_size
+        FROM results r JOIN events e ON e.id = r.event_id
+        WHERE r.rider_id = ANY(:ids) AND r.event_id = ANY(:events) AND r.dq_status <> 'excluded'
+    """),
+        {"ids": ids, "events": [c["id"] for c in champs.values()]},
+    ).all()
+    return {r.season: _serialize(r._mapping) for r in rows}
+
+
+def state_top_finishers(session: Session, event_id: int, top: int = 5) -> list[dict]:
+    """The top `top` places in every category of one race, with team,
+    conference, time and gap to the winner. Hidden riders are left out."""
+    rows = session.execute(
+        text(rf"""
+        WITH {_CANONICAL_CTE}
+        SELECT r.category, r.division, r.gender, r.place, r.points, r.total_time_raw,
+               c.cid AS rider_id, c.name, c.team,
+               (SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') FROM team_conferences tc
+                 WHERE tc.team = c.team AND tc.season = e.season LIMIT 1) AS conference,
+               CASE WHEN r.total_time IS NOT NULL AND w.total_time IS NOT NULL AND r.place > 1
+                    THEN round(EXTRACT(EPOCH FROM (r.total_time - w.total_time))::numeric, 1)
+               END AS behind_secs,
+               (SELECT count(*) FROM results x WHERE x.event_id = r.event_id
+                  AND x.category = r.category AND x.place IS NOT NULL AND x.dq_status <> 'excluded')
+                   AS field_size
+        FROM results r
+        JOIN events e ON e.id = r.event_id
+        JOIN canonical c ON c.rider_id = r.rider_id
+        LEFT JOIN results w ON w.event_id = r.event_id AND w.category = r.category AND w.place = 1
+        WHERE r.event_id = :event_id AND r.place IS NOT NULL AND r.place <= :top
+          AND r.dq_status <> 'excluded'
+        ORDER BY r.category, r.place
+    """),
+        {"event_id": event_id, "top": top},
+    ).all()
+    return [_serialize(r._mapping) for r in rows]
+
+
 def current_season(session: Session) -> int | None:
     """The newest season with a published race: what every page defaults to."""
     return session.execute(text("SELECT max(season) FROM events WHERE is_published")).scalar()
