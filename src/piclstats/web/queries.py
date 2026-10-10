@@ -1345,7 +1345,9 @@ def leaderboard(
             SELECT count(*) FROM events e2
             WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
         ))
-        ORDER BY {order_col}, c.name
+        -- Level on the ranking value: more races first (575 avg over 3 races
+        -- beats 575 over 2), then name.
+        ORDER BY {order_col}, races DESC, c.name
         {limit_sql}
     """
     if limit:
