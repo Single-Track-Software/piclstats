@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{% if season %}{{ season }} {% endif %}PA State Championship Results — PICL Stats{% endblock %}
+{% block description %}{% if event %}{{ season }} PICL State Championship{% if event.course %} at {{ event.course }}{% endif %}: the top 5 in every category.{% else %}PICL State Championship results: the top 5 in every category.{% endif %}{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+    {% set results_section = 'states' %}{% include "_results_sections.html" %}
+    <div class="mt-3 flex flex-wrap items-center justify-between gap-3">
+        <p class="text-sm text-gray-500">The PA State Championship decides the state titles on the day; there are no state standings across the season. Top 5 in every category.</p>
+        <div class="flex flex-wrap items-center gap-2" aria-label="Season">
+            {% for s in seasons %}
+            <a href="/states?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if s == season else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            {% endfor %}
+        </div>
+    </div>
+    {% if event %}
+    <div class="mt-3 rounded-lg border border-gold-300 bg-gold-50 px-4 py-2.5 text-sm text-gray-700">
+        <span class="font-semibold text-gray-900">Unofficial copy.</span>
+        Copied from the league's published results; if anything here differs, the official results are correct.
+        {% if event.raceresult_id %}<a href="https://my.raceresult.com/{{ event.raceresult_id }}/" target="_blank" rel="noopener" class="font-medium text-picl-700 hover:underline">Official results on raceresult.com&nbsp;&nearr;</a>{% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{% if not event %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No state championship results yet.</div>
+{% else %}
+<div class="mb-4">
+    <h2 class="text-xl font-bold text-gray-900">{{ season }} PA State Championship</h2>
+    <div class="text-sm text-gray-500">{{ event.event_name }}{% if event.course and event.course not in event.event_name %} · {{ event.course }}{% endif %}{% if event.race_date %} · {{ event.race_date.strftime('%B %-d, %Y') }}{% endif %}</div>
+</div>
+<div class="grid lg:grid-cols-2 gap-5">
+    {% for cat in categories %}
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="px-4 py-2.5 border-b bg-gray-50 flex items-baseline justify-between gap-2">
+            <h3 class="text-sm font-semibold text-gray-800">{{ cat.division }} {{ cat.gender or '' }}</h3>
+            <span class="text-xs text-gray-400">of {{ cat.rows[0].field_size }}</span>
+        </div>
+        <table class="w-full text-sm">
+            <tbody class="divide-y divide-gray-100">
+                {% for r in cat.rows %}
+                <tr>
+                    <td class="pl-4 pr-2 py-2 w-10 font-mono font-semibold {{ 'text-gold-600' if r.place == 1 else 'text-gray-500' }}">{{ r.place }}</td>
+                    <td class="px-2 py-2"><a href="/rider/{{ r.rider_id }}" class="text-picl-700 font-medium hover:underline">{{ r.name }}</a>
+                        <div class="text-[11px] text-gray-500">{{ r.team }}{% if r.conference %} · {{ r.conference }}{% endif %}</div></td>
+                    <td class="px-2 py-2 text-right font-mono text-xs">{{ r.total_time_raw or '' }}</td>
+                    <td class="pl-2 pr-4 py-2 text-right font-mono text-xs text-gray-500 w-20">{{ r.behind or '' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <div class="px-4 py-2 border-t text-xs"><a href="/results?{{ {'event_id': event.id, 'category': cat.category} | urlencode }}" class="text-picl-700 hover:underline">Full {{ cat.division }} {{ cat.gender or '' }} results &rarr;</a></div>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

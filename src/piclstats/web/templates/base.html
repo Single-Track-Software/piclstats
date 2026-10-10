@@ -41,7 +41,7 @@
     {% set path = request.url.path if request else '/' %}
     {% set section = '/' if path == '/' else '/' ~ path.strip('/').split('/')[0] %}
     {% macro nav_link(href, label) -%}
-    {%- set active = (href == section) or (href == '/results' and section == '/leaderboard') or (href == '/riders' and section == '/rider') or (href == '/teams' and section == '/team') or (href == '/courses' and section == '/course') -%}
+    {%- set active = (href == section) or (href == '/results' and section in ('/leaderboard', '/states')) or (href == '/riders' and section == '/rider') or (href == '/teams' and section == '/team') or (href == '/courses' and section == '/course') -%}
     <a href="{{ href }}" class="px-3 py-2 text-sm font-medium border-b-2 {{ 'text-white border-gold-500' if active else 'text-picl-200 border-transparent hover:text-white hover:border-picl-500' }}">{{ label }}</a>
     {%- endmacro %}
     <nav class="bg-picl-800 border-b-4 border-gold-500 shadow-lg">
