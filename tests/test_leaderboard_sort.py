@@ -34,3 +34,25 @@ def test_unknown_direction_uses_natural():
 def test_multi_column_sort_applies_direction_to_each():
     _, _, order = leaderboard_order(RIDER_SORTS, "division", "desc")
     assert order == "r.division DESC NULLS LAST, r.gender DESC NULLS LAST"
+
+
+def test_ties_go_to_the_rider_with_more_races():
+    # The ranking SQL must break a tie on the metric by races (more first),
+    # then name: 575 avg over 3 races outranks 575 over 2.
+    from piclstats.web import queries
+
+    seen = {}
+
+    class _Session:
+        def execute(self, stmt, params=None):
+            seen["sql"] = str(stmt)
+
+            class _R:
+                def all(self):
+                    return []
+
+            return _R()
+
+    queries.leaderboard(_Session(), 2026, limit=10)
+    order = seen["sql"].split("ORDER BY")[-1]
+    assert order.index("avg_points DESC") < order.index("races DESC") < order.index("c.name")
