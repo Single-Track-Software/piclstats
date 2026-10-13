@@ -39,6 +39,14 @@ def test_favicon_ico_points_at_the_svg():
     assert r.status_code == 301 and r.headers["location"] == "/static/favicon.svg"
 
 
+def test_apple_touch_icon_is_served_at_the_root():
+    client = TestClient(app)
+    for path in ("/apple-touch-icon.png", "/apple-touch-icon-precomposed.png"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.headers["content-type"] == "image/png"
+        assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_canonical_percent_encodes_the_path():
     from urllib.parse import quote
 
