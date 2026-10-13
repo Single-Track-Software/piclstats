@@ -528,6 +528,16 @@ def _rider_form(session, races: list[dict], canonical_id: int) -> list[dict]:
     return form
 
 
+def _rider_pacing(session, races: list[dict], canonical_id: int, form: list[dict]) -> dict:
+    """Race read per (event_id, category) for the rider page (see web/pacing.py)."""
+    from piclstats.web.pacing import rider_pacing
+
+    keys = [(r["event_id"], r["category"]) for r in races if r.get("lap2")]
+    # score_pct is the log-unit score × 100; a DNF's partial score is not a race level.
+    scores = {f["event_id"]: f["score_pct"] / 100 for f in form if not f.get("partial")}
+    return rider_pacing(canonical_id, races, queries.pacing_lap_rows(session, keys), scores)
+
+
 @app.get("/api/riders")
 def rider_lookup(q: str = Query("", max_length=80)):
     """Name lookup for the rider page's compare box: up to 10 {id, name, team}."""
@@ -558,6 +568,11 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
         except Exception:
             logger.exception("rider form failed for rider %s", rider_id)
             form = []
+        try:
+            pacing = _rider_pacing(session, data["races"], data["info"]["id"], form)
+        except Exception:
+            logger.exception("pacing failed for rider %s", rider_id)
+            pacing = {}
 
         # Overlay another rider's form on the chart (?compare=<rider id>, or a
         # name typed and submitted before the lookup answered).
@@ -605,6 +620,7 @@ def rider_profile(request: Request, rider_id: int, compare: str = Query("")):
             **data,
             form=form,
             form_by_event={f["event_id"]: f for f in form},
+            pacing=pacing,
             compare=other,
         ),
     )

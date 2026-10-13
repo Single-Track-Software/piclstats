@@ -277,6 +277,13 @@
 {% set ns = namespace(laps=3) %}
 {% for r in races %}{% for i in range(4, 7) %}{% if r['lap' ~ i] and i > ns.laps %}{% set ns.laps = i %}{% endif %}{% endfor %}{% endfor %}
 {% set race_laps = ns.laps %}
+{% set pacing_labels = {
+    'even': ('Even', 'bg-gray-100 text-gray-600'),
+    'hard': ('Went out hard', 'bg-amber-50 text-amber-700'),
+    'strong': ('Finished strong', 'bg-green-50 text-green-700'),
+    'issue': ('Possible issue', 'bg-red-50 text-red-600'),
+    'off': ('Off day', 'bg-gray-100 text-gray-700'),
+} %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
         <h2 class="text-lg font-semibold text-gray-900">Race History</h2>
@@ -298,7 +305,7 @@
                     <th class="px-4 py-3 text-right">Time</th>
                     <th class="px-4 py-3 text-right" title="Behind the category winner">Behind</th>
                     <th class="px-4 py-3 text-right">Min/Mi</th>
-                    <th class="px-4 py-3 text-right" title="Last lap vs second lap (vs first on 2-lap races); positive = slowed">Fade</th>
+                    <th class="px-4 py-3" title="How the race was paced, lap by lap against the rest of the category that day. Click a label for the race read.">Pacing</th>
                     {% for i in range(1, race_laps + 1) %}<th class="px-4 py-3 text-right">Lap {{ i }}</th>{% endfor %}
                 </tr>
             </thead>
@@ -325,11 +332,38 @@
                     <td class="px-4 py-2 text-right font-mono font-medium text-picl-700">
                         {% if r.min_per_mile %}{{ "%.1f"|format(r.min_per_mile) }}{% else %}—{% endif %}
                     </td>
-                    <td class="px-4 py-2 text-right font-mono text-xs {% if r.lap_fade is not none %}{{ 'text-red-500' if r.lap_fade > 5 else ('text-green-600' if r.lap_fade < 0 else 'text-gray-500') }}{% endif %}">{% if r.lap_fade is not none %}{{ '+' if r.lap_fade > 0 else '' }}{{ "%.1f"|format(r.lap_fade) }}%{% else %}—{% endif %}</td>
+                    {% set pc = pacing.get((r.event_id, r.category)) %}
+                    <td class="px-4 py-2 text-xs whitespace-nowrap">{% if pc %}{% set pl = pacing_labels[pc.label] %}<button type="button" data-pace class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium {{ pl[1] }} hover:ring-1 hover:ring-picl-200" data-target="pace-{{ loop.index }}" aria-expanded="false">{{ pl[0] }} ▾</button>{% elif r.lap_fade is not none %}<span class="font-mono text-gray-500" title="Last lap vs second lap (vs first on 2-lap races); positive = slowed. Too few riders on the same laps to read against the field.">{{ '+' if r.lap_fade > 0 else '' }}{{ "%.1f"|format(r.lap_fade) }}%</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
                     {% for i in range(1, race_laps + 1) %}
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r['lap' ~ i] or '' }}</td>
                     {% endfor %}
                 </tr>
+                {% if pc %}
+                <tr id="pace-{{ loop.index }}" class="hidden bg-gray-50">
+                    <td colspan="{{ 13 + race_laps }}" class="px-4 py-3">
+                        <div class="sticky left-4 max-w-[min(48rem,calc(100vw-6rem))] flex flex-wrap gap-x-8 gap-y-3 items-start">
+                            <div class="max-w-xl space-y-1 text-sm text-gray-700">
+                                {% for line in pc.lines %}<p>{{ line }}</p>{% endfor %}
+                                <p class="text-[11px] text-gray-400">Each lap against the median of the {{ pc.field }} finishers in the category who rode {{ pc.lap_rows | length }} laps, so start loops and course conditions cancel. Usual pace = your other races this season. A flagged lap is a question to ask, not a finding.</p>
+                            </div>
+                            <table class="text-xs font-mono">
+                                <thead><tr class="text-gray-500"><th class="pr-4 text-left font-normal">Lap</th><th class="pr-4 text-right font-normal">You</th><th class="pr-4 text-right font-normal">Field</th><th class="pr-4 text-right font-normal">vs field</th><th class="text-right font-normal">Place</th></tr></thead>
+                                <tbody>
+                                {% for lr in pc.lap_rows %}
+                                <tr class="{{ 'text-red-600 font-medium' if pc.issue_lap == lr.lap else '' }}">
+                                    <td class="pr-4">{{ lr.lap }}</td>
+                                    <td class="pr-4 text-right">{{ '%d:%02d'|format(lr.secs // 60, lr.secs % 60) }}</td>
+                                    <td class="pr-4 text-right text-gray-500">{{ '%d:%02d'|format(lr.field_secs // 60, lr.field_secs % 60) }}</td>
+                                    <td class="pr-4 text-right {{ 'text-green-600' if lr.vs_field_pct < 0 else 'text-red-500' }}">{{ '%+.1f'|format(lr.vs_field_pct) }}%</td>
+                                    <td class="text-right">{{ lr.place }}<span class="text-gray-400">/{{ lr.of }}</span></td>
+                                </tr>
+                                {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
                 {% endfor %}
             </tbody>
         </table>
@@ -405,6 +439,11 @@
 {% block scripts %}
 {% include "_chartjs.html" %}
 <script>
+document.querySelectorAll('[data-pace]').forEach(btn => btn.addEventListener('click', () => {
+    const row = document.getElementById(btn.dataset.target);
+    const open = row.classList.toggle('hidden') === false;
+    btn.ariaExpanded = String(open);
+}));
 {% if form %}
 const form = {{ form | tojson }};
 const other = {{ (compare.form if compare else []) | tojson }};

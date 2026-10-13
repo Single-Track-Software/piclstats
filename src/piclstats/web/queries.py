@@ -2408,6 +2408,42 @@ def event_lap_rows(session: Session, event_id: int, category: str) -> list[dict]
     return [dict(r._mapping) for r in rows]
 
 
+def pacing_lap_rows(session: Session, races: list[tuple[int, str]]) -> list[dict]:
+    """Every result's lap splits (seconds) in the given (event_id, category)s.
+
+    Feeds `pacing.rider_pacing`: riders resolved to their canonical id so the
+    rider's own row can be found whichever alias raced.
+    """
+    if not races:
+        return []
+    rows = session.execute(
+        text("""
+        SELECT r.event_id, r.category,
+               COALESCE(ra.canonical_id, r.rider_id) AS rider_id,
+               r.status, r.place, r.dq_status,
+               EXTRACT(EPOCH FROM r.lap1) AS lap1,
+               EXTRACT(EPOCH FROM r.lap2) AS lap2,
+               EXTRACT(EPOCH FROM r.lap3) AS lap3,
+               EXTRACT(EPOCH FROM r.lap4) AS lap4,
+               EXTRACT(EPOCH FROM r.lap5) AS lap5,
+               EXTRACT(EPOCH FROM r.lap6) AS lap6
+        FROM results r
+        LEFT JOIN rider_aliases ra ON ra.rider_id = r.rider_id
+        WHERE r.event_id = ANY(:eids) AND r.lap1 IS NOT NULL
+    """),
+        {"eids": sorted({e for e, _ in races})},
+    ).all()
+    wanted = set(races)
+    return [
+        {
+            k: (float(v) if k.startswith("lap") and v is not None else v)
+            for k, v in r._mapping.items()
+        }
+        for r in rows
+        if (r.event_id, r.category) in wanted
+    ]
+
+
 # ── Race results (the /results page) ────────────────────────────────────
 
 
