@@ -299,13 +299,13 @@
                     <th class="px-4 py-3">Category</th>
                     <th class="px-4 py-3">Conference</th>
                     <th class="px-4 py-3 text-right">Place</th>
+                    <th class="px-4 py-3" title="How the race was paced, lap by lap against the rest of the category that day. Click a label for the race read.">Pacing</th>
                     <th class="px-4 py-3 text-right" title="Share of the category beaten">Pctl</th>
                     <th class="px-4 py-3 text-right" title="That day's ride ranked against the season ratings of every rider in the division league-wide — where it would have placed if the whole league had been there">League-wide</th>
                     <th class="px-4 py-3 text-right">Points</th>
                     <th class="px-4 py-3 text-right">Time</th>
                     <th class="px-4 py-3 text-right" title="Behind the category winner">Behind</th>
                     <th class="px-4 py-3 text-right">Min/Mi</th>
-                    <th class="px-4 py-3" title="How the race was paced, lap by lap against the rest of the category that day. Click a label for the race read.">Pacing</th>
                     {% for i in range(1, race_laps + 1) %}<th class="px-4 py-3 text-right">Lap {{ i }}</th>{% endfor %}
                 </tr>
             </thead>
@@ -324,6 +324,8 @@
                         {% set fp = form_by_event.get(r.event_id) %}
                         {% if r.place %}{{ r.place }}{% if r.field_size %}<span class="text-gray-400 font-normal">/{{ r.field_size }}</span>{% endif %}{% else %}<span class="text-red-400">{{ r.status }}</span>{% if fp and fp.partial %}<div class="text-[10px] font-normal text-gray-500" title="First-lap time ranked against everyone who rode lap 1 in the category">lap 1: {{ fp.lap1_rank }}<span class="text-gray-400">/{{ fp.lap1_field }}</span></div>{% endif %}{% endif %}
                     </td>
+                    {% set pc = pacing.get((r.event_id, r.category)) %}
+                    <td class="px-4 py-2 text-xs whitespace-nowrap">{% if pc %}{% set pl = pacing_labels[pc.label] %}<button type="button" data-pace class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium {{ pl[1] }} hover:ring-1 hover:ring-picl-200" data-target="pace-{{ loop.index }}" aria-expanded="false">{{ pl[0] }} ▾</button>{% elif r.lap_fade is not none %}<span class="font-mono text-gray-500" title="Last lap vs second lap (vs first on 2-lap races); positive = slowed. Too few riders on the same laps to read against the field.">{{ '+' if r.lap_fade > 0 else '' }}{{ "%.1f"|format(r.lap_fade) }}%</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono {% if r.percentile is not none %}{{ 'text-green-600' if r.percentile >= 50 else ('text-amber-600' if r.percentile >= 25 else 'text-red-500') }}{% endif %}">{% if r.percentile is not none %}{{ "%.0f"|format(r.percentile) }}%{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono text-xs whitespace-nowrap" {% if fp and fp.partial %}title="Through lap {{ fp.laps_used }} of {{ fp.laps_total }} before the DNF: {{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider, judged against the finishers over the same laps. A look, not a result — it does not touch the rating."{% elif fp %}title="{{ '%+.1f'|format(fp.score_pct) }}% vs the typical rider that day"{% endif %}>{% if fp and fp.partial %}<span class="text-gray-500">≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span> <span class="text-[10px]">thru L{{ fp.laps_used }}</span></span>{% elif fp %}≈{{ fp.league_place }}<span class="text-gray-400">/{{ fp.league_field }}</span>{% else %}—{% endif %}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ r.points or '—' }}</td>
@@ -332,8 +334,6 @@
                     <td class="px-4 py-2 text-right font-mono font-medium text-picl-700">
                         {% if r.min_per_mile %}{{ "%.1f"|format(r.min_per_mile) }}{% else %}—{% endif %}
                     </td>
-                    {% set pc = pacing.get((r.event_id, r.category)) %}
-                    <td class="px-4 py-2 text-xs whitespace-nowrap">{% if pc %}{% set pl = pacing_labels[pc.label] %}<button type="button" data-pace class="inline-block px-1.5 py-0.5 rounded text-[11px] font-medium {{ pl[1] }} hover:ring-1 hover:ring-picl-200" data-target="pace-{{ loop.index }}" aria-expanded="false">{{ pl[0] }} ▾</button>{% elif r.lap_fade is not none %}<span class="font-mono text-gray-500" title="Last lap vs second lap (vs first on 2-lap races); positive = slowed. Too few riders on the same laps to read against the field.">{{ '+' if r.lap_fade > 0 else '' }}{{ "%.1f"|format(r.lap_fade) }}%</span>{% else %}<span class="text-gray-400">—</span>{% endif %}</td>
                     {% for i in range(1, race_laps + 1) %}
                     <td class="px-4 py-2 text-right font-mono text-xs">{{ r['lap' ~ i] or '' }}</td>
                     {% endfor %}
