@@ -1031,6 +1031,21 @@ def favicon():
     return RedirectResponse("/static/favicon.svg", status_code=301)
 
 
+# iOS asks for these at the site root when someone adds the site to a home
+# screen, whatever the page's <link rel="apple-touch-icon"> says.
+@app.get("/apple-touch-icon.png")
+@app.get("/apple-touch-icon-precomposed.png")
+def apple_touch_icon():
+    return Response(
+        _TOUCH_ICON,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+_TOUCH_ICON = (STATIC_DIR / "apple-touch-icon.png").read_bytes()
+
+
 def sitemap_urls(session) -> list[str]:
     """Public pages worth indexing, rider pages included: the league publishes
     the same names itself, and Chris decided (2026-09-27) they may be indexed."""

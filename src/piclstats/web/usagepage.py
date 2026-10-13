@@ -9,11 +9,13 @@ from sqlalchemy.orm import Session
 
 from piclstats.quality.diagrams import sparkline_svg
 
-_HUMAN = "NOT is_bot AND status < 400"
+# Redirects aren't page views: the page they lead to is logged on its own, and
+# most redirected paths are scanners hitting www. or the Fly address.
+_HUMAN = "NOT is_bot AND status < 300"
 # People: views a real browser confirmed (web/usage.py). Everything else that
 # isn't a flagged bot is shown as raw requests: previewers, prefetches, bots
 # with browser user-agents, and anything before confirmation started.
-_PEOPLE = "confirmed_at IS NOT NULL AND status < 400"
+_PEOPLE = "confirmed_at IS NOT NULL AND status < 300"
 
 
 def _rows(session: Session, sql: str, **p: Any) -> list[dict[str, Any]]:
@@ -117,6 +119,25 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         """,
         days=days,
     )
+    # Requests for pages that don't exist: nearly all are scanners probing
+    # for leaked secrets (/.env, /.git/config, /wp-login.php). Kept apart so
+    # they never read as traffic.
+    not_found = _rows(
+        session,
+        """
+        SELECT path, count(*) AS hits, count(DISTINCT visitor) AS visitors
+        FROM page_views WHERE status = 404 AND ts >= now() - make_interval(days => :days)
+        GROUP BY path ORDER BY hits DESC, path LIMIT 12
+        """,
+        days=days,
+    )
+    not_found_total = session.execute(
+        text(
+            "SELECT count(*) FROM page_views"
+            " WHERE status = 404 AND ts >= now() - make_interval(days => :days)"
+        ),
+        {"days": days},
+    ).scalar()
     recent = _rows(
         session,
         f"""
@@ -141,4 +162,6 @@ def page(session: Session, days: int = 30) -> dict[str, Any]:
         "users": users,
         "referrers": referrers,
         "recent": recent,
+        "not_found": not_found,
+        "not_found_total": not_found_total or 0,
     }

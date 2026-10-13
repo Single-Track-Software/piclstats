@@ -83,6 +83,14 @@
     </div>
 </div>
 
+<div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+    <div class="px-4 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2"><h2 class="text-sm font-semibold text-gray-700">Not found <span class="font-normal text-gray-500">· {{ not_found_total }} in {{ days }} days</span></h2><span class="text-xs text-gray-500">Almost all scanners probing for leaked secrets. Every one gets a 404; none counts as a visitor.</span></div>
+    <div class="overflow-x-auto"><table class="w-full text-sm"><tbody class="divide-y divide-gray-100">
+    {% for r in not_found %}<tr><td class="px-4 py-1 font-mono text-xs">{{ r.path }}</td><td class="px-2 py-1 text-right font-mono text-xs whitespace-nowrap">{{ r.hits }} <span class="text-gray-400">/ {{ r.visitors }}</span></td></tr>
+    {% else %}<tr><td class="px-4 py-4 text-center text-gray-400 text-sm">None</td></tr>{% endfor %}
+    </tbody></table></div>
+</div>
+
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-4 py-3 border-b bg-gray-50"><h2 class="text-sm font-semibold text-gray-700">Recent</h2></div>
     <div class="overflow-x-auto"><table class="w-full text-sm">
