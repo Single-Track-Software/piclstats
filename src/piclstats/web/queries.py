@@ -1300,7 +1300,7 @@ def leaderboard(
 
     These are the conference series standings (PA handbook 5.15): every points
     race except the state championship, a DNF scores its points, and with a
-    season picked `total_points` is the series score (`standings.series_total`
+    season picked `total_points` is the series score (`standings.series_score`
     — lowest race dropped once the series has four races). Averages and best
     place are over placed finishes only.
 
@@ -1308,7 +1308,7 @@ def leaderboard(
     lists are). By any other metric a rider needs two scored races, except
     while the season has only one scored event (the opening weeks).
     """
-    params: dict = {"champ_ids": _championship_ids(session)}
+    params: dict = {"champ_ids": championship_ids(session)}
     filters: list[str] = [_SERIES_RESULT, _POINTS_ONLY, _NOT_CHAMPIONSHIP]
     scope_season = ""
     if season:
@@ -1375,7 +1375,7 @@ def leaderboard(
     return rows[:limit] if limit else rows
 
 
-def _championship_ids(session: Session) -> list[int]:
+def championship_ids(session: Session) -> list[int]:
     """Event ids of every season's state championship (never part of a series)."""
     return [c["id"] for c in state_championships_cached(session).values()]
 
@@ -1390,24 +1390,41 @@ _FINISHED = "r.place IS NOT NULL AND r.status <> 'DNF'"
 _NOT_CHAMPIONSHIP = "NOT (e.id = ANY(:champ_ids))"
 
 
-def series_race_counts(session: Session, season: int, champ_ids: list[int]) -> dict[str, int]:
-    """Conference -> how many series races it actually held that season
-    (state-series races plus its own conference races, not the championship)."""
-    rows = session.execute(
-        text(r"""
-        SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') AS conference,
-               count(DISTINCT e.id) AS races
+def series_events(
+    session: Session, season: int, champ_ids: list[int], conferences: list[str] | None = None
+) -> dict[str, list[dict]]:
+    """Conference -> the series races it actually held that season, oldest
+    first: state-series races plus its own conference races, never the
+    championship. Each is {id, event_order, event_name, course}."""
+    conference_filter = ""
+    params: dict = {"season": season, "champ_ids": champ_ids}
+    if conferences:
+        conference_filter = "AND regexp_replace(tc.conference, '\\s+', ' ', 'g') IN :conferences"
+        params["conferences"] = list(conferences)
+    sql = f"""
+        SELECT DISTINCT regexp_replace(tc.conference, '\\s+', ' ', 'g') AS conference,
+               e.id, e.event_order, e.event_name, co.name AS course
         FROM events e
         JOIN results r ON r.event_id = e.id
         JOIN riders ri ON ri.id = r.rider_id
         JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
+        LEFT JOIN courses co ON co.id = e.course_id
         WHERE e.season = :season AND e.is_published AND e.event_type = 'points'
           AND NOT (e.id = ANY(:champ_ids))
-        GROUP BY 1
-    """),
-        {"season": season, "champ_ids": champ_ids},
-    ).all()
-    return {r.conference: r.races for r in rows}
+          {conference_filter}
+        ORDER BY e.event_order, e.id
+    """
+    out: dict[str, list[dict]] = {}
+    for r in session.execute(_with_conferences(sql, conferences), params).all():
+        out.setdefault(r.conference, []).append(
+            {
+                "id": r.id,
+                "event_order": r.event_order,
+                "event_name": r.event_name,
+                "course": r.course,
+            }
+        )
+    return out
 
 
 def _apply_series_drop(
@@ -1417,10 +1434,13 @@ def _apply_series_drop(
     params: dict,
     conferences: list[str] | None,
 ) -> None:
-    """Replace each row's summed total with its series score (drop rule)."""
+    """Replace each row's summed total with its series score (drop rule), and
+    attach the breakdown: `race_points` (event id -> points), `series_races`
+    (their conference's series race ids) and `dropped` (an event id,
+    standings.MISSED, or None)."""
     from collections import Counter, defaultdict
 
-    from piclstats.web.standings import series_total
+    from piclstats.web.standings import series_score
 
     if not rows:
         return
@@ -1437,18 +1457,21 @@ def _apply_series_drop(
         WHERE {where}
         GROUP BY c.cid, r.division, r.gender, e.id
     """
-    scores: dict[tuple, list[int]] = defaultdict(list)
+    points: dict[tuple, dict[int, int]] = defaultdict(dict)
     confs: dict[tuple, Counter] = defaultdict(Counter)
     for r in session.execute(_with_conferences(sql, conferences), params).all():
         key = (r.cid, r.division, r.gender)
-        scores[key].append(int(r.points or 0))
+        points[key][r.event_id] = int(r.points or 0)
         if r.conference:
             confs[key][r.conference] += 1
-    held = series_race_counts(session, params["season"], params["champ_ids"])
+    held = series_events(session, params["season"], params["champ_ids"])
     for row in rows:
         key = (row["rider_id"], row["division"], row["gender"])
         conf = confs[key].most_common(1)[0][0] if confs[key] else None
-        row["total_points"] = series_total(scores[key], held.get(conf, 0) if conf else 0)
+        races = [e["id"] for e in held.get(conf, [])] if conf else []
+        row["total_points"], row["dropped"] = series_score(points[key], races)
+        row["race_points"] = points[key]
+        row["series_races"] = races
 
 
 def leaderboard_points_by_event(
@@ -1468,7 +1491,7 @@ def leaderboard_points_by_event(
     """
     if not rider_ids:
         return []
-    params: dict = {"rider_ids": tuple(rider_ids), "champ_ids": _championship_ids(session)}
+    params: dict = {"rider_ids": tuple(rider_ids), "champ_ids": championship_ids(session)}
     filters: list[str] = [
         _SERIES_RESULT,
         _POINTS_ONLY,
@@ -1522,7 +1545,7 @@ def team_leaderboard(
     two-rider school squad still scored points), while the home page top-10
     keeps a floor so one strong rider can't top the league as a "team".
     """
-    params: dict = {"min_riders": min_riders, "champ_ids": _championship_ids(session)}
+    params: dict = {"min_riders": min_riders, "champ_ids": championship_ids(session)}
     if limit:
         params["limit"] = limit
     season_filter = ""

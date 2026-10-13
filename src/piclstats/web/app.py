@@ -840,6 +840,7 @@ def leaderboard_page(
         groups: list[dict] = []
         teams: list[dict] = []
         points_by_event: list[dict] = []
+        race_columns: list[dict] = []
         if chosen and view == "teams":
             teams = rank_by_total(
                 [
@@ -860,6 +861,13 @@ def leaderboard_page(
                 conferences=chosen,
             )
             groups = group_standings(rows)
+            if season:
+                # One column per series race the chosen conferences held, oldest first.
+                held = queries.series_events(
+                    session, season, queries.championship_ids(session), chosen
+                )
+                seen: dict[int, dict] = {e["id"]: e for evs in held.values() for e in evs}
+                race_columns = sorted(seen.values(), key=lambda e: (e["event_order"], e["id"]))
             # The stacked points-by-race chart compares like with like, so it
             # only shows when the filters leave a single division and gender.
             if len(groups) == 1:
@@ -878,6 +886,7 @@ def leaderboard_page(
             groups=groups,
             teams=teams,
             points_by_event=points_by_event,
+            race_columns=race_columns,
             seasons=seasons,
             divisions=divisions,
             conference_entries=conference_entries,

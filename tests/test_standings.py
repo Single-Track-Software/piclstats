@@ -143,3 +143,14 @@ def test_series_total_no_drop_under_four_races():
     # 2026 Eastern Blue held three (a race cancelled): Emerson 370 + 431 + 440.
     assert series_total([370, 431, 440], 3) == 1241
     assert series_total([], 3) == 0
+
+
+def test_series_score_names_the_dropped_race():
+    from piclstats.web.standings import MISSED, series_score
+
+    races = [1, 2, 3, 4]
+    assert series_score({1: 431, 2: 450, 3: 450, 4: 450}, races) == (1350, 1)
+    # Level lows: the earlier race is the one dropped (raceresult, 2025).
+    assert series_score({1: 431, 2: 440, 3: 431, 4: 450}, races) == (1321, 1)
+    assert series_score({1: 450, 2: 450, 4: 450}, races) == (1350, MISSED)
+    assert series_score({1: 370, 2: 431, 3: 440}, [1, 2, 3]) == (1241, None)
