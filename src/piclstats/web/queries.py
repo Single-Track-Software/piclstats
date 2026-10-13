@@ -1298,12 +1298,18 @@ def leaderboard(
 ) -> list[dict]:
     """Top riders by chosen metric — merged riders unified.
 
-    A rider needs two scored races to rank, except while the selected season
-    has only one scored event (the opening weeks), when one race is enough —
-    otherwise the season leaderboard is empty until race two.
+    These are the conference series standings (PA handbook 5.15): every points
+    race except the state championship, a DNF scores its points, and with a
+    season picked `total_points` is the series score (`standings.series_total`
+    — lowest race dropped once the series has four races). Averages and best
+    place are over placed finishes only.
+
+    Ranked by total, everyone who scored is listed (as the league's series
+    lists are). By any other metric a rider needs two scored races, except
+    while the season has only one scored event (the opening weeks).
     """
-    params: dict = {}
-    filters: list[str] = ["r.place IS NOT NULL AND r.dq_status <> 'excluded'", _POINTS_ONLY]
+    params: dict = {"champ_ids": _championship_ids(session)}
+    filters: list[str] = [_SERIES_RESULT, _POINTS_ONLY, _NOT_CHAMPIONSHIP]
     scope_season = ""
     if season:
         filters.append("e.season = :season")
@@ -1321,7 +1327,17 @@ def leaderboard(
 
     where = " AND ".join(filters)
     _, _, order_col = leaderboard_order(RIDER_SORTS, metric, direction)
-    limit_sql = "LIMIT :limit" if limit else ""
+    # Standings (ranked by total) list everyone who scored, as the league's
+    # own series lists do; an average needs two races to mean anything.
+    having = (
+        ""
+        if metric == "total_points"
+        else f"""HAVING count(DISTINCT r.event_id) >= LEAST(2, (
+            SELECT count(*) FROM events e2
+            WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
+              AND NOT (e2.id = ANY(:champ_ids))
+        ))"""
+    )
 
     sql = f"""
         WITH {_CANONICAL_CTE}
@@ -1332,28 +1348,107 @@ def leaderboard(
             r.division,
             r.gender,
             count(DISTINCT r.event_id) AS races,
-            round(avg(r.points)::numeric, 1) AS avg_points,
-            round(avg(r.place)::numeric, 1) AS avg_place,
-            min(r.place) AS best_place,
+            round((avg(r.points) FILTER (WHERE {_FINISHED}))::numeric, 1) AS avg_points,
+            round((avg(r.place) FILTER (WHERE {_FINISHED}))::numeric, 1) AS avg_place,
+            min(r.place) FILTER (WHERE {_FINISHED}) AS best_place,
             sum(r.points) AS total_points
         FROM results r
         JOIN canonical c ON c.rider_id = r.rider_id
         JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE {where}
         GROUP BY c.cid, c.name, r.division, r.gender
-        HAVING count(DISTINCT r.event_id) >= LEAST(2, (
-            SELECT count(*) FROM events e2
-            WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
-        ))
+        {having}
         -- Level on the ranking value: more races first (575 avg over 3 races
         -- beats 575 over 2), then name.
         ORDER BY {order_col}, races DESC, c.name
-        {limit_sql}
     """
-    if limit:
-        params["limit"] = limit
-    rows = session.execute(_with_conferences(sql, conferences), params).all()
-    return [_serialize(r._mapping) for r in rows]
+    rows = [
+        _serialize(r._mapping)
+        for r in session.execute(_with_conferences(sql, conferences), params).all()
+    ]
+    if season:
+        _apply_series_drop(session, rows, where, params, conferences)
+        if metric == "total_points":
+            # Re-rank on the series score; level totals: more races, then name.
+            sign = 1 if direction == "asc" else -1
+            rows.sort(key=lambda r: (sign * (r["total_points"] or 0), -r["races"], r["name"] or ""))
+    return rows[:limit] if limit else rows
+
+
+def _championship_ids(session: Session) -> list[int]:
+    """Event ids of every season's state championship (never part of a series)."""
+    return [c["id"] for c in state_championships_cached(session).values()]
+
+
+# Results that score in a conference series: placed finishes with usable
+# timing, and every DNF — a DNF earns its points (handbook 5.14) even when its
+# timing failed the quality gate (2024 Blue Mtn DNFs carry place -1).
+_SERIES_RESULT = "((r.place IS NOT NULL AND r.dq_status <> 'excluded') OR r.status = 'DNF')"
+# Of those, the finishes that averages and best place are taken over.
+_FINISHED = "r.place IS NOT NULL AND r.status <> 'DNF'"
+# The state championship is a stand-alone race (handbook 5.15 / 5.17).
+_NOT_CHAMPIONSHIP = "NOT (e.id = ANY(:champ_ids))"
+
+
+def series_race_counts(session: Session, season: int, champ_ids: list[int]) -> dict[str, int]:
+    """Conference -> how many series races it actually held that season
+    (state-series races plus its own conference races, not the championship)."""
+    rows = session.execute(
+        text(r"""
+        SELECT regexp_replace(tc.conference, '\s+', ' ', 'g') AS conference,
+               count(DISTINCT e.id) AS races
+        FROM events e
+        JOIN results r ON r.event_id = e.id
+        JOIN riders ri ON ri.id = r.rider_id
+        JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
+        WHERE e.season = :season AND e.is_published AND e.event_type = 'points'
+          AND NOT (e.id = ANY(:champ_ids))
+        GROUP BY 1
+    """),
+        {"season": season, "champ_ids": champ_ids},
+    ).all()
+    return {r.conference: r.races for r in rows}
+
+
+def _apply_series_drop(
+    session: Session,
+    rows: list[dict],
+    where: str,
+    params: dict,
+    conferences: list[str] | None,
+) -> None:
+    """Replace each row's summed total with its series score (drop rule)."""
+    from collections import Counter, defaultdict
+
+    from piclstats.web.standings import series_total
+
+    if not rows:
+        return
+    sql = f"""
+        WITH {_CANONICAL_CTE}
+        SELECT c.cid, r.division, r.gender, e.id AS event_id,
+               sum(r.points) AS points,
+               min(regexp_replace(tc.conference, '\\s+', ' ', 'g')) AS conference
+        FROM results r
+        JOIN canonical c ON c.rider_id = r.rider_id
+        JOIN events e ON r.event_id = e.id AND e.is_published
+        JOIN riders ri ON ri.id = r.rider_id
+        LEFT JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
+        WHERE {where}
+        GROUP BY c.cid, r.division, r.gender, e.id
+    """
+    scores: dict[tuple, list[int]] = defaultdict(list)
+    confs: dict[tuple, Counter] = defaultdict(Counter)
+    for r in session.execute(_with_conferences(sql, conferences), params).all():
+        key = (r.cid, r.division, r.gender)
+        scores[key].append(int(r.points or 0))
+        if r.conference:
+            confs[key][r.conference] += 1
+    held = series_race_counts(session, params["season"], params["champ_ids"])
+    for row in rows:
+        key = (row["rider_id"], row["division"], row["gender"])
+        conf = confs[key].most_common(1)[0][0] if confs[key] else None
+        row["total_points"] = series_total(scores[key], held.get(conf, 0) if conf else 0)
 
 
 def leaderboard_points_by_event(
@@ -1366,16 +1461,18 @@ def leaderboard_points_by_event(
 ) -> list[dict]:
     """Points each rider scored in each event, for the leaderboard's stacked bars.
 
-    Same population as `leaderboard` (published points events, placed, not
-    excluded) so the segments of a rider's bar add up to their total_points.
-    Keyed by (rider_id, division, gender) like the leaderboard rows are.
+    Same population as `leaderboard` (series races: placed finishes and DNFs,
+    no state championship), so a rider's segments add up to their total
+    before any dropped race. Keyed by (rider_id, division, gender) like the
+    leaderboard rows are.
     """
     if not rider_ids:
         return []
-    params: dict = {"rider_ids": tuple(rider_ids)}
+    params: dict = {"rider_ids": tuple(rider_ids), "champ_ids": _championship_ids(session)}
     filters: list[str] = [
-        "r.place IS NOT NULL AND r.dq_status <> 'excluded'",
+        _SERIES_RESULT,
         _POINTS_ONLY,
+        _NOT_CHAMPIONSHIP,
         "c.cid IN :rider_ids",
     ]
     if season:
@@ -1425,7 +1522,7 @@ def team_leaderboard(
     two-rider school squad still scored points), while the home page top-10
     keeps a floor so one strong rider can't top the league as a "team".
     """
-    params: dict = {"min_riders": min_riders}
+    params: dict = {"min_riders": min_riders, "champ_ids": _championship_ids(session)}
     if limit:
         params["limit"] = limit
     season_filter = ""
@@ -1453,6 +1550,8 @@ def team_leaderboard(
         JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND ri.team IS NOT NULL
           AND {_POINTS_ONLY}
+          -- Team conference series: the state championship is scored apart (5.17).
+          AND {_NOT_CHAMPIONSHIP}
           {season_filter}
           {conference_filter}
         GROUP BY ri.team_key
