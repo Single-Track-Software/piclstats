@@ -114,6 +114,8 @@
 {% else %}
 {% if not groups %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
+{% elif race_columns %}
+<p class="text-xs text-gray-500 mb-3">Series points per race (the State Championship stands alone). When a conference holds four or more races, each rider's lowest race is dropped, <span class="text-red-600 line-through">struck through</span>; a missed race counts as the drop, <span class="text-red-600">0</span>. DNFs score 100. TTC bonus points are not included.</p>
 {% endif %}
 {% for g in groups %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
@@ -132,6 +134,7 @@
                 <th class="px-4 py-2 text-right">Avg Pts</th>
                 <th class="px-4 py-2 text-right">Avg Place</th>
                 <th class="px-4 py-2 text-right">Best</th>
+                {% for ev in race_columns %}<th class="px-3 py-2 text-right whitespace-nowrap normal-case font-medium" title="{{ ev.event_name }}">{{ ev.course or ('Race ' ~ ev.event_order) }}</th>{% endfor %}
                 <th class="px-4 py-2 text-right">Total Pts</th>
             </tr>
         </thead>
@@ -151,6 +154,17 @@
                 <td class="px-4 py-2 text-right font-mono">{{ r.avg_points or '—' }}</td>
                 <td class="px-4 py-2 text-right font-mono">{{ r.avg_place or '—' }}</td>
                 <td class="px-4 py-2 text-right font-mono">{{ r.best_place or '—' }}</td>
+                {% set miss = namespace(marked=false) %}
+                {% for ev in race_columns %}
+                {% set pts = (r.race_points or {}).get(ev.id) %}
+                {% if pts is not none %}
+                <td class="px-3 py-2 text-right font-mono text-xs {{ 'text-red-600 line-through' if r.dropped == ev.id else 'text-gray-600' }}"{% if r.dropped == ev.id %} title="Lowest race — dropped"{% endif %}>{{ pts }}</td>
+                {% elif r.dropped == 'missed' and not miss.marked and ev.id in (r.series_races or []) %}{% set miss.marked = true %}
+                <td class="px-3 py-2 text-right font-mono text-xs text-red-600" title="Missed — counts as the dropped race">0</td>
+                {% else %}
+                <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">—</td>
+                {% endif %}
+                {% endfor %}
                 <td class="px-4 py-2 text-right font-mono font-medium">{{ "{:,}".format(r.total_points or 0) }}</td>
             </tr>
             {% endfor %}

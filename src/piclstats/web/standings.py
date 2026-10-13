@@ -53,6 +53,28 @@ def series_total(scores: list[int], series_races: int) -> int:
     return total
 
 
+# `series_score`'s dropped value when the dropped "race" is one they missed.
+MISSED = "missed"
+
+
+def series_score(points: dict[int, int], races: list[int]) -> tuple[int, int | str | None]:
+    """(series score, what was dropped) for one rider in one category.
+
+    `points` = event id -> points for the series races they rode; `races` =
+    the conference's series races held, oldest first. Dropped is the event id
+    of the lowest race (ties: the earlier one, as raceresult drops it), MISSED
+    when a missed race is the drop, or None when nothing is (under four races).
+    """
+    total = sum(points.values())
+    if len(races) < DROP_FROM_RACES or not points:
+        return total, None
+    ridden = [e for e in races if e in points]
+    if len(ridden) < len(races):
+        return total, MISSED
+    low = min(ridden, key=lambda e: points[e])
+    return total - points[low], low
+
+
 def group_standings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Split leaderboard rows into ranked tables per (division, gender), oldest division first."""
     groups: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
