@@ -121,3 +121,25 @@ def test_division_conference_matrix_orders_and_fills():
     assert m["counts"]["Western"] == [3, 1, 0]
     assert m["counts"]["Unassigned"] == [0, 0, 2]
     assert m["totals"] == [8, 5, 2]
+
+
+def test_series_total_drops_lowest_from_four_races():
+    from piclstats.web.standings import series_total
+
+    # 2025 Eastern Blue, 6th Grade Male: 431 + 450 + 450 + 450 -> 1350.
+    assert series_total([431, 450, 450, 450], 4) == 1350
+
+
+def test_series_total_missed_race_is_the_drop():
+    from piclstats.web.standings import series_total
+
+    assert series_total([450, 450, 450], 4) == 1350
+    assert series_total([450, 450], 4) == 900
+
+
+def test_series_total_no_drop_under_four_races():
+    from piclstats.web.standings import series_total
+
+    # 2026 Eastern Blue held three (a race cancelled): Emerson 370 + 431 + 440.
+    assert series_total([370, 431, 440], 3) == 1241
+    assert series_total([], 3) == 0

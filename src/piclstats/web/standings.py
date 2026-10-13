@@ -34,6 +34,25 @@ def rank_by_total(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
+# Handbook 5.15: a conference series of this many races or more drops each
+# rider's lowest race (best 3 of 4); a missed race is the score dropped.
+DROP_FROM_RACES = 4
+
+
+def series_total(scores: list[int], series_races: int) -> int:
+    """A rider's conference series score from their race scores in one category.
+
+    `scores` = points for each series race they rode (a DNF scores its points;
+    races they missed are absent); `series_races` = races the conference series
+    actually held. Checked against raceresult's own series lists for 2024-26:
+    4 races held -> best 3 of 4, 3 held (2026, a race cancelled) -> no drop.
+    """
+    total = sum(scores)
+    if series_races >= DROP_FROM_RACES and scores and len(scores) >= series_races:
+        total -= min(scores)
+    return total
+
+
 def group_standings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Split leaderboard rows into ranked tables per (division, gender), oldest division first."""
     groups: dict[tuple[str | None, str | None], list[dict[str, Any]]] = {}
