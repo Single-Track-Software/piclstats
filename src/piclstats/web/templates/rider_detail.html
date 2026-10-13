@@ -105,7 +105,7 @@
 
 <!-- Season summary cards -->
 <div class="grid md:grid-cols-{{ season_stats|length if season_stats|length <= 4 else 4 }} gap-4 mb-8">
-    {% for ss in season_stats %}
+    {% for ss in season_stats | reverse %}
     <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
         <div class="flex items-center justify-between mb-3">
             <span class="text-lg font-bold text-picl-700">{{ ss.season }}</span>
@@ -260,7 +260,7 @@
                     <td class="px-4 py-2 text-right font-mono text-xs {% if v.avg_time_gap_pct is not none %}{{ 'text-green-600' if v.avg_time_gap_pct > 0 else ('text-red-500' if v.avg_time_gap_pct < 0 else 'text-gray-500') }}{% endif %}">{% if v.avg_time_gap_pct is not none %}{{ '+' if v.avg_time_gap_pct > 0 else '' }}{{ "%.1f"|format(v.avg_time_gap_pct) }}%{% else %}—{% endif %}</td>
                     <td class="px-4 py-2">
                         <div class="flex flex-wrap gap-1">
-                        {% for g in v.races %}
+                        {% for g in v.races | reverse %}
                         <span class="font-mono text-[11px] px-1.5 py-0.5 rounded {{ 'bg-green-50 text-green-700' if g.me < g.them else 'bg-red-50 text-red-600' }}" title="{{ g.event_name }}">#{{ g.event_order }} {{ g.me }}v{{ g.them }}</span>
                         {% endfor %}
                         </div>
@@ -310,7 +310,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                {% for r in races %}
+                {% for r in races | reverse %}
                 <tr class="hover:bg-picl-50 transition-colors {% if r.status != 'OK' %}text-gray-400{% endif %}">
                     <td class="px-4 py-2 font-medium">{{ r.season }}</td>
                     <td class="px-4 py-2 max-w-xs truncate" title="{{ r.event_name }}">
@@ -403,7 +403,7 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-100">
-                {% for x in v.visits %}
+                {% for x in v.visits | reverse %}
                 <tr class="hover:bg-picl-50 {% if x.status != 'OK' %}text-gray-400{% endif %}">
                     <td class="px-4 py-2 font-medium">{{ x.season }}</td>
                     <td class="px-4 py-2 max-w-xs truncate" title="{{ x.event_name }}">
