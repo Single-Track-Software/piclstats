@@ -28,7 +28,7 @@
             <label class="block text-xs font-medium text-gray-500 mb-1">Event</label>
             <select name="event_id" class="w-full rounded-lg border-gray-300 border px-3 py-2 text-sm" onchange="this.form.submit()">
                 {% for e in events %}
-                <option value="{{ e.id }}" {{ 'selected' if event and e.id == event.id }}>{{ e.season }} #{{ e.event_order }} — {{ e.event_name }}{% if e.event_type != 'points' %} (non-scoring){% endif %}</option>
+                <option value="{{ e.id }}" {{ 'selected' if event and e.id == event.id }}>{{ e.season }} #{{ e.event_order }} — {{ e.event_name }}{% if e.event_type == 'rally' %} (rally){% elif e.event_type != 'points' %} (non-scoring){% endif %}</option>
                 {% endfor %}
             </select>
         </div>
@@ -81,7 +81,7 @@
             <h2 class="text-lg font-semibold text-gray-900">{{ category }}</h2>
             <div class="text-xs text-gray-500">
                 {{ event.season }} · {{ event.event_name }}{% if event.course_name %} · {{ event.course_name }}{% endif %}
-                {% if event.event_type != 'points' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle">non-scoring</span>{% endif %}
+                {% if event.event_type == 'rally' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle" title="Placings and series points, no lap times">rally</span>{% elif event.event_type != 'points' %}<span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-500 align-middle">non-scoring</span>{% endif %}
             </div>
         </div>
         <div class="text-xs text-gray-400 flex items-center gap-3">

@@ -166,7 +166,8 @@ def rider_conference_standings(session: Any, rider_id: int) -> dict[int, list[di
         SELECT DISTINCT e.season, regexp_replace(tc.conference, '\s+', ' ', 'g') AS conference,
                r.division, r.gender
         FROM results r
-        JOIN events e ON e.id = r.event_id AND e.is_published AND e.event_type = 'points'
+        JOIN events e ON e.id = r.event_id AND e.is_published
+            AND COALESCE(e.counts_in_series, e.event_type = 'points')
         JOIN riders ri ON ri.id = r.rider_id
         JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
         WHERE r.rider_id IN (
