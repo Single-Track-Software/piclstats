@@ -363,6 +363,24 @@ def _summary_line(summary: Any) -> str:
     )
 
 
+@main.command("ttc-sync")
+@click.option("--season", type=int, multiple=True, help="Season(s) to sync (default: this year).")
+def ttc_sync(season: tuple[int, ...]) -> None:
+    """Load TTC bonus points from raceresult's season lists into standings."""
+    from piclstats.db.engine import get_session
+    from piclstats.scraper import discover as disc
+    from piclstats.scraper.ttc import sync_season
+
+    with get_session() as session:
+        for s in season or (disc.current_season(),):
+            counts = sync_season(session, s)
+            session.commit()
+            click.echo(
+                f"{s}: {counts['lists']} season list(s), {counts['stored']} riders stored, "
+                f"{counts['unmatched']} unmatched bib(s)"
+            )
+
+
 @main.command("forecast-backtest")
 @click.option("--min-season", type=int, default=2024, help="Score forecasts from this season on.")
 def forecast_backtest(min_season: int) -> None:

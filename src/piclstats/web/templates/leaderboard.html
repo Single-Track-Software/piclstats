@@ -115,7 +115,7 @@
 {% if not groups %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-12 text-center text-gray-400">No results match the selected filters</div>
 {% elif race_columns %}
-<p class="text-xs text-gray-500 mb-3">Series points per race (the State Championship stands alone). When a conference holds four or more races, each rider's lowest race is dropped, <span class="text-red-600 line-through">struck through</span>; a missed race counts as the drop, <span class="text-red-600">0</span>. DNFs score 100. TTC bonus points are not included.</p>
+<p class="text-xs text-gray-500 mb-3">Series points per race (the State Championship stands alone). When a conference holds four or more races, each rider's lowest race is dropped, <span class="text-red-600 line-through">struck through</span>; a missed race counts as the drop, <span class="text-red-600">0</span>. DNFs score 100. TTC bonus points are added to the total once the league publishes them on raceresult (— = not published yet).</p>
 {% endif %}
 {% for g in groups %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
@@ -135,6 +135,7 @@
                 <th class="px-4 py-2 text-right">Avg Place</th>
                 <th class="px-4 py-2 text-right">Best</th>
                 {% for ev in race_columns %}<th class="px-3 py-2 text-right whitespace-nowrap normal-case font-medium" title="{{ ev.event_name }}">{{ ev.course or ('Race ' ~ ev.event_order) }}</th>{% endfor %}
+                {% if race_columns %}<th class="px-3 py-2 text-right" title="Teen Trail Corps bonus points, as the league publishes them on raceresult">TTC</th>{% endif %}
                 <th class="px-4 py-2 text-right">Total Pts</th>
             </tr>
         </thead>
@@ -165,6 +166,7 @@
                 <td class="px-3 py-2 text-right font-mono text-xs text-gray-300">—</td>
                 {% endif %}
                 {% endfor %}
+                {% if race_columns %}<td class="px-3 py-2 text-right font-mono text-xs {{ 'text-green-700' if r.ttc_points else 'text-gray-300' }}">{% if r.ttc_points is none %}—{% elif r.ttc_points %}+{{ r.ttc_points }}{% else %}0{% endif %}</td>{% endif %}
                 <td class="px-4 py-2 text-right font-mono font-medium">{{ "{:,}".format(r.total_points or 0) }}</td>
             </tr>
             {% endfor %}

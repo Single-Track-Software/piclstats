@@ -8,6 +8,7 @@ the gender filter; riders level on points share a rank.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from piclstats.web.staging import division_sort_key
@@ -19,17 +20,58 @@ def _gender_key(gender: str | None) -> int:
     return GENDER_ORDER.index(gender) if gender in GENDER_ORDER else len(GENDER_ORDER)
 
 
+# Above any race's points (Varsity 1st = 575).
+_MAX_POINTS = 600
+
+
+def champion_tie_key(row: dict[str, Any]) -> tuple:
+    """Handbook 5.15 tie-break for the conference series champion: most
+    conference wins, then most 2nds, 3rds ... (every series race counts,
+    dropped or not), then the better finish in the last series race.
+
+    Finishes are read from points, not places: at a state race the points
+    follow the rider's place among their own conference (13th overall can be
+    575, a conference win), and within one category more points is always
+    the better finish.
+    """
+    points = row.get("race_points") or {}
+    races = row.get("series_races") or []
+    tally = Counter(points.values())
+    # Fixed length so riders compare finish by finish: (-wins, -2nds, ...).
+    counts = tuple(-tally[p] for p in range(_MAX_POINTS, -1, -1))
+    last = points.get(races[-1]) if races else None
+    return (*counts, -(last or 0))
+
+
 def rank_by_total(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Rows sorted by total points (high first, then name) with a competition
-    rank: equal totals share a rank and the next rank skips (1, 2, 2, 4)."""
+    rank: equal totals share a rank and the next rank skips (1, 2, 2, 4).
+
+    The one exception is a tie for 1st, which the handbook breaks
+    (`champion_tie_key`) when the rows carry race points. Other ties stay
+    shared, as in the league's own series lists.
+    """
     ordered = sorted(rows, key=lambda r: (-(r.get("total_points") or 0), r.get("name") or ""))
+    top = (
+        [
+            r
+            for r in ordered
+            if (r.get("total_points") or 0) == (ordered[0].get("total_points") or 0)
+        ]
+        if ordered
+        else []
+    )
+    if len(top) > 1 and all("race_points" in r for r in top):
+        top.sort(key=champion_tie_key)
+        ordered = top + ordered[len(top) :]
     out: list[dict[str, Any]] = []
-    prev_total: object = object()
+    prev: object = object()
     rank = 0
     for i, row in enumerate(ordered, start=1):
         total = row.get("total_points") or 0
-        if total != prev_total:
-            rank, prev_total = i, total
+        level = (total, champion_tie_key(row)) if i <= len(top) and len(top) > 1 else (total,)
+        if level != prev:
+            rank, prev = i, level
         out.append({**row, "rank": rank})
     return out
 

@@ -15,3 +15,8 @@ jobs:
       - run: flyctl ssh console -a piclstats -C "piclstats discover --scrape"
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+      # TTC bonus points for this season's standings, from raceresult's season
+      # lists (the league updates them after races; ADR 009).
+      - run: flyctl ssh console -a piclstats -C "piclstats ttc-sync"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
