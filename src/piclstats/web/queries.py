@@ -155,6 +155,10 @@ PACE_RANGE = (_PACE_MIN, _PACE_MAX)
 # appear in individual race history (badged non-scoring). Assumes the events
 # table is joined with alias `e`.
 _POINTS_ONLY = "e.event_type = 'points'"
+# Races in a conference series: points races, plus a rally the league
+# scored (events.counts_in_series, ADR 010). The championship is excluded
+# separately (_NOT_CHAMPIONSHIP).
+_SERIES_EVENT = "COALESCE(e.counts_in_series, e.event_type = 'points')"
 
 
 def overview_stats(session: Session) -> dict:
@@ -696,6 +700,7 @@ def rider_detail(session: Session, rider_id: int) -> dict | None:
             e.event_name,
             e.event_order,
             e.event_type,
+            e.counts_in_series,
             r.category,
             r.division,
             r.gender,
@@ -1309,7 +1314,7 @@ def leaderboard(
     while the season has only one scored event (the opening weeks).
     """
     params: dict = {"champ_ids": championship_ids(session)}
-    filters: list[str] = [_SERIES_RESULT, _POINTS_ONLY, _NOT_CHAMPIONSHIP]
+    filters: list[str] = [_SERIES_RESULT, _SERIES_EVENT, _NOT_CHAMPIONSHIP]
     scope_season = ""
     if season:
         filters.append("e.season = :season")
@@ -1334,7 +1339,8 @@ def leaderboard(
         if metric == "total_points"
         else f"""HAVING count(DISTINCT r.event_id) >= LEAST(2, (
             SELECT count(*) FROM events e2
-            WHERE e2.event_type = 'points' AND e2.is_published {scope_season}
+            WHERE COALESCE(e2.counts_in_series, e2.event_type = 'points')
+              AND e2.is_published {scope_season}
               AND NOT (e2.id = ANY(:champ_ids))
         ))"""
     )
@@ -1409,7 +1415,7 @@ def series_events(
         JOIN riders ri ON ri.id = r.rider_id
         JOIN team_conferences tc ON tc.team = ri.team AND tc.season = e.season
         LEFT JOIN courses co ON co.id = e.course_id
-        WHERE e.season = :season AND e.is_published AND e.event_type = 'points'
+        WHERE e.season = :season AND e.is_published AND {_SERIES_EVENT}
           AND NOT (e.id = ANY(:champ_ids))
           {conference_filter}
         ORDER BY e.event_order, e.id
@@ -1516,7 +1522,7 @@ def leaderboard_points_by_event(
     params: dict = {"rider_ids": tuple(rider_ids), "champ_ids": championship_ids(session)}
     filters: list[str] = [
         _SERIES_RESULT,
-        _POINTS_ONLY,
+        _SERIES_EVENT,
         _NOT_CHAMPIONSHIP,
         "c.cid IN :rider_ids",
     ]
@@ -1594,7 +1600,7 @@ def team_leaderboard(
         JOIN riders ri ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id AND e.is_published
         WHERE r.place IS NOT NULL AND r.dq_status <> 'excluded' AND ri.team IS NOT NULL
-          AND {_POINTS_ONLY}
+          AND {_SERIES_EVENT}
           -- Team conference series: the state championship is scored apart (5.17).
           AND {_NOT_CHAMPIONSHIP}
           {season_filter}

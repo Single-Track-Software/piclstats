@@ -40,6 +40,9 @@ events = Table(
     Column("scraped_at", DateTime(timezone=True), server_default=func.now()),
     # Race day, entered in /admin/schedule; the scrape doesn't carry one.
     Column("event_date", Date),
+    # Does it count in the conference series? NULL = by type (a points race
+    # does, a rally doesn't); set for a rally the league scored (ADR 010).
+    Column("counts_in_series", Boolean),
     Index("idx_events_season", "season"),
     Index("idx_events_event_type", "event_type"),
 )

@@ -205,6 +205,9 @@ def parse_event(event_id: int, season: int, event_order: int) -> EventResults:
     server = config_data.get("Server", config_data.get("server", "my-us-1.raceresult.com"))
     key = config_data.get("Key", config_data.get("key", ""))
     event_name = config_data.get("EventName", config_data.get("eventname", f"Event {event_id}"))
+    event_name = " ".join(str(event_name).split())  # 424683 ends in a newline
+    if "rally" in event_name.lower():
+        return _parse_rally(event_id, season, event_order, config_data, server, key, event_name)
     list_name = resolve_list_name(config_data)
 
     event_config = EventConfig(
@@ -338,3 +341,110 @@ def _parse_row(
         total_time_raw=time_raw,
         raw_row=row,
     )
+
+
+# ── Rallies ──────────────────────────────────────────────────────────────
+# A rally posts place and series points like a race, but its lists carry
+# timed segments, not laps. The individual lists on the 2026 rallies are
+# filtered one team at a time (or come back empty), so the segment lists
+# are read instead: every rider, grouped by category, with bib, name, place
+# and points, but no team. `quality.ingest` fills the team in from the
+# rider's other races that season. Segment times are never read as laps.
+RALLY_LIST_PATTERN = "Segment Results"
+
+
+def _rally_list_names(config: dict) -> list[str]:
+    names = [i["Name"] for i in config.get("Lists", []) if "Name" in i]
+    names += [i["Name"] for i in config.get("TabConfig", {}).get("Lists", []) if "Name" in i]
+    return [n for n in dict.fromkeys(names) if RALLY_LIST_PATTERN in n]
+
+
+def _parse_rally(
+    event_id: int,
+    season: int,
+    event_order: int,
+    config: dict,
+    server: str,
+    key: str,
+    event_name: str,
+) -> EventResults:
+    list_names = _rally_list_names(config)
+    results: list[RaceResult] = []
+    seen: set[tuple[str, int]] = set()
+    for list_name in list_names:
+        payload = fetch_results(server, event_id, key, list_name)
+        for r in parse_rally_list(payload):
+            # The HS and MS segment lists overlap; keep each rider once.
+            if (r.category, r.bib) not in seen:
+                seen.add((r.category, r.bib))
+                results.append(r)
+    logger.info("Parsed rally %d (%s): %d results", event_id, event_name, len(results))
+    return EventResults(
+        config=EventConfig(
+            raceresult_id=event_id,
+            event_name=event_name,
+            server=server,
+            key=key,
+            result_list_name=" + ".join(list_names),
+        ),
+        season=season,
+        event_order=event_order,
+        results=results,
+    )
+
+
+def parse_rally_list(payload: dict) -> list[RaceResult]:
+    """Rows of one rally segment list (category groups; no team, no laps)."""
+    fields: list[str] = payload.get("DataFields", [])
+
+    def find(test) -> int:
+        return next((i for i, f in enumerate(fields) if test(f)), -1)
+
+    i_bib = find(lambda f: f == "BIB")
+    i_name = find(lambda f: f.upper() in ("FLNAME", "LFNAME") or "DISPLAYNAME" in f.upper())
+    i_place = find(lambda f: "RANK1" in f)
+    i_points = find(lambda f: "DISPLAYPOINTS" in f.upper())
+
+    def get(row: list, i: int) -> str:
+        return str(row[i]) if 0 <= i < len(row) else ""
+
+    out: list[RaceResult] = []
+    data = payload.get("data")
+    for group_key, rows in data.items() if isinstance(data, dict) else []:
+        order, category, gender, division = parse_category_key(group_key)
+        if not category or not isinstance(rows, list):
+            continue  # "#1_" is an empty group heading
+        for row in rows:
+            raw_place = get(row, i_place)
+            place, status = parse_place_status(raw_place)
+            if raw_place == "*":
+                place, status = None, "NR"
+            points_raw = get(row, i_points)
+            bib_raw = get(row, i_bib)
+            out.append(
+                RaceResult(
+                    bib=int(bib_raw) if bib_raw.isdigit() else 0,
+                    place=place,
+                    status=status,
+                    name=clean_name(get(row, i_name)).upper(),
+                    team=None,
+                    school=None,
+                    conference=None,
+                    category=category,
+                    category_order=order,
+                    gender=gender,
+                    division=division,
+                    points=int(points_raw) if points_raw.isdigit() else None,
+                    lap1=None,
+                    lap2=None,
+                    lap3=None,
+                    lap4=None,
+                    lap5=None,
+                    lap6=None,
+                    penalty=None,
+                    total_time=None,  # a rally's time is segments, not comparable
+                    total_time_raw=raw_place if status != "OK" else "",
+                    raw_row=row,
+                )
+            )
+    return out

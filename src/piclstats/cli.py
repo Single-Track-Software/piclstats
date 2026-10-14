@@ -381,6 +381,57 @@ def ttc_sync(season: tuple[int, ...]) -> None:
             )
 
 
+@main.command("load-rally")
+@click.argument("raceresult_id", type=int)
+@click.option("--season", type=int, required=True)
+@click.option(
+    "--order",
+    type=int,
+    required=True,
+    help="Race order to give it; races at or after this order move down one.",
+)
+@click.option(
+    "--counts-in-series/--not-in-series",
+    default=None,
+    help="Whether the league scored it in the conference series (see its season list).",
+)
+def load_rally(raceresult_id: int, season: int, order: int, counts_in_series: bool | None) -> None:
+    """Load a raceresult rally (points and places, no laps) in date order."""
+    from sqlalchemy import text
+
+    from piclstats.db.engine import get_session
+    from piclstats.db.merge import auto_merge
+    from piclstats.db.seed import seed_all
+    from piclstats.quality.ingest import ingest_event
+    from piclstats.quality.lineage import rebuild_rider_lineage
+
+    with get_session() as session:
+        exists = session.execute(
+            text("SELECT id FROM events WHERE raceresult_id = :r"), {"r": raceresult_id}
+        ).scalar()
+        if not exists:
+            session.execute(
+                text(
+                    "UPDATE events SET event_order = event_order + 1"
+                    " WHERE season = :s AND event_order >= :o"
+                ),
+                {"s": season, "o": order},
+            )
+        res = ingest_event(session, raceresult_id, season, order, source="load-rally")
+        if counts_in_series is not None:
+            session.execute(
+                text("UPDATE events SET counts_in_series = :c WHERE raceresult_id = :r"),
+                {"c": counts_in_series, "r": raceresult_id},
+            )
+        session.commit()
+        seed_all(session)
+        auto_merge(session)
+        rebuild_rider_lineage(session)
+        session.commit()
+        click.echo(f"Loaded {raceresult_id} ({res.event_name}): {res.rows} results")
+        click.echo(_ingest_line(res))
+
+
 @main.command("forecast-backtest")
 @click.option("--min-season", type=int, default=2024, help="Score forecasts from this season on.")
 def forecast_backtest(min_season: int) -> None:
