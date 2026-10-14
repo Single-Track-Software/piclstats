@@ -154,3 +154,66 @@ def test_series_score_names_the_dropped_race():
     assert series_score({1: 431, 2: 440, 3: 431, 4: 450}, races) == (1321, 1)
     assert series_score({1: 450, 2: 450, 4: 450}, races) == (1350, MISSED)
     assert series_score({1: 370, 2: 431, 3: 440}, [1, 2, 3]) == (1241, None)
+
+
+def _rider(name, total, points, races=(1, 2, 3)):
+    return {"name": name, "total_points": total, "race_points": points, "series_races": list(races)}
+
+
+def test_tie_for_first_goes_to_most_wins():
+    from piclstats.web.standings import rank_by_total
+
+    rows = [
+        _rider("A", 1300, {1: 440, 2: 440, 3: 450}),
+        _rider("B", 1300, {1: 450, 2: 450, 3: 400}),
+    ]
+    ranked = rank_by_total(rows)
+    assert [(r["name"], r["rank"]) for r in ranked] == [("B", 1), ("A", 2)]
+
+
+def test_tie_for_first_then_seconds_then_last_race():
+    from piclstats.web.standings import rank_by_total
+
+    # Same wins; A has more 2nds.
+    rows = [
+        _rider("B", 1300, {1: 450, 2: 431, 3: 431}),
+        _rider("A", 1300, {1: 450, 2: 440, 3: 422}),
+    ]
+    assert [r["name"] for r in rank_by_total(rows)] == ["A", "B"]
+    # Same record; the last race decides.
+    rows = [
+        _rider("A", 1300, {1: 440, 2: 450, 3: 431}),
+        _rider("B", 1300, {1: 431, 2: 450, 3: 440}),
+    ]
+    assert [(r["name"], r["rank"]) for r in rank_by_total(rows)] == [("B", 1), ("A", 2)]
+
+
+def test_state_race_points_count_as_conference_finishes():
+    from piclstats.web.standings import rank_by_total
+
+    # 2024 Western Varsity Girls, level on 1,715 with TTC: 575 at a state race
+    # is a conference win however far back overall. Contini has two wins.
+    rows = [
+        _rider("LARKIN MCCLOSKEY", 1715, {1: 565, 2: 575, 4: 565}, (1, 2, 4, 7)),
+        _rider("GIULIANA CONTINI", 1715, {1: 575, 2: 565, 4: 575}, (1, 2, 4, 7)),
+    ]
+    assert rank_by_total(rows)[0]["name"] == "GIULIANA CONTINI"
+
+
+def test_ties_below_first_stay_shared():
+    from piclstats.web.standings import rank_by_total
+
+    # raceresult 2026 JV3 Boys: Kelly (a win) and Flemming share 13th.
+    rows = [
+        _rider("LEADER", 1500, {1: 500, 2: 500, 3: 500}),
+        _rider("KELLY", 964, {1: 464, 3: 500}),
+        _rider("FLEMMING", 964, {1: 268, 2: 352, 3: 344}),
+    ]
+    assert [r["rank"] for r in rank_by_total(rows)] == [1, 2, 2]
+
+
+def test_identical_records_for_first_still_share():
+    from piclstats.web.standings import rank_by_total
+
+    rows = [_rider("A", 900, {1: 450, 2: 450}), _rider("B", 900, {1: 450, 2: 450})]
+    assert [r["rank"] for r in rank_by_total(rows)] == [1, 1]

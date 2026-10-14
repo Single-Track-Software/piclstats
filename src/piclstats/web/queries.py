@@ -1427,6 +1427,22 @@ def series_events(
     return out
 
 
+def ttc_bonus_points(session: Session, season: int) -> dict[tuple[int, str, str], int]:
+    """(canonical rider id, division, gender) -> TTC bonus points that season."""
+    rows = session.execute(
+        text("""
+        SELECT COALESCE(ra.canonical_id, t.rider_id) AS cid, t.division, t.gender,
+               sum(t.bonus_points) AS bonus
+        FROM ttc_bonus t
+        LEFT JOIN rider_aliases ra ON ra.rider_id = t.rider_id
+        WHERE t.season = :season
+        GROUP BY 1, 2, 3
+    """),
+        {"season": season},
+    ).all()
+    return {(r.cid, r.division, r.gender): int(r.bonus) for r in rows}
+
+
 def _apply_series_drop(
     session: Session,
     rows: list[dict],
@@ -1434,10 +1450,11 @@ def _apply_series_drop(
     params: dict,
     conferences: list[str] | None,
 ) -> None:
-    """Replace each row's summed total with its series score (drop rule), and
-    attach the breakdown: `race_points` (event id -> points), `series_races`
-    (their conference's series race ids) and `dropped` (an event id,
-    standings.MISSED, or None)."""
+    """Replace each row's summed total with its series score (drop rule) plus
+    TTC bonus, and attach the breakdown: `series_points`, `ttc_points`,
+    `race_points` (event id -> points),
+    `series_races` (their conference's series race ids) and `dropped` (an
+    event id, standings.MISSED, or None)."""
     from collections import Counter, defaultdict
 
     from piclstats.web.standings import series_score
@@ -1465,11 +1482,16 @@ def _apply_series_drop(
         if r.conference:
             confs[key][r.conference] += 1
     held = series_events(session, params["season"], params["champ_ids"])
+    ttc = ttc_bonus_points(session, params["season"])
     for row in rows:
         key = (row["rider_id"], row["division"], row["gender"])
         conf = confs[key].most_common(1)[0][0] if confs[key] else None
         races = [e["id"] for e in held.get(conf, [])] if conf else []
-        row["total_points"], row["dropped"] = series_score(points[key], races)
+        row["series_points"], row["dropped"] = series_score(points[key], races)
+        # TTC bonus is added for the final ranking (handbook 5.15); None until
+        # the league publishes it for the rider's conference.
+        row["ttc_points"] = ttc.get(key)
+        row["total_points"] = row["series_points"] + (row["ttc_points"] or 0)
         row["race_points"] = points[key]
         row["series_races"] = races
 

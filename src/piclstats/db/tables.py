@@ -13,6 +13,7 @@ from sqlalchemy import (
     Integer,
     Interval,
     MetaData,
+    Numeric,
     SmallInteger,
     Table,
     Text,
@@ -673,4 +674,24 @@ api_keys = Table(
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column("last_used_at", DateTime(timezone=True)),
     Column("revoked_at", DateTime(timezone=True)),
+)
+
+
+# Teen Trail Corps bonus points per rider and season category, as published in
+# raceresult's season-overall lists (`piclstats ttc-sync`). Added to the
+# conference series score for standings (handbook 5.15).
+ttc_bonus = Table(
+    "ttc_bonus",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("season", SmallInteger, nullable=False),
+    Column("rider_id", Integer, ForeignKey("riders.id"), nullable=False),
+    Column("division", Text, nullable=False),
+    Column("gender", Text, nullable=False),
+    Column("bib", Integer, nullable=False),
+    Column("bonus_points", Integer, nullable=False),
+    Column("hours", Numeric(6, 2)),
+    Column("raceresult_id", Integer, nullable=False),  # event whose season list it came from
+    Column("updated_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    UniqueConstraint("season", "rider_id", "division", "gender", name="uq_ttc_bonus_rider"),
 )
