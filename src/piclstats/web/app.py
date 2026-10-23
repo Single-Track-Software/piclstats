@@ -970,6 +970,29 @@ _ROBOTS_DISALLOW = (
     "/*&compare=",
 )
 
+# AI-training crawlers and opt-out tokens, shut out of the whole site.
+# Cloudflare's "Training: Block" setting did this at the edge but also
+# blocked Googlebot and Bingbot (they feed Gemini/Copilot), so it's off;
+# these keep the training opt-out without touching search. Google-Extended
+# and Applebot-Extended are tokens, not crawlers: they opt out of AI use
+# while Googlebot/Applebot still index.
+_ROBOTS_AI_TRAINING = (
+    "Google-Extended",
+    "Applebot-Extended",
+    "GPTBot",
+    "ClaudeBot",
+    "anthropic-ai",
+    "CCBot",
+    "meta-externalagent",
+    "Bytespider",
+    "Amazonbot",
+    "cohere-ai",
+    "MistralAI-Training",
+    "Diffbot",
+    "Google-CloudVertexBot",
+    "GoogleOther",
+)
+
 
 @app.get("/privacy", response_class=HTMLResponse)
 def privacy_page(request: Request):
@@ -984,6 +1007,7 @@ def terms_page(request: Request):
 @app.get("/robots.txt")
 def robots_txt():
     lines = ["User-agent: *"] + [f"Disallow: {p}" for p in _ROBOTS_DISALLOW]
+    lines += [""] + [f"User-agent: {ua}" for ua in _ROBOTS_AI_TRAINING] + ["Disallow: /"]
     lines += ["", f"Sitemap: {SITE_URL}/sitemap.xml"]
     return Response("\n".join(lines) + "\n", media_type="text/plain")
 
