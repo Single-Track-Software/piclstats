@@ -175,7 +175,7 @@
 {% if form %}
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8" id="form">
     <div class="flex flex-wrap items-baseline justify-between gap-2 mb-1">
-        <h2 class="text-lg font-semibold text-gray-900">Form{% if compare %} <span class="text-base font-normal text-gray-500">vs <a href="/rider/{{ compare.id }}?compare={{ info.id }}#form" class="text-rose-600 hover:underline">{{ compare.name }}</a></span>{% endif %}</h2>
+        <h2 class="text-lg font-semibold text-gray-900">Form{% if compare %} <span class="text-base font-normal text-gray-500">vs <a href="/rider/{{ compare.id }}?compare={{ info.id }}#form" rel="nofollow" class="text-rose-600 hover:underline">{{ compare.name }}</a></span>{% endif %}</h2>
         <span class="text-xs text-gray-400">
             <span class="inline-block w-2.5 h-2.5 rounded-full bg-picl-600 align-middle"></span> state race ·
             <span class="inline-block w-2.5 h-2.5 rounded-full border-2 border-amber-500 align-middle"></span> conference race ·
@@ -252,7 +252,7 @@
             <tbody class="divide-y divide-gray-100">
                 {% for v in rivals %}
                 <tr class="hover:bg-picl-50 transition-colors">
-                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ v.cid }}" class="text-picl-700 font-medium hover:underline">{{ v.name }}</a> <a href="/rider/{{ info.id }}?compare={{ v.cid }}#form" class="ml-1 text-[11px] text-gray-400 hover:text-rose-600" title="Overlay {{ v.name }} on the Form chart">compare</a></td>
+                    <td class="px-4 py-2 whitespace-nowrap"><a href="/rider/{{ v.cid }}" class="text-picl-700 font-medium hover:underline">{{ v.name }}</a> <a href="/rider/{{ info.id }}?compare={{ v.cid }}#form" rel="nofollow" class="ml-1 text-[11px] text-gray-400 hover:text-rose-600" title="Overlay {{ v.name }} on the Form chart">compare</a></td>
                     <td class="px-4 py-2 text-gray-500 text-xs">{{ v.team or '' }}</td>
                     <td class="px-4 py-2 text-right font-mono">{{ v.shared }}</td>
                     <td class="px-4 py-2 text-right font-mono {{ 'text-green-600' if v.wins * 2 > v.shared else ('text-red-500' if v.wins * 2 < v.shared else 'text-gray-600') }}">{{ v.wins }}–{{ v.shared - v.wins }}</td>

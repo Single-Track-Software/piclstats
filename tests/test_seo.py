@@ -31,6 +31,7 @@ def test_robots_txt_blocks_accounts_admin_and_stations():
     for p in ("/admin", "/staging", "/login", "/reset/", "/invite/", "/timing/"):
         assert f"Disallow: {p}\n" in body
     assert "Disallow: /rider" not in body and "Disallow: /results" not in body
+    assert "Disallow: /*?compare=\n" in body and "Disallow: /*&compare=\n" in body
     assert "Sitemap: https://piclstats.com/sitemap.xml" in body
 
 

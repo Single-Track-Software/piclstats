@@ -964,6 +964,10 @@ _ROBOTS_DISALLOW = (
     "/account",
     "/timing/",
     "/api/",
+    # Rider pages overlaid on each other: one URL per pair of riders, each
+    # canonical to the plain page, and Googlebot was crawling them (2026-10).
+    "/*?compare=",
+    "/*&compare=",
 )
 
 
