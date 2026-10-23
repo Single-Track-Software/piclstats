@@ -8,6 +8,7 @@ the gender filter; riders level on points share a rank.
 
 from __future__ import annotations
 
+import time
 from collections import Counter
 from typing import Any
 
@@ -180,25 +181,51 @@ def rider_conference_standings(session: Any, rider_id: int) -> dict[int, list[di
         {"cid": rider_id},
     ).all()
     out: dict[int, list[dict[str, Any]]] = {}
+    stamp = queries.results_stamp(session) if combos else ()
     for season, conference, division, gender in combos:
-        rows = queries.leaderboard(
-            session,
-            season,
-            division,
-            gender,
-            "total_points",
-            limit=None,
-            conferences=[conference],
-        )
+        ranked = _ranked_conference(session, stamp, season, conference, division, gender)
         out.setdefault(season, []).append(
             {
                 "conference": conference,
                 "division": division,
                 "gender": gender,
-                "standing": standing_in(rank_by_total(rows), rider_id),
+                "standing": standing_in(ranked, rider_id),
             }
         )
     return out
+
+
+# Ranked conference tables for rider pages, keyed by the results stamp so a
+# load, republish or merge rebuilds them. The TTL covers edits the stamp
+# doesn't see (DQ status, team conferences). Every rider page in a conference
+# shares one table; rebuilding it per page made a crawl of rider pages
+# (2026-10-23) run the full leaderboard query once per page.
+_RANKED_TTL_S = 600
+_ranked_cache: dict[tuple, tuple[tuple, float, list[dict[str, Any]]]] = {}
+
+
+def _ranked_conference(
+    session: Any, stamp: tuple, season: int, conference: str, division: str, gender: str
+) -> list[dict[str, Any]]:
+    from piclstats.web import queries
+
+    key = (season, conference, division, gender)
+    hit = _ranked_cache.get(key)
+    now = time.monotonic()
+    if hit and hit[0] == stamp and now - hit[1] < _RANKED_TTL_S:
+        return hit[2]
+    rows = queries.leaderboard(
+        session,
+        season,
+        division,
+        gender,
+        "total_points",
+        limit=None,
+        conferences=[conference],
+    )
+    ranked = rank_by_total(rows)
+    _ranked_cache[key] = (stamp, now, ranked)
+    return ranked
 
 
 def division_conference_matrix(
