@@ -32,6 +32,12 @@ def test_robots_txt_blocks_accounts_admin_and_stations():
         assert f"Disallow: {p}\n" in body
     assert "Disallow: /rider" not in body and "Disallow: /results" not in body
     assert "Disallow: /*?compare=\n" in body and "Disallow: /*&compare=\n" in body
+
+    # AI training is opted out by name; search crawlers aren't named, so they
+    # only get the User-agent: * group.
+    training = body.split("User-agent: Google-Extended\n", 1)[1].split("\n\n", 1)[0]
+    assert "User-agent: GPTBot\n" in training and training.endswith("Disallow: /")
+    assert "Googlebot" not in body and "Bingbot" not in body
     assert "Sitemap: https://piclstats.com/sitemap.xml" in body
 
 
