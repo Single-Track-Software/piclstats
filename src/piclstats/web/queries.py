@@ -439,6 +439,20 @@ def state_top_finishers(session: Session, event_id: int, top: int = 5) -> list[d
     return [_serialize(r._mapping) for r in rows]
 
 
+def results_stamp(session: Session) -> tuple:
+    """A cheap fingerprint of the results data for in-process caches: it
+    changes whenever a race is loaded, republished or merged."""
+    return tuple(
+        session.execute(
+            text("""
+            SELECT (SELECT count(*) FROM events WHERE is_published),
+                   (SELECT max(id) FROM results),
+                   (SELECT count(*) FROM rider_aliases)
+        """)
+        ).one()
+    )
+
+
 def current_season(session: Session) -> int | None:
     """The newest season with a published race: what every page defaults to."""
     return session.execute(text("SELECT max(season) FROM events WHERE is_published")).scalar()

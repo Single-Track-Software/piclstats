@@ -492,19 +492,13 @@ def _cached_rating_rows(session, gender: str, loop_type: str) -> list[dict]:
     same day-effect fit; the cache key changes whenever a race is loaded,
     republished or merged.
     """
-    stamp = session.execute(
-        text("""
-        SELECT (SELECT count(*) FROM events WHERE is_published),
-               (SELECT max(id) FROM results),
-               (SELECT count(*) FROM rider_aliases)
-    """)
-    ).one()
+    stamp = queries.results_stamp(session)
     key = (gender, loop_type)
     hit = _rating_rows_cache.get(key)
-    if hit and hit[0] == tuple(stamp):
+    if hit and hit[0] == stamp:
         return hit[1]
     rows = queries.rating_rows(session, gender, loop_type)
-    _rating_rows_cache[key] = (tuple(stamp), rows)
+    _rating_rows_cache[key] = (stamp, rows)
     return rows
 
 

@@ -217,3 +217,33 @@ def test_identical_records_for_first_still_share():
 
     rows = [_rider("A", 900, {1: 450, 2: 450}), _rider("B", 900, {1: 450, 2: 450})]
     assert [r["rank"] for r in rank_by_total(rows)] == [1, 1]
+
+
+def test_ranked_conference_is_cached_until_stamp_or_ttl(monkeypatch):
+    from piclstats.web import queries, standings
+
+    calls = []
+
+    def fake_leaderboard(session, season, division, gender, sort, limit, conferences):
+        calls.append((season, conferences[0], division, gender))
+        return [{"rider_id": 1, "name": "A", "total_points": 10}]
+
+    monkeypatch.setattr(queries, "leaderboard", fake_leaderboard)
+    monkeypatch.setattr(standings, "_ranked_cache", {})
+    clock = [1000.0]
+    monkeypatch.setattr(standings.time, "monotonic", lambda: clock[0])
+    args = (2026, "East", "Varsity", "Male")
+
+    first = standings._ranked_conference(None, (1, 1, 1), *args)
+    assert standings._ranked_conference(None, (1, 1, 1), *args) is first
+    assert len(calls) == 1
+
+    standings._ranked_conference(None, (1, 2, 1), *args)  # a race was loaded
+    assert len(calls) == 2
+
+    clock[0] += standings._RANKED_TTL_S - 1
+    standings._ranked_conference(None, (1, 2, 1), *args)
+    assert len(calls) == 2
+    clock[0] += 2  # past the TTL
+    standings._ranked_conference(None, (1, 2, 1), *args)
+    assert len(calls) == 3
