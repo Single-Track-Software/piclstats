@@ -199,9 +199,11 @@ def rider_conference_standings(session: Any, rider_id: int) -> dict[int, list[di
 # load, republish or merge rebuilds them. The TTL covers edits the stamp
 # doesn't see (DQ status, team conferences). Every rider page in a conference
 # shares one table; rebuilding it per page made a crawl of rider pages
-# (2026-10-23) run the full leaderboard query once per page.
+# (2026-10-23) run the full leaderboard query once per page. One query covers
+# a whole (season, conference) across divisions and genders, so a rider who
+# raced in several divisions does not run it once per division (Sentry N+1).
 _RANKED_TTL_S = 600
-_ranked_cache: dict[tuple, tuple[tuple, float, list[dict[str, Any]]]] = {}
+_ranked_cache: dict[tuple, tuple[tuple, float, dict[tuple[str, str], list[dict[str, Any]]]]] = {}
 
 
 def _ranked_conference(
@@ -209,23 +211,24 @@ def _ranked_conference(
 ) -> list[dict[str, Any]]:
     from piclstats.web import queries
 
-    key = (season, conference, division, gender)
+    key = (season, conference)
     hit = _ranked_cache.get(key)
     now = time.monotonic()
     if hit and hit[0] == stamp and now - hit[1] < _RANKED_TTL_S:
-        return hit[2]
+        return hit[2].get((division, gender), [])
     rows = queries.leaderboard(
         session,
         season,
-        division,
-        gender,
-        "total_points",
+        metric="total_points",
         limit=None,
         conferences=[conference],
     )
-    ranked = rank_by_total(rows)
+    by_category: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        by_category.setdefault((row["division"], row["gender"]), []).append(row)
+    ranked = {cat: rank_by_total(group) for cat, group in by_category.items()}
     _ranked_cache[key] = (stamp, now, ranked)
-    return ranked
+    return ranked.get((division, gender), [])
 
 
 def division_conference_matrix(
