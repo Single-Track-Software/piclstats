@@ -224,9 +224,18 @@ def test_ranked_conference_is_cached_until_stamp_or_ttl(monkeypatch):
 
     calls = []
 
-    def fake_leaderboard(session, season, division, gender, sort, limit, conferences):
-        calls.append((season, conferences[0], division, gender))
-        return [{"rider_id": 1, "name": "A", "total_points": 10}]
+    def fake_leaderboard(session, season, metric, limit, conferences):
+        calls.append((season, conferences[0]))
+        return [
+            {
+                "rider_id": 1,
+                "name": "A",
+                "division": "Varsity",
+                "gender": "Male",
+                "total_points": 10,
+            },
+            {"rider_id": 2, "name": "B", "division": "JV", "gender": "Male", "total_points": 5},
+        ]
 
     monkeypatch.setattr(queries, "leaderboard", fake_leaderboard)
     monkeypatch.setattr(standings, "_ranked_cache", {})
@@ -247,3 +256,33 @@ def test_ranked_conference_is_cached_until_stamp_or_ttl(monkeypatch):
     clock[0] += 2  # past the TTL
     standings._ranked_conference(None, (1, 2, 1), *args)
     assert len(calls) == 3
+
+
+def test_ranked_conference_one_query_covers_every_division(monkeypatch):
+    from piclstats.web import queries, standings
+
+    calls = []
+
+    def fake_leaderboard(session, season, metric, limit, conferences):
+        calls.append((season, conferences[0]))
+        return [
+            {
+                "rider_id": 1,
+                "name": "A",
+                "division": "Varsity",
+                "gender": "Male",
+                "total_points": 10,
+            },
+            {"rider_id": 2, "name": "B", "division": "JV", "gender": "Male", "total_points": 5},
+        ]
+
+    monkeypatch.setattr(queries, "leaderboard", fake_leaderboard)
+    monkeypatch.setattr(standings, "_ranked_cache", {})
+    stamp = (1, 1, 1)
+
+    varsity = standings._ranked_conference(None, stamp, 2026, "East", "Varsity", "Male")
+    jv = standings._ranked_conference(None, stamp, 2026, "East", "JV", "Male")
+    assert [r["rider_id"] for r in varsity] == [1]
+    assert [r["rider_id"] for r in jv] == [2]
+    assert standings._ranked_conference(None, stamp, 2026, "East", "JV", "Female") == []
+    assert len(calls) == 1
