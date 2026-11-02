@@ -903,8 +903,12 @@ def team_season_rows(
     """One row per (rider on the team, scoring race) in `season`, for the recap.
 
     Membership is anyone who raced for the team that season; their rows
-    cover every scoring race that season on any team. Percentile, lap fade,
-    laps ridden and best lap follow the rider page's definitions.
+    cover every scoring race that season on any team. Percentile, laps
+    ridden and best lap follow the rider page's definitions. For the awards
+    each row also carries the lap splits (seconds, when they add up to the
+    ride time), the gap to the winner, the rider's position after lap 1 in
+    the field, whether the race was the state championship, and the first
+    season the rider ever raced in (rookies).
     """
     rows = session.execute(
         text(f"""
@@ -916,35 +920,67 @@ def team_season_rows(
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
             WHERE c.team_key = ANY(:team_keys)
+        ),
+        first_season AS (
+            SELECT c.cid, min(e.season) AS first_season
+            FROM members m
+            JOIN canonical c ON c.cid = m.cid
+            JOIN results r ON r.rider_id = c.rider_id
+            JOIN events e ON e.id = r.event_id AND e.is_published
+            GROUP BY c.cid
+        ),
+        lap1 AS (
+            SELECT r2.id AS result_id,
+                   rank() OVER (PARTITION BY r2.event_id, r2.category ORDER BY r2.lap1) AS lap1_rank,
+                   count(*) OVER (PARTITION BY r2.event_id, r2.category) AS lap1_field
+            FROM results r2
+            JOIN events e2 ON e2.id = r2.event_id AND e2.is_published AND e2.season = :season
+            WHERE r2.lap1 IS NOT NULL AND r2.dq_status <> 'excluded'
         )
-        SELECT c.cid, c.name,
+        SELECT c.cid, c.name, e.season,
                e.id AS event_id, e.event_name, e.event_order, e.event_type, e.course_id,
+               (e.id = ANY(:champ_ids)) AS is_championship,
                r.division, r.gender, r.place, r.status, r.points, r.dq_status,
                f.field_size,
                CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded' AND f.field_size > 0
                     THEN round(((1 - r.place::numeric / f.field_size) * 100)::numeric, 1)
                END AS percentile,
+               CASE WHEN r.place IS NOT NULL AND r.dq_status <> 'excluded'
+                         AND f.winner_time > interval '0'
+                         AND {_ACTUAL_LAPS} = COALESCE(f.winner_laps, 0)
+                    THEN round((EXTRACT(EPOCH FROM (r.total_time - f.winner_time))
+                                / EXTRACT(EPOCH FROM f.winner_time) * 100)::numeric, 1)
+               END AS pct_behind,
                CASE WHEN r.dq_status <> 'excluded' THEN {_ACTUAL_LAPS} ELSE 0 END AS laps_ridden,
                cl.distance_miles AS loop_distance,
                {_PROLOGUE} AS prologue_miles,
-               CASE WHEN {_LAPS_CONSISTENT} AND r.lap3 IS NOT NULL AND r.lap2 > interval '0'
-                    THEN round((EXTRACT(EPOCH FROM (
-                                    COALESCE(r.lap6, r.lap5, r.lap4, r.lap3) - r.lap2))
-                                / EXTRACT(EPOCH FROM r.lap2) * 100)::numeric, 1)
-                    WHEN {_LAPS_CONSISTENT} AND r.lap2 IS NOT NULL AND r.lap1 > interval '0'
-                    THEN round((EXTRACT(EPOCH FROM (r.lap2 - r.lap1))
-                                / EXTRACT(EPOCH FROM r.lap1) * 100)::numeric, 1)
-               END AS lap_fade
+               CASE WHEN r.dq_status <> 'excluded' AND {_LAPS_CONSISTENT}
+                    THEN array_remove(ARRAY[
+                        EXTRACT(EPOCH FROM r.lap1), EXTRACT(EPOCH FROM r.lap2),
+                        EXTRACT(EPOCH FROM r.lap3), EXTRACT(EPOCH FROM r.lap4),
+                        EXTRACT(EPOCH FROM r.lap5), EXTRACT(EPOCH FROM r.lap6)], NULL)
+               END AS laps,
+               CASE WHEN r.dq_status <> 'excluded' THEN {_RIDE_SECS} END AS riding_secs,
+               CASE WHEN r.dq_status <> 'excluded' THEN l1.lap1_rank END AS lap1_rank,
+               CASE WHEN r.dq_status <> 'excluded' THEN l1.lap1_field END AS lap1_field,
+               fs.first_season
         FROM members m
         JOIN canonical c ON c.cid = m.cid
         JOIN results r ON r.rider_id = c.rider_id
         JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
+        JOIN first_season fs ON fs.cid = c.cid
         LEFT JOIN field f ON f.event_id = r.event_id AND f.category = r.category
+        LEFT JOIN lap1 l1 ON l1.result_id = r.id
         {_LAP_JOINS}
         WHERE {_POINTS_ONLY}
         ORDER BY c.cid, e.event_order, e.id
         """),
-        {"team_keys": _team_keys(team_name, sister_teams), "season": season, "seasons": [season]},
+        {
+            "team_keys": _team_keys(team_name, sister_teams),
+            "season": season,
+            "seasons": [season],
+            "champ_ids": championship_ids(session),
+        },
     ).all()
     return [_serialize(r._mapping) for r in rows]
 
