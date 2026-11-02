@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import timedelta
 from decimal import Decimal
 
@@ -864,7 +865,23 @@ _FIELD_CTE = f"""
 """
 
 
-def team_seasons(session: Session, team_name: str) -> list[int]:
+def _team_keys(team_name: str, sister_teams: Sequence[str] = ()) -> list[str]:
+    """Normalised keys for a team and its sister teams (a family shown as one).
+
+    Many clubs race as one programme but are split into two NICA teams by
+    school district (Lower Bucks Composite + Lower Bucks Pennsbury). Every
+    team page can take extra teams and compute as if they were one roster.
+    Duplicates and the team itself are dropped; order is kept.
+    """
+    keys: list[str] = []
+    for name in (team_name, *sister_teams):
+        key = team_key(name)
+        if key and key not in keys:
+            keys.append(key)
+    return keys
+
+
+def team_seasons(session: Session, team_name: str, sister_teams: Sequence[str] = ()) -> list[int]:
     """Seasons the team has a published result in, oldest first."""
     rows = session.execute(
         text("""
@@ -872,15 +889,17 @@ def team_seasons(session: Session, team_name: str) -> list[int]:
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE ri.team_key = :team_key
+        WHERE ri.team_key = ANY(:team_keys)
         ORDER BY e.season
         """),
-        {"team_key": team_key(team_name)},
+        {"team_keys": _team_keys(team_name, sister_teams)},
     ).all()
     return [r[0] for r in rows]
 
 
-def team_season_rows(session: Session, team_name: str, season: int) -> list[dict]:
+def team_season_rows(
+    session: Session, team_name: str, season: int, sister_teams: Sequence[str] = ()
+) -> list[dict]:
     """One row per (rider on the team, scoring race) in `season`, for the recap.
 
     Membership is anyone who raced for the team that season; their rows
@@ -896,7 +915,7 @@ def team_season_rows(session: Session, team_name: str, season: int) -> list[dict
             FROM canonical c
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
-            WHERE c.team_key = :team_key
+            WHERE c.team_key = ANY(:team_keys)
         )
         SELECT c.cid, c.name,
                e.id AS event_id, e.event_name, e.event_order, e.event_type, e.course_id,
@@ -925,12 +944,14 @@ def team_season_rows(session: Session, team_name: str, season: int) -> list[dict
         WHERE {_POINTS_ONLY}
         ORDER BY c.cid, e.event_order, e.id
         """),
-        {"team_key": team_key(team_name), "season": season, "seasons": [season]},
+        {"team_keys": _team_keys(team_name, sister_teams), "season": season, "seasons": [season]},
     ).all()
     return [_serialize(r._mapping) for r in rows]
 
 
-def team_race_rows(session: Session, team_name: str, season: int) -> list[dict]:
+def team_race_rows(
+    session: Session, team_name: str, season: int, sister_teams: Sequence[str] = ()
+) -> list[dict]:
     """Every points result in `season` for riders who raced for the team, for
     the API digest: one row per (rider, race), oldest race first.
 
@@ -948,9 +969,9 @@ def team_race_rows(session: Session, team_name: str, season: int) -> list[dict]:
             FROM canonical c
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
-            WHERE c.team_key = :team_key AND {_POINTS_ONLY}
+            WHERE c.team_key = ANY(:team_keys) AND {_POINTS_ONLY}
         )
-        SELECT c.cid, c.name, c.team, (c.team_key = :team_key) AS for_team,
+        SELECT c.cid, c.name, c.team, (c.team_key = ANY(:team_keys)) AS for_team,
                e.id AS event_id, e.event_name, e.event_order, e.season,
                COALESCE(e.event_date, e.scraped_at::date) AS race_date,
                e.raceresult_id, co.name AS course,
@@ -974,12 +995,14 @@ def team_race_rows(session: Session, team_name: str, season: int) -> list[dict]:
         WHERE {_POINTS_ONLY}
         ORDER BY e.event_order, e.id, c.name
         """),
-        {"team_key": team_key(team_name), "season": season, "seasons": [season]},
+        {"team_keys": _team_keys(team_name, sister_teams), "season": season, "seasons": [season]},
     ).all()
     return [_serialize(r._mapping) for r in rows]
 
 
-def team_rider_seasons(session: Session, team_name: str, season: int) -> list[dict]:
+def team_rider_seasons(
+    session: Session, team_name: str, season: int, sister_teams: Sequence[str] = ()
+) -> list[dict]:
     """Each rider on the team this season, with this and last season's form.
 
     Percentile and the gap to the winner are averaged over placed, clean,
@@ -994,7 +1017,7 @@ def team_rider_seasons(session: Session, team_name: str, season: int) -> list[di
             FROM canonical c
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON e.id = r.event_id AND e.is_published AND e.season = :season
-            WHERE c.team_key = :team_key
+            WHERE c.team_key = ANY(:team_keys)
         ),
         per_race AS (
             SELECT c.cid, c.name, e.season, e.event_order, r.division, r.gender, r.place,
@@ -1026,7 +1049,11 @@ def team_rider_seasons(session: Session, team_name: str, season: int) -> list[di
         GROUP BY cid, season
         ORDER BY cid, season
         """),
-        {"team_key": team_key(team_name), "season": season, "seasons": [season - 1, season]},
+        {
+            "team_keys": _team_keys(team_name, sister_teams),
+            "season": season,
+            "seasons": [season - 1, season],
+        },
     ).all()
     by_rider: dict[int, dict] = {}
     for row in rows:
@@ -1066,8 +1093,13 @@ def team_display_name(session: Session, team_name: str) -> str | None:
     ).scalar()
 
 
-def team_detail(session: Session, team_name: str, season: int | None = None) -> dict | None:
-    params: dict = {"team_key": team_key(team_name)}
+def team_detail(
+    session: Session,
+    team_name: str,
+    season: int | None = None,
+    sister_teams: Sequence[str] = (),
+) -> dict | None:
+    params: dict = {"team_keys": _team_keys(team_name, sister_teams)}
     season_filter = ""
     if season:
         season_filter = "AND e.season = :season"
@@ -1105,7 +1137,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
             JOIN results r ON r.rider_id = c.rider_id
             JOIN events e ON r.event_id = e.id AND e.is_published
             JOIN field f ON f.event_id = r.event_id AND f.category = r.category
-            WHERE c.team_key = :team_key {season_filter}
+            WHERE c.team_key = ANY(:team_keys) {season_filter}
               AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND {_POINTS_ONLY}
         )
@@ -1138,7 +1170,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
             JOIN results r ON r.rider_id = ri.id
             JOIN events e ON r.event_id = e.id AND e.is_published
             JOIN field f ON f.event_id = r.event_id AND f.category = r.category
-            WHERE ri.team_key = :team_key {season_filter}
+            WHERE ri.team_key = ANY(:team_keys) {season_filter}
               AND r.place IS NOT NULL AND r.dq_status <> 'excluded'
               AND {_POINTS_ONLY}
         )
@@ -1169,7 +1201,7 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE ri.team_key = :team_key {season_filter}
+        WHERE ri.team_key = ANY(:team_keys) {season_filter}
         GROUP BY e.season, e.event_name, e.event_order, e.id
         ORDER BY e.season, e.event_order
     """),
@@ -1182,10 +1214,10 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         FROM riders ri
         JOIN results r ON r.rider_id = ri.id
         JOIN events e ON r.event_id = e.id AND e.is_published
-        WHERE ri.team_key = :team_key
+        WHERE ri.team_key = ANY(:team_keys)
         ORDER BY e.season
     """),
-        {"team_key": team_key(team_name)},
+        {"team_keys": params["team_keys"]},
     ).all()
 
     if not seasons_available:
@@ -1198,8 +1230,10 @@ def team_detail(session: Session, team_name: str, season: int | None = None) -> 
         "team_spellings": [
             r[0]
             for r in session.execute(
-                text("SELECT DISTINCT team FROM riders WHERE team_key = :k ORDER BY team"),
-                {"k": team_key(team_name)},
+                text(
+                    "SELECT DISTINCT team FROM riders WHERE team_key = ANY(:team_keys) ORDER BY team"
+                ),
+                {"team_keys": params["team_keys"]},
             ).all()
         ],
         "roster": [_serialize(r._mapping) for r in roster],
@@ -2777,7 +2811,7 @@ def rider_venue_history(session: Session, rider_id: int) -> list[dict]:
     return sorted(by_course.values(), key=lambda b: (-len(b["visits"]), b["course_name"]))
 
 
-def team_courses(session: Session, team_name: str) -> list[dict]:
+def team_courses(session: Session, team_name: str, sister_teams: Sequence[str] = ()) -> list[dict]:
     """Courses this team has raced at, most-visited first."""
     rows = session.execute(
         text("""
@@ -2786,16 +2820,18 @@ def team_courses(session: Session, team_name: str) -> list[dict]:
         JOIN riders ri ON ri.id = r.rider_id
         JOIN events e ON e.id = r.event_id AND e.is_published
         JOIN courses co ON co.id = e.course_id
-        WHERE ri.team_key = :team_key
+        WHERE ri.team_key = ANY(:team_keys)
         GROUP BY co.id, co.name
         ORDER BY seasons DESC, results DESC, co.name
     """),
-        {"team_key": team_key(team_name)},
+        {"team_keys": _team_keys(team_name, sister_teams)},
     ).all()
     return [dict(r._mapping) for r in rows]
 
 
-def team_course_history(session: Session, team_name: str, course_id: int) -> dict:
+def team_course_history(
+    session: Session, team_name: str, course_id: int, sister_teams: Sequence[str] = ()
+) -> dict:
     """Rider × season grid for one team at one course.
 
     Riders are everyone who rode for the team at that course in any season
@@ -2810,12 +2846,12 @@ def team_course_history(session: Session, team_name: str, course_id: int) -> dic
       AND COALESCE(ra.canonical_id, ri.id) IN (
           SELECT COALESCE(a.canonical_id, x.id)
           FROM riders x LEFT JOIN rider_aliases a ON a.rider_id = x.id
-          WHERE x.team_key = :team_key AND NOT x.hidden
+          WHERE x.team_key = ANY(:team_keys) AND NOT x.hidden
       )
     ORDER BY e.season, e.event_order
     """
         ),
-        {"cid": course_id, "team_key": team_key(team_name)},
+        {"cid": course_id, "team_keys": _team_keys(team_name, sister_teams)},
     ).all()
     seasons: list[int] = sorted({r.season for r in rows})
     riders: dict[int, dict] = {}

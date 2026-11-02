@@ -1,32 +1,52 @@
 {% extends "base.html" %}
-{% block title %}{{ team_name }} — PICL Stats{% endblock %}
-{% block description %}{{ team_name }} in the PICL: roster, results by race and course, and how each rider is trending.{% endblock %}
+{% block title %}{{ family_name or team_name }} — PICL Stats{% endblock %}
+{% block description %}{{ family_name or team_name }} in the PICL: roster, results by race and course, and how each rider is trending.{% endblock %}
 
 {% block content %}
 <!-- Header -->
 <div class="mb-6">
     <div class="flex flex-wrap items-start justify-between gap-y-2">
         <div>
-            <h1 class="text-3xl font-bold text-gray-900">{{ team_name }}</h1>
-            {% if team_spellings and team_spellings | length > 1 %}<div class="text-xs text-gray-400 mt-0.5" title="Results published under these spellings are combined here">also listed as {{ team_spellings | reject('equalto', team_name) | join(', ') }}</div>{% endif %}
+            <h1 class="text-3xl font-bold text-gray-900">{{ family_name or team_name }}</h1>
+            {% if not sister_teams and team_spellings and team_spellings | length > 1 %}<div class="text-xs text-gray-400 mt-0.5" title="Results published under these spellings are combined here">also listed as {{ team_spellings | reject('equalto', team_name) | join(', ') }}</div>{% endif %}
             <div class="mt-2 flex items-center gap-2 flex-wrap">
-                <a href="/team/{{ team_name | urlencode }}?season=all" class="px-3 py-1 rounded-full text-xs font-medium
+                <a href="/team/{{ team_name | urlencode }}?season=all{{ with_query }}" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if not season else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                     All Seasons
                 </a>
                 {% for s in seasons_available %}
-                <a href="/team/{{ team_name | urlencode }}?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium
+                <a href="/team/{{ team_name | urlencode }}?season={{ s }}{{ with_query }}" class="px-3 py-1 rounded-full text-xs font-medium
                     {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">
                     {{ s }}
                 </a>
                 {% endfor %}
+            </div>
+            <!-- Sister teams: one club split into NICA teams by school district -->
+            <div class="mt-3 flex items-center gap-2 flex-wrap text-xs print:hidden">
+                <span class="text-gray-400" title="Many clubs race as one programme but are listed as two or three NICA teams. Add the others to see the whole club.">Sister teams:</span>
+                {% for s in sister_teams %}
+                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-picl-50 text-picl-700 border border-picl-200">{{ s }}
+                    <a href="/team/{{ team_name | urlencode }}?season={{ season or 'all' }}{% for o in sister_teams if o != s %}&with={{ o | urlencode }}{% endfor %}" class="text-picl-500 hover:text-picl-700" title="Remove {{ s }}" aria-label="Remove {{ s }}">&times;</a>
+                </span>
+                {% endfor %}
+                {% if addable_teams %}
+                <form method="get" action="/team/{{ team_name | urlencode }}" class="inline-flex items-center gap-1">
+                    <input type="hidden" name="season" value="{{ season or 'all' }}">
+                    {% for s in sister_teams %}<input type="hidden" name="with" value="{{ s }}">{% endfor %}
+                    <select name="with" class="border border-gray-200 rounded px-2 py-0.5 text-xs text-gray-700 bg-white" aria-label="Add a sister team">
+                        <option value="">Add a team…</option>
+                        {% for x in addable_teams %}<option value="{{ x }}">{{ x }}</option>{% endfor %}
+                    </select>
+                    <button type="submit" class="px-2 py-0.5 rounded bg-gray-100 text-gray-600 hover:bg-gray-200">Add</button>
+                </form>
+                {% endif %}
             </div>
         </div>
         <div class="flex items-center gap-3">
             {# Recap for the season shown; on All Seasons the recap opens its latest season.
                The Race-day sheet link (/team/<name>/raceday) is off this page until staging
                moves here and becomes the source of truth; the route itself still works. #}
-            <a href="/team/{{ team_name | urlencode }}/recap{% if season %}?season={{ season }}{% endif %}" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Awards and totals for the season">Season recap</a>
+            <a href="/team/{{ team_name | urlencode }}/recap?{% if season %}season={{ season }}{% endif %}{{ with_query }}" class="bg-picl-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-picl-700" title="Awards and totals for the season">Season recap</a>
             <a href="/teams{% if season %}?season={{ season }}{% endif %}" class="text-sm text-gray-400 hover:text-gray-600">&larr; All teams</a>
         </div>
     </div>
@@ -59,7 +79,7 @@
 <!-- Movers: this season against last, per rider -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-8">
     <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 class="text-lg font-semibold text-gray-900">Riders in {{ season }} <span class="text-sm font-normal text-gray-400">vs {{ season - 1 }}</span> <a href="/team/{{ team_name | urlencode }}/recap?season={{ season }}" class="ml-2 text-sm font-medium text-picl-700 hover:underline" title="Awards and totals for the season">Season recap &rarr;</a></h2>
+        <h2 class="text-lg font-semibold text-gray-900">Riders in {{ season }} <span class="text-sm font-normal text-gray-400">vs {{ season - 1 }}</span> <a href="/team/{{ team_name | urlencode }}/recap?season={{ season }}{{ with_query }}" class="ml-2 text-sm font-medium text-picl-700 hover:underline" title="Awards and totals for the season">Season recap &rarr;</a></h2>
         <span class="text-xs text-gray-400">Percentile = share of the category beaten · Behind = finish time behind the winner · Δ vs the rider's {{ season - 1 }} average, any team</span>
     </div>
     {% if movers %}
@@ -124,6 +144,7 @@
         <h2 class="text-lg font-semibold text-gray-900">Course History <span class="text-sm font-normal text-gray-400">· all seasons</span></h2>
         <form method="get" class="flex items-center gap-2">
             <input type="hidden" name="season" value="{{ season or 'all' }}">
+            {% for s in sister_teams %}<input type="hidden" name="with" value="{{ s }}">{% endfor %}
             <label class="text-xs text-gray-500">Course</label>
             <select name="course_id" class="rounded-lg border-gray-300 border px-3 py-1.5 text-sm" onchange="this.form.submit()">
                 {% for c in team_courses %}
@@ -133,7 +154,7 @@
         </form>
     </div>
     {% if course_history and course_history.riders %}
-    <div class="px-6 py-2 text-xs text-gray-400 border-b">Each cell: place/field (percentile of field beaten) · points · min/mile. Riders who rode for {{ team_name }} at <a href="/course/{{ course.id }}" class="hover:underline">{{ course.name }}</a>, newest first.</div>
+    <div class="px-6 py-2 text-xs text-gray-400 border-b">Each cell: place/field (percentile of field beaten) · points · min/mile. Riders who rode for {{ family_name or team_name }} at <a href="/course/{{ course.id }}" class="hover:underline">{{ course.name }}</a>, newest first.</div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">
             <thead>
