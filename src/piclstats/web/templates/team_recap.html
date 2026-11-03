@@ -10,7 +10,12 @@
         {% if sister_teams %}<div class="text-xs text-gray-400 mt-0.5" title="Sister teams: one club racing as more than one NICA team">combined with {{ sister_teams | join(', ') }}</div>{% endif %}
         <div class="mt-2 flex items-center gap-2 flex-wrap print:hidden">
             {% for s in seasons %}
-            <a href="/team/{{ team_name | urlencode }}/recap?season={{ s }}{{ with_query }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            <a href="/team/{{ team_name | urlencode }}/recap?season={{ s }}{{ with_query }}{% if group %}&group={{ group }}{% endif %}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            {% endfor %}
+            <span class="mx-1 text-gray-300">|</span>
+            <a href="/team/{{ team_name | urlencode }}/recap?season={{ season }}{{ with_query }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if not group else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">Whole team</a>
+            {% for g, label in groups.items() %}
+            <a href="/team/{{ team_name | urlencode }}/recap?season={{ season }}{{ with_query }}&group={{ g }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if group == g else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ label }}</a>
             {% endfor %}
         </div>
     </div>
@@ -33,43 +38,74 @@
     {% endfor %}
 </div>
 
-<!-- Awards -->
+<!-- Awards: one table, the reasons underneath -->
 {% if recap.awards %}
 <div class="mb-8">
-    <div class="flex items-baseline justify-between mb-3">
-        <h2 class="text-lg font-semibold text-gray-900">Awards</h2>
-        <span class="text-xs text-gray-400">Placed scoring races with clean timing · at least 2 races for an average, 3 for a spread or trend</span>
+    <div class="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <h2 class="text-lg font-semibold text-gray-900">Awards{% if recap.group_label %} <span class="text-sm font-normal text-gray-400">· {{ recap.group_label }}</span>{% endif %}</h2>
+        <span class="text-xs text-gray-400">Placed scoring races with clean timing · at least 2 races for an average, 3 for a spread or trend · numbered reasons below</span>
     </div>
-    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {% for a in recap.awards %}
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 border-l-4 border-l-picl-500">
-            <div class="text-xs font-semibold uppercase tracking-wider text-picl-700">{{ a.label }}</div>
-            <div class="mt-1 text-lg font-bold text-gray-900"><a href="/rider/{{ a.id }}" class="hover:underline">{{ a.name }}</a></div>
-            <div class="text-xs text-gray-500">{{ a.category }}</div>
-            <div class="mt-2 font-mono text-2xl font-semibold text-gray-900">{{ a.value }}</div>
-            <div class="text-xs text-gray-500">{{ a.detail }}</div>
+    <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b bg-gray-50">
+                        <th class="px-4 py-2 w-8">#</th>
+                        <th class="px-4 py-2">Award</th>
+                        <th class="px-4 py-2">Winner</th>
+                        <th class="px-4 py-2 text-right">Number</th>
+                        <th class="px-4 py-2">Runner-up</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% set ns = namespace(section=None) %}
+                    {% for a in recap.awards %}
+                    {% if a.section != ns.section %}{% set ns.section = a.section %}
+                    <tr class="bg-gray-50"><td colspan="5" class="px-4 py-1 text-xs font-semibold text-gray-500 uppercase tracking-wider">{{ a.section }}</td></tr>
+                    {% endif %}
+                    <tr>
+                        <td class="px-4 py-2 font-mono text-xs text-gray-400">{{ loop.index }}</td>
+                        <td class="px-4 py-2 font-semibold text-gray-900" title="{{ a.rule }}">{{ a.label }}</td>
+                        <td class="px-4 py-2">
+                            {% for w in a.winners -%}
+                            <a href="/rider/{{ w.id }}" class="text-picl-700 font-medium hover:underline">{{ w.name }}</a> <span class="text-xs text-gray-400">{{ w.category }}</span>{{ ', ' if not loop.last }}
+                            {%- endfor %}
+                        </td>
+                        <td class="px-4 py-2 text-right font-mono whitespace-nowrap">{{ a.winners[0].value if a.winners | length == 1 else a.winners | length ~ ' riders' }}</td>
+                        <td class="px-4 py-2 text-xs text-gray-500">
+                            {% for r in a.runners_up -%}
+                            <a href="/rider/{{ r.id }}" class="hover:underline">{{ r.name }}</a> <span class="font-mono">{{ r.value }}</span>{{ '; ' if not loop.last }}
+                            {%- else %}—{% endfor %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
         </div>
-        {% endfor %}
-        {% if recap.perfect_attendance %}
-        <div class="bg-white rounded-xl shadow-sm border border-gray-100 p-5 border-l-4 border-l-picl-500">
-            <div class="text-xs font-semibold uppercase tracking-wider text-picl-700">Perfect attendance</div>
-            <div class="mt-1 text-sm text-gray-900">
-                {% for x in recap.perfect_attendance -%}
-                <a href="/rider/{{ x.id }}" class="font-medium hover:underline">{{ x.name }}</a>{{ ', ' if not loop.last }}
-                {%- endfor %}
-            </div>
-            <div class="mt-2 text-xs text-gray-500">started every one of the {{ t.events }} races the team went to</div>
+        <div class="px-6 py-4 border-t bg-gray-50">
+            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Why</h3>
+            <ol class="space-y-1 text-sm text-gray-700">
+                {% for a in recap.awards %}
+                <li class="flex gap-3"><span class="font-mono text-xs text-gray-400 w-5 shrink-0 text-right">{{ loop.index }}</span><span><span class="font-semibold text-gray-900">{{ a.label }}</span> — {{ a.winners | map(attribute='name') | join(', ') }}: {{ a.why }} <span class="text-xs text-gray-400">({{ a.rule }})</span></span></li>
+                {% endfor %}
+            </ol>
         </div>
-        {% endif %}
     </div>
 </div>
+{% endif %}
+
+{% if recap.perfect_attendance %}
+<p class="mb-6 text-sm text-gray-600"><span class="font-semibold text-gray-900">Perfect attendance:</span>
+    {% for x in recap.perfect_attendance -%}
+    <a href="/rider/{{ x.id }}" class="text-picl-700 font-medium hover:underline">{{ x.name }}</a>{{ ', ' if not loop.last }}
+    {%- endfor %} — started every one of the {{ t.events }} races the team went to.</p>
 {% endif %}
 
 <!-- Every rider -->
 <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-6 py-3 border-b bg-gray-50 flex flex-wrap items-baseline justify-between gap-2">
         <h2 class="text-lg font-semibold text-gray-900">Every rider</h2>
-        <span class="text-xs text-gray-400">Pctl = share of the category beaten, averaged · Δ vs the rider's {{ season - 1 }} average · ± = spread of percentile across races · Climb = last race vs first · Fade = last lap vs second, averaged</span>
+        <span class="text-xs text-gray-400">Pctl = share of the category beaten, averaged · Δ vs the rider's {{ season - 1 }} average · ± = spread of percentile across races · Climb = last race vs first · Fade = last lap vs second on races of 3+ laps, averaged</span>
     </div>
     <div class="overflow-x-auto">
         <table class="w-full text-sm">

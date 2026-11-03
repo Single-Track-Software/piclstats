@@ -695,11 +695,13 @@ def team_recap(
     team_name: str,
     season_raw: str = Query("", alias="season"),
     with_teams: list[str] = Query([], alias="with"),
+    group: str = Query(""),
 ):
     """Season recap for a team: banquet awards and a per-rider table.
 
     `with` adds sister teams (see `sister_teams`): the recap is then computed
-    over the combined roster. Registered before team_profile, whose greedy
+    over the combined roster. `group` = ms | hs narrows it to the middle- or
+    high-school half. Registered before team_profile, whose greedy
     {team_name:path} would otherwise match this URL too.
     """
     from piclstats.web import recap as recap_mod
@@ -714,11 +716,20 @@ def team_recap(
             season = seasons[-1]
         rows = queries.team_season_rows(session, team_name, season, sisters)
         movers = queries.team_rider_seasons(session, team_name, season, sisters)
-        data = recap_mod.season_recap(rows, movers)
+        data = recap_mod.season_recap(rows, movers, group)
         family = family_context(session, team_name, sisters)
     return templates.TemplateResponse(
         "team_recap.html",
-        _ctx(request, team_name=team_name, season=season, seasons=seasons, recap=data, **family),
+        _ctx(
+            request,
+            team_name=team_name,
+            season=season,
+            seasons=seasons,
+            recap=data,
+            group=data["group"] if data else None,
+            groups=recap_mod.GROUPS,
+            **family,
+        ),
     )
 
 
