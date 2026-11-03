@@ -12,7 +12,8 @@ from contextlib import asynccontextmanager
 import hashlib
 from datetime import date, timedelta
 from pathlib import Path
-from urllib.parse import urlencode, urlsplit
+from typing import Any
+from urllib.parse import quote, urlencode, urlsplit
 
 from collections import defaultdict, deque
 from collections.abc import Awaitable, Callable
@@ -642,32 +643,82 @@ def team_search(
     )
 
 
+def sister_teams(session: Session, team_name: str, with_teams: list[str]) -> list[str]:
+    """The `with` teams a team page combines into one roster, validated.
+
+    Many clubs race as one programme but are two NICA teams split by school
+    district (Lower Bucks Composite + Lower Bucks Pennsbury). Only names that
+    exist as teams count; the page's own team and duplicates are dropped, so
+    a hand-typed URL cannot make the page compute over nothing. Capped so a
+    crafted link cannot turn one page into the whole league.
+    """
+    from piclstats.quality.keys import team_key
+
+    seen = {team_key(team_name)}
+    out: list[str] = []
+    for name in with_teams:
+        name = name.strip()
+        key = team_key(name)
+        if not key or key in seen or len(out) >= MAX_SISTER_TEAMS:
+            continue
+        display = queries.team_display_name(session, name)
+        if display:
+            seen.add(key)
+            out.append(display)
+    return out
+
+
+# Sister teams one page combines at most (a club is two or three NICA teams).
+MAX_SISTER_TEAMS = 4
+
+
+def family_context(session: Session, team_name: str, sisters: list[str]) -> dict[str, Any]:
+    """Template context for a team page: the sisters shown, the query string
+    that keeps them on every link, and the teams the picker can still add."""
+    with_query = "".join(f"&with={quote(s)}" for s in sisters)
+    chosen = {s.lower() for s in (team_name, *sisters)}
+    return {
+        "sister_teams": sisters,
+        "family_name": " + ".join([team_name, *sisters]),
+        "with_query": with_query,
+        "addable_teams": (
+            [x for x in queries.teams_list(session) if x.lower() not in chosen]
+            if len(sisters) < MAX_SISTER_TEAMS
+            else []
+        ),
+    }
+
+
 @app.get("/team/{team_name:path}/recap", response_class=HTMLResponse)
 def team_recap(
     request: Request,
     team_name: str,
     season_raw: str = Query("", alias="season"),
+    with_teams: list[str] = Query([], alias="with"),
 ):
     """Season recap for a team: banquet awards and a per-rider table.
 
-    Registered before team_profile, whose greedy {team_name:path} would
-    otherwise match this URL too.
+    `with` adds sister teams (see `sister_teams`): the recap is then computed
+    over the combined roster. Registered before team_profile, whose greedy
+    {team_name:path} would otherwise match this URL too.
     """
     from piclstats.web import recap as recap_mod
 
     with get_session() as session:
-        seasons = queries.team_seasons(session, team_name)
+        sisters = sister_teams(session, team_name, with_teams)
+        seasons = queries.team_seasons(session, team_name, sisters)
         if not seasons:
             return HTMLResponse("Team not found", status_code=404)
         season = int(season_raw) if season_raw.isdigit() and int(season_raw) in seasons else None
         if season is None:
             season = seasons[-1]
-        rows = queries.team_season_rows(session, team_name, season)
-        movers = queries.team_rider_seasons(session, team_name, season)
+        rows = queries.team_season_rows(session, team_name, season, sisters)
+        movers = queries.team_rider_seasons(session, team_name, season, sisters)
         data = recap_mod.season_recap(rows, movers)
+        family = family_context(session, team_name, sisters)
     return templates.TemplateResponse(
         "team_recap.html",
-        _ctx(request, team_name=team_name, season=season, seasons=seasons, recap=data),
+        _ctx(request, team_name=team_name, season=season, seasons=seasons, recap=data, **family),
     )
 
 
@@ -766,31 +817,40 @@ def team_profile(
     team_name: str,
     season_raw: str = Query("", alias="season"),
     course_id: int | None = Depends(optional_course_id),
+    with_teams: list[str] = Query([], alias="with"),
 ):
     with get_session() as session:
+        sisters = sister_teams(session, team_name, with_teams)
         season = season_or_current(season_raw, session)
-        data = queries.team_detail(session, team_name, season)
+        data = queries.team_detail(session, team_name, season, sisters)
         if data and season and season not in data["seasons_available"]:
             # Defaulted to the current season but the team has not raced it yet.
             season = None
-            data = queries.team_detail(session, team_name, None)
+            data = queries.team_detail(session, team_name, None, sisters)
         if not data:
             return HTMLResponse("Team not found", status_code=404)
         # Course history: rider × season grid at one venue (all seasons,
         # independent of the season filter). Defaults to the most-visited course.
-        courses = queries.team_courses(session, team_name)
+        courses = queries.team_courses(session, team_name, sisters)
         course = next((c for c in courses if c["id"] == course_id), None) or (
             courses[0] if courses else None
         )
         course_history = (
-            queries.team_course_history(session, team_name, course["id"]) if course else None
+            queries.team_course_history(session, team_name, course["id"], sisters)
+            if course
+            else None
         )
-        movers = queries.team_rider_seasons(session, team_name, season) if season else []
+        movers = queries.team_rider_seasons(session, team_name, season, sisters) if season else []
+        family = family_context(session, team_name, sisters)
+    if sisters:
+        # The family is the page's subject; one team's "most common spelling" is not.
+        data["team_name"] = team_name
     return templates.TemplateResponse(
         "team_detail.html",
         _ctx(
             request,
             **data,
+            **family,
             movers=movers,
             season=season,
             team_courses=courses,

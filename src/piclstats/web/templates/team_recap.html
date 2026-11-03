@@ -1,15 +1,16 @@
 {% extends "base.html" %}
-{% block title %}{{ team_name }} {{ season }} recap — PICL Stats{% endblock %}
-{% block description %}{{ team_name }} {{ season }} season recap: totals, awards and every rider's numbers.{% endblock %}
+{% block title %}{{ family_name or team_name }} {{ season }} recap — PICL Stats{% endblock %}
+{% block description %}{{ family_name or team_name }} {{ season }} season recap: totals, awards and every rider's numbers.{% endblock %}
 
 {% block content %}
 <div class="mb-6 flex flex-wrap items-start justify-between gap-4">
     <div>
-        <div class="text-sm text-gray-400 print:hidden"><a href="/team/{{ team_name | urlencode }}?season={{ season }}" class="hover:text-gray-600">&larr; {{ team_name }}</a></div>
-        <h1 class="text-3xl font-bold text-gray-900">{{ team_name }} <span class="text-gray-400 font-normal">{{ season }} recap</span></h1>
+        <div class="text-sm text-gray-400 print:hidden"><a href="/team/{{ team_name | urlencode }}?season={{ season }}{{ with_query }}" class="hover:text-gray-600">&larr; {{ family_name or team_name }}</a></div>
+        <h1 class="text-3xl font-bold text-gray-900">{{ family_name or team_name }} <span class="text-gray-400 font-normal">{{ season }} recap</span></h1>
+        {% if sister_teams %}<div class="text-xs text-gray-400 mt-0.5" title="Sister teams: one club racing as more than one NICA team">combined with {{ sister_teams | join(', ') }}</div>{% endif %}
         <div class="mt-2 flex items-center gap-2 flex-wrap print:hidden">
             {% for s in seasons %}
-            <a href="/team/{{ team_name | urlencode }}/recap?season={{ s }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
+            <a href="/team/{{ team_name | urlencode }}/recap?season={{ s }}{{ with_query }}" class="px-3 py-1 rounded-full text-xs font-medium {{ 'bg-picl-600 text-white' if season == s else 'bg-gray-100 text-gray-600 hover:bg-gray-200' }}">{{ s }}</a>
             {% endfor %}
         </div>
     </div>
@@ -18,7 +19,7 @@
 
 {% if not recap %}
 <div class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-200 p-12 text-center text-gray-400">
-    No scoring races for {{ team_name }} in {{ season }} yet.
+    No scoring races for {{ family_name or team_name }} in {{ season }} yet.
 </div>
 {% else %}
 {% set t = recap.totals %}
